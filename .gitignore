@@ -1,0 +1,68 @@
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+### Virtual environments ###
+venv/
+.venv/
+env/
+ENV/
+
+### Testing / coverage ###
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+
+### Type checking / linting ###
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+### Packaging / build backends ###
+.tox/
+.nox/
+
+### IntelliJ / PyCharm ###
+.idea/
+*.iml
+*.ipr
+*.iws
+
+### VS Code ###
+.vscode/
+
+### Claude Code ###
+.claude/settings.local.json
+CLAUDE.md
+
+### Mac OS ###
+.DS_Store
+
+### Orchestrator-managed ###
+# Requirements / design / planning material for baseltest lives in
+# mavai-orchestrator, not in this repository.
+/plan/
