@@ -29,9 +29,8 @@ when summarizing multiple runs.
 import math
 from dataclasses import dataclass
 from enum import Enum
-from statistics import NormalDist
 
-_NORMAL = NormalDist()
+from scipy.stats import norm
 
 
 class Verdict(Enum):
@@ -112,7 +111,7 @@ def evaluate_compliance(
         z_statistic = (observed_rate - threshold) / math.sqrt(variance / trials)
     else:
         z_statistic = 0.0
-    p_value = _NORMAL.cdf(z_statistic)
+    p_value = float(norm.cdf(z_statistic))
 
     return ComplianceVerdict(
         verdict=Verdict.PASS if passed else Verdict.FAIL,

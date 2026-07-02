@@ -16,17 +16,19 @@ Two constructions are provided:
   tail. This is the form used to derive conservative pass-rate
   thresholds elsewhere in this package.
 
-All quantiles of the standard normal distribution are computed via
-`statistics.NormalDist` rather than a lookup table, so results are
-exact for any confidence level rather than the handful of textbook
-values a z-table would offer.
+The interval itself is computed by `statsmodels.stats.proportion.
+proportion_confint` (`method="wilson"`), the industry-standard
+implementation, rather than a hand-rolled formula. The one-sided lower
+bound reuses the same two-sided routine by doubling the alpha budget
+passed in, so the returned lower endpoint corresponds to spending the
+full `1 - confidence_level` mass on the lower tail rather than half of
+it.
 """
 
 import math
 from dataclasses import dataclass
-from statistics import NormalDist
 
-_NORMAL = NormalDist()
+from statsmodels.stats.proportion import proportion_confint
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,15 +65,6 @@ def _validate_confidence_level(confidence_level: float) -> None:
         raise ValueError("confidence_level must be strictly between 0 and 1")
 
 
-def _center_and_margin(observed_rate: float, trials: int, z: float) -> tuple[float, float]:
-    z_squared = z * z
-    denominator = 1 + z_squared / trials
-    center = (observed_rate + z_squared / (2 * trials)) / denominator
-    variance_term = observed_rate * (1 - observed_rate) / trials + z_squared / (4 * trials * trials)
-    margin = z * math.sqrt(variance_term) / denominator
-    return center, margin
-
-
 def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95) -> WilsonInterval:
     """Compute the two-sided Wilson score confidence interval.
 
@@ -102,11 +95,10 @@ def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95)
 
     observed_rate = successes / trials
     alpha = 1 - confidence_level
-    z = _NORMAL.inv_cdf(1 - alpha / 2)
-    center, margin = _center_and_margin(observed_rate, trials, z)
+    raw_lower, raw_upper = proportion_confint(successes, trials, alpha=alpha, method="wilson")
 
-    lower_bound = max(0.0, center - margin)
-    upper_bound = min(1.0, center + margin)
+    lower_bound = max(0.0, float(raw_lower))
+    upper_bound = min(1.0, float(raw_upper))
     return WilsonInterval(
         point_estimate=observed_rate,
         lower_bound=lower_bound,
@@ -172,7 +164,12 @@ def wilson_lower_bound_from_rate(
         raise ValueError("trials must be a positive integer")
     _validate_confidence_level(confidence_level)
 
+    # Spend the full alpha budget on the lower tail: `proportion_confint`
+    # always splits its `alpha` in half between the two tails, so doubling
+    # it here makes the *lower* endpoint the one-sided (1 - confidence_level)
+    # bound. The corresponding upper endpoint is discarded.
     alpha = 1 - confidence_level
-    z = _NORMAL.inv_cdf(1 - alpha)
-    center, margin = _center_and_margin(observed_rate, trials, z)
-    return max(0.0, center - margin)
+    raw_lower, _ = proportion_confint(
+        observed_rate * trials, trials, alpha=2 * alpha, method="wilson"
+    )
+    return max(0.0, float(raw_lower))

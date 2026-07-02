@@ -20,7 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Testing",
 ]
-dependencies = []
+dependencies = [
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+]
 
 [project.urls]
 Homepage = "https://mavai.org"
@@ -54,3 +57,11 @@ python_version = "3.11"
 strict = true
 packages = ["baseltest"]
 mypy_path = "src"
+
+# Neither statsmodels nor scipy ship inline types for the modules used here
+# (scipy's own `scipy-stubs` package requires Python 3.12+ stub syntax that
+# this project's mypy target predates), so both are exempted from the
+# missing-imports check rather than pinned to an incompatible stub package.
+[[tool.mypy.overrides]]
+module = ["statsmodels.*", "scipy.*"]
+ignore_missing_imports = true

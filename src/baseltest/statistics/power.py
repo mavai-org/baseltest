@@ -13,9 +13,8 @@ the baseline rate `p0` against the degraded alternative `p1 = p0 - effect_size`
 """
 
 import math
-from statistics import NormalDist
 
-_NORMAL = NormalDist()
+from scipy.stats import norm
 
 
 def _validate_rates(baseline_rate: float, effect_size: float) -> float:
@@ -64,8 +63,8 @@ def required_sample_size(
     _validate_unit_interval("power", power)
     alternative_rate = _validate_rates(baseline_rate, effect_size)
 
-    z_alpha = _NORMAL.inv_cdf(confidence_level)
-    z_beta = _NORMAL.inv_cdf(power)
+    z_alpha = float(norm.ppf(confidence_level))
+    z_beta = float(norm.ppf(power))
     sigma0 = math.sqrt(baseline_rate * (1 - baseline_rate))
     sigma1 = math.sqrt(alternative_rate * (1 - alternative_rate))
 
@@ -107,9 +106,9 @@ def achieved_power(
     _validate_unit_interval("confidence_level", confidence_level)
     alternative_rate = _validate_rates(baseline_rate, effect_size)
 
-    z_alpha = _NORMAL.inv_cdf(confidence_level)
+    z_alpha = float(norm.ppf(confidence_level))
     sigma0 = math.sqrt(baseline_rate * (1 - baseline_rate))
     sigma1 = math.sqrt(alternative_rate * (1 - alternative_rate))
 
     z_beta = (effect_size * math.sqrt(sample_size) - z_alpha * sigma0) / sigma1
-    return _NORMAL.cdf(z_beta)
+    return float(norm.cdf(z_beta))

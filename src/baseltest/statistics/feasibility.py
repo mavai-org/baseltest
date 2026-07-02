@@ -19,12 +19,11 @@ Two independent checks feed the overall verdict:
 
 import math
 from dataclasses import dataclass
-from statistics import NormalDist
+
+from scipy.stats import norm
 
 from ._constants import SOUNDNESS_FLOOR_CONFIDENCE
 from .wilson import wilson_lower_bound_from_rate
-
-_NORMAL = NormalDist()
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +74,7 @@ def check_feasibility(
         raise ValueError("confidence_level must be strictly between 0 and 1")
 
     alpha = 1 - confidence_level
-    z = _NORMAL.inv_cdf(1 - alpha)
+    z = float(norm.ppf(1 - alpha))
     z_squared = z * z
 
     minimum_samples = math.ceil(target_proportion * z_squared / (1 - target_proportion))
