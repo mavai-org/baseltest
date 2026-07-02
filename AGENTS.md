@@ -74,6 +74,37 @@ failures) is an open design question, not settled by this scaffold.
 
 ## Conventions
 
+- **Idiomatic Python, not a Java (or Rust) lookalike.** This carries the same
+  weight it did for `feotest`'s Rust idiom rule — punit's implementation is a
+  specification of *what* the statistics/behaviour must do, never a template
+  for *how* to structure it. Concretely:
+  - Prefer plain functions and `@dataclass` (or `NamedTuple`) over classes
+    that exist only to hold immutable state and one computation method —
+    that shape is a Java-ism, not a Python one.
+  - Do not port a one-class-per-concern Java package layout 1:1. Group by
+    cohesive Python module instead (see punit's `statistics` package vs. any
+    `baseltest` equivalent — different file counts and boundaries are
+    expected and correct).
+  - No getter/setter methods, no builder-pattern classes for simple value
+    construction, no `Optional`-wrapper idioms — use plain attributes,
+    keyword arguments with defaults, and `X | None`.
+  - Prefer composition via plain functions and modules over inheritance
+    hierarchies or interface/impl pairs manufactured for a single
+    implementation.
+  - Errors: see punit's `Outcome<T>` convention in the orchestrator
+    `CLAUDE.md` — that convention is Java-specific and does not transfer.
+    Python idiom uses exceptions for defects and, where an anticipated
+    negative outcome must not abort a longer-running process (e.g. one
+    sample among many), a plain data object — not a ported `Outcome` sealed
+    type or `Result`-style wrapper.
+  - Documentation and naming should read as Python: `snake_case` functions
+    and variables, `PascalCase` only for actual classes, no `I`-prefixed
+    interfaces, no Hungarian-notation leftovers. Do not reference Java,
+    JUnit, or punit's class names in docstrings or comments — write for a
+    Python audience that doesn't need to know the framework's origins.
+  - When in doubt, ask: "would a Python developer who has never seen punit
+    recognise this as normal, well-written Python?" If the answer is no,
+    the shape is wrong even if the math is right.
 - Target Python 3.11+; use modern typing (`X | Y` unions, `list[str]`, no
   `from __future__ import annotations` needed).
 - Every public function and class carries type hints; `mypy --strict` must
