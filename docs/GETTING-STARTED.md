@@ -44,6 +44,16 @@ services:
 
 The `response-schema` tells the model — through the provider's structured-output mechanism — exactly what shape to return, which is often the single strongest lever on an LLM service's pass rate. It is part of the service's identity like every other parameter. (Not every provider supports it; baseltest refuses up front rather than quietly dropping it, because dropping it would change what you are measuring.)
 
+The schema above is written in YAML style, but only the *file* is YAML — on the wire, baseltest serialises it to exactly the JSON the provider APIs expect. And since YAML is a superset of JSON, you can also paste a JSON Schema in verbatim; both forms parse to the identical structure:
+
+```yaml
+      response-schema: {
+        "type": "object",
+        "properties": {"items": {"type": "array"}},
+        "required": ["items"]
+      }
+```
+
 Everything in `configuration:` is part of the service's identity, and baseltest records the resolved values (including the model, even when it came from the environment) in every result — so you always know exactly what was measured.
 
 ## File 2: the task (`task.yaml`)
