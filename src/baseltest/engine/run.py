@@ -1,0 +1,230 @@
+"""Run execution: preflight, sampling loop, verdicts, composite."""
+
+import hashlib
+import json
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import Enum
+
+from baseltest.contract import Criterion, CriterionTally, ServiceContract, evaluate_trial
+from baseltest.statistics import check_feasibility
+from baseltest.statistics.verdict import Verdict
+from baseltest.statistics.wilson import wilson_lower_bound
+
+
+class RunKind(Enum):
+    """The nature of a run, mirroring the family's run taxonomy."""
+
+    TEST = "test"
+    MEASURE = "measure"
+    OBSERVATION = "observation"
+
+
+class Intent(Enum):
+    """Whether the run's statistical adequacy is enforced or advisory."""
+
+    VERIFICATION = "verification"
+    SMOKE = "smoke"
+
+
+@dataclass(frozen=True, slots=True)
+class RunPlan:
+    """How a contract is to be sampled.
+
+    Attributes:
+        samples: Total number of invocations.
+        inputs: The fixed, finite input list; invocations cycle through it.
+        kind: The run kind (test, measure, or bare observation).
+        intent: Verification (feasibility enforced) or smoke (advisory).
+    """
+
+    samples: int
+    inputs: tuple[str, ...]
+    kind: RunKind = RunKind.TEST
+    intent: Intent = Intent.VERIFICATION
+
+    def __post_init__(self) -> None:
+        if self.samples <= 0:
+            raise ValueError(f"samples must be positive, got {self.samples}")
+        if not self.inputs:
+            raise ValueError("inputs must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class InfeasibleCriterion:
+    """One criterion whose threshold the planned sample count cannot support."""
+
+    name: str
+    threshold: float
+    confidence: float
+    minimum_samples: int
+
+
+class InfeasibleRunError(Exception):
+    """The declared sample count cannot support every declared threshold.
+
+    Raised before any invocation, under verification intent only. Carries
+    the per-criterion detail so the caller can render a constructive,
+    format-vocabulary refusal (never this exception's bare text).
+    """
+
+    def __init__(self, samples: int, infeasible: Sequence[InfeasibleCriterion]) -> None:
+        self.samples = samples
+        self.infeasible = tuple(infeasible)
+        self.governing_minimum = max(c.minimum_samples for c in self.infeasible)
+        names = ", ".join(c.name for c in self.infeasible)
+        super().__init__(
+            f"{samples} samples cannot support the declared threshold(s) of: {names}; "
+            f"minimum feasible samples: {self.governing_minimum}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CriterionResult:
+    """One criterion's outcome over the whole run.
+
+    A thresholded criterion carries a verdict and its Wilson lower bound;
+    an unthresholded criterion is characterised only -- its ``verdict`` and
+    ``lower_bound`` are ``None`` and its rate is reported without judgement.
+    """
+
+    criterion: Criterion
+    tally: CriterionTally
+    lower_bound: float | None
+    verdict: Verdict | None
+
+    @property
+    def name(self) -> str:
+        """The criterion's name."""
+        return self.criterion.name
+
+
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    """Everything a run produced; consumers render or persist, never recompute.
+
+    Attributes:
+        contract_id: The contract's identity.
+        kind: The run kind executed.
+        plan: The plan the run executed under.
+        criterion_results: Per-criterion outcomes, in declaration order.
+        composite: The run-level verdict -- FAIL if any thresholded
+            criterion failed, PASS otherwise; ``None`` for a run with no
+            thresholded criteria (an observation renders no verdict).
+        started_at: Run start, UTC.
+        finished_at: Run end, UTC.
+        inputs_identity: Fingerprint of the input list (order-insensitive).
+    """
+
+    contract_id: str
+    kind: RunKind
+    plan: RunPlan
+    criterion_results: tuple[CriterionResult, ...]
+    composite: Verdict | None
+    started_at: datetime
+    finished_at: datetime
+    inputs_identity: str
+
+    @property
+    def thresholded_results(self) -> tuple[CriterionResult, ...]:
+        """Results for the criteria that received verdicts."""
+        return tuple(r for r in self.criterion_results if r.verdict is not None)
+
+    @property
+    def characterised_results(self) -> tuple[CriterionResult, ...]:
+        """Results for the criteria that are characterised, never judged."""
+        return tuple(r for r in self.criterion_results if r.verdict is None)
+
+
+def inputs_fingerprint(inputs: Sequence[str]) -> str:
+    """A stable, order-insensitive fingerprint of an input list."""
+    canonical = json.dumps(sorted(inputs), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def derive_minimum_samples(contract: ServiceContract) -> int:
+    """The smallest sample count supporting every declared threshold.
+
+    Per-criterion, the minimum feasible sample size at that criterion's
+    threshold and confidence; the governing minimum is the largest, since
+    every criterion is evaluated over the same samples.
+
+    Raises:
+        ValueError: If the contract declares no thresholded criterion (an
+            observation has no feasibility anchor to derive a size from).
+    """
+    thresholded = contract.thresholded_criteria
+    if not thresholded:
+        raise ValueError("cannot derive a sample count: no criterion declares a threshold")
+    return max(
+        check_feasibility(1, c.threshold, c.confidence).minimum_samples
+        for c in thresholded
+        if c.threshold is not None
+    )
+
+
+def _preflight(contract: ServiceContract, plan: RunPlan) -> None:
+    """Refuse an infeasible verification run before any invocation."""
+    infeasible = [
+        InfeasibleCriterion(
+            name=c.name,
+            threshold=c.threshold,
+            confidence=c.confidence,
+            minimum_samples=check.minimum_samples,
+        )
+        for c in contract.thresholded_criteria
+        if c.threshold is not None
+        and not (check := check_feasibility(plan.samples, c.threshold, c.confidence)).feasible
+    ]
+    if infeasible and plan.intent is Intent.VERIFICATION:
+        raise InfeasibleRunError(plan.samples, infeasible)
+
+
+def _judge(criterion: Criterion, tally: CriterionTally) -> tuple[float | None, Verdict | None]:
+    """A thresholded criterion's bound and verdict; (None, None) otherwise."""
+    if criterion.threshold is None or tally.trials == 0:
+        return None, None
+    bound = wilson_lower_bound(tally.successes, tally.trials, criterion.confidence)
+    verdict = Verdict.PASS if bound >= criterion.threshold else Verdict.FAIL
+    return bound, verdict
+
+
+def execute(contract: ServiceContract, plan: RunPlan) -> RunResult:
+    """Run the plan: preflight, sample, judge, compose.
+
+    Invocations cycle through the plan's inputs. An exception from the
+    contract's invocation is a defect and aborts the run; anticipated bad
+    responses are returned by the invocation and judged by the criteria.
+    """
+    _preflight(contract, plan)
+    started_at = datetime.now(tz=UTC)
+    tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
+    for i in range(plan.samples):
+        response = contract.invoke(plan.inputs[i % len(plan.inputs)])
+        for criterion in contract.criteria:
+            tallies[criterion.name].record(evaluate_trial(criterion, response))
+    finished_at = datetime.now(tz=UTC)
+
+    results = []
+    for criterion in contract.criteria:
+        tally = tallies[criterion.name]
+        bound, verdict = _judge(criterion, tally)
+        results.append(
+            CriterionResult(criterion=criterion, tally=tally, lower_bound=bound, verdict=verdict)
+        )
+    verdicts = [r.verdict for r in results if r.verdict is not None]
+    composite = None
+    if verdicts:
+        composite = Verdict.FAIL if Verdict.FAIL in verdicts else Verdict.PASS
+
+    return RunResult(
+        contract_id=contract.contract_id,
+        kind=plan.kind,
+        plan=plan,
+        criterion_results=tuple(results),
+        composite=composite,
+        started_at=started_at,
+        finished_at=finished_at,
+        inputs_identity=inputs_fingerprint(plan.inputs),
+    )
