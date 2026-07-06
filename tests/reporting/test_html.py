@@ -1,4 +1,4 @@
-"""The probabilistic-test summary report: self-contained, test-runs-only, escaping untrusted text."""
+"""The probabilistic-test summary: self-contained, test-runs-only, escapes untrusted text."""
 
 from pathlib import Path
 
