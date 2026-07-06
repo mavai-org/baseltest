@@ -9,12 +9,10 @@ For your first test you write **two small files and no Python**.
 ```bash
 pip install "baseltest[declarative]"
 
-export MAVAI_LLM_ENDPOINT="https://api.your-provider.example/v1/chat/completions"
-export MAVAI_LLM_API_KEY="..."
-export MAVAI_LLM_MODEL="your-default-model"
+export MAVAI_LLM_API_KEY="..."   # or your vendor's usual variable, e.g. OPENAI_API_KEY
 ```
 
-Any OpenAI-compatible chat-completions endpoint works. Credentials live in the environment only — they never appear in either file.
+baseltest ships basic adapters for `openai`, `anthropic`, `mistral`, `ollama` (local, no key), and `apertus` (the fully open Swiss model, served via the Public AI utility) — declare one as `provider:` in the service configuration below. Prefer your own OpenAI-compatible endpoint (vLLM, a gateway)? Omit `provider:` and set `MAVAI_LLM_ENDPOINT` instead. Credentials live in the environment only — they never appear in either file. The adapters are deliberately plain: one request per sample, no retries and no caching, because a silently retried failure would bias the very rate under test.
 
 ## File 1: the service definition (`mavai-services.yaml`)
 
@@ -26,11 +24,25 @@ services:
   basket-builder:
     type: language-model
     configuration:
+      provider: openai
+      model: gpt-4o-mini
       system-prompt: >
         You translate shopping instructions into a JSON basket.
-        Respond with JSON only: {"items": [{"name": ..., "quantity": ...}]}
       temperature: 0.2
+      response-schema:
+        type: object
+        properties:
+          items:
+            type: array
+            items:
+              type: object
+              properties:
+                name: { type: string }
+                quantity: { type: integer }
+        required: [items]
 ```
+
+The `response-schema` tells the model — through the provider's structured-output mechanism — exactly what shape to return, which is often the single strongest lever on an LLM service's pass rate. It is part of the service's identity like every other parameter. (Not every provider supports it; baseltest refuses up front rather than quietly dropping it, because dropping it would change what you are measuring.)
 
 Everything in `configuration:` is part of the service's identity, and baseltest records the resolved values (including the model, even when it came from the environment) in every result — so you always know exactly what was measured.
 

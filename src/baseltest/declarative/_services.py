@@ -10,10 +10,10 @@ registrations as a second population source of the binding registry; a
 name collision between the two is a configuration defect.
 """
 
+import hashlib
 import io
 import json
 import os
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,16 +23,18 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from ._errors import TaskConfigurationError
+from ._providers import (
+    ANTHROPIC_REQUIRED_MAX_TOKENS,
+    ENV_MODEL,
+    build_invoker,
+    resolve_provider,
+)
 
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
 _DEFINITION_KEYS = {"type", "configuration", "variations"}
-_CONFIGURATION_KEYS = {"system-prompt", "model", "temperature"}
-
-ENV_ENDPOINT = "MAVAI_LLM_ENDPOINT"
-ENV_API_KEY = "MAVAI_LLM_API_KEY"
-ENV_MODEL = "MAVAI_LLM_MODEL"
+_CONFIGURATION_KEYS = {"system-prompt", "provider", "model", "temperature", "response-schema"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +42,10 @@ class LanguageModelParameters:
     """One language-model service configuration: its complete covariate values."""
 
     system_prompt: str
+    provider: str | None = None
     model: str | None = None
     temperature: float | None = None
+    response_schema: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,12 +91,23 @@ def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
             "a language-model service is a model given a job; without a system "
             "prompt there is a model, but no service to test"
         )
+    provider_name = configuration.get("provider")
+    if provider_name is not None:
+        resolve_provider(str(provider_name))  # unknown names refused at load
+    response_schema = configuration.get("response-schema")
+    if response_schema is not None and not isinstance(response_schema, dict):
+        raise _fail(
+            f"service {name!r}: `response-schema:` must be a mapping (the JSON "
+            "Schema the model is instructed to satisfy)"
+        )
     return ServiceDefinition(
         name=name,
         configuration=LanguageModelParameters(
             system_prompt=system_prompt,
+            provider=provider_name,
             model=configuration.get("model"),
             temperature=configuration.get("temperature"),
+            response_schema=response_schema,
         ),
     )
 
@@ -138,60 +153,27 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     """The provenance entries a definition-resolved run must carry."""
     entries = {
         "serviceType": "language-model",
+        "provider": parameters.provider or "openai-compatible",
         "systemPrompt": parameters.system_prompt,
         "model": parameters.model or os.environ.get(ENV_MODEL, ""),
     }
     if parameters.temperature is not None:
         entries["temperature"] = str(parameters.temperature)
+    if parameters.response_schema is not None:
+        canonical = json.dumps(parameters.response_schema, sort_keys=True)
+        entries["responseSchemaFingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    if parameters.provider == "anthropic":
+        entries["providerRequiredMaxTokens"] = str(ANTHROPIC_REQUIRED_MAX_TOKENS)
     return entries
 
 
 def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str], str]:
     """Build the invocation callable for a language-model service.
 
-    Speaks the OpenAI-compatible chat-completion protocol against the
-    environment-configured endpoint. A transport failure or error response
-    is a defect (the service was unreachable, not stochastic); an
-    anticipated bad *answer* is simply the response, judged by the criteria.
+    Delegates to the named provider adapter (or the generic
+    OpenAI-compatible one): one plain request per invocation, never a
+    retry. A transport failure or error response is a defect (the service
+    was unreachable, not stochastic); an anticipated bad *answer* is simply
+    the response, judged by the criteria.
     """
-    endpoint = os.environ.get(ENV_ENDPOINT)
-    if not endpoint:
-        raise TaskConfigurationError(
-            f"a language-model service needs the {ENV_ENDPOINT} environment variable "
-            "(an OpenAI-compatible chat-completions endpoint)"
-        )
-    model = parameters.model or os.environ.get(ENV_MODEL)
-    if not model:
-        raise TaskConfigurationError(
-            f"no model declared and {ENV_MODEL} is not set — declare `model:` in the "
-            "service configuration or set the environment default"
-        )
-    api_key = os.environ.get(ENV_API_KEY, "")
-
-    def invoke(user_prompt: str) -> str:
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": parameters.system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-        if parameters.temperature is not None:
-            payload["temperature"] = parameters.temperature
-        request = urllib.request.Request(
-            endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                **({"Authorization": f"Bearer {api_key}"} if api_key else {}),
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(request) as response:  # noqa: S310
-            body = json.loads(response.read().decode("utf-8"))
-        content = body["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
-            raise ValueError("chat-completion response carried no text content")
-        return content
-
-    return invoke
+    return build_invoker(resolve_provider(parameters.provider), parameters)

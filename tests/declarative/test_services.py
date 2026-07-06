@@ -9,12 +9,9 @@ import pytest
 
 from baseltest.declarative import binding, run
 from baseltest.declarative._errors import TaskConfigurationError
+from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
 from baseltest.declarative._registry import clear_registries
-from baseltest.declarative._services import (
-    ENV_ENDPOINT,
-    ENV_MODEL,
-    parse_services,
-)
+from baseltest.declarative._services import parse_services
 from baseltest.statistics.verdict import Verdict
 
 SERVICES = """
