@@ -1,10 +1,12 @@
 """The single-file HTML report: one run, one self-contained page.
 
-Zero-dependency by philosophy (shared with the family's other report
-tooling): no template engine, no JavaScript, no external assets — inline
-CSS, native ``details``/``summary`` for drill-down, and plain markup. The
-report renders pre-computed results only; every number comes from the run
-result.
+Zero-dependency by philosophy and styled in the family's shared report
+design language (the same palette, typography, and layout idioms as the
+Java framework's report tooling): CSS custom properties for the verdict
+colours, a light page with white panels, definition-list criterion blocks,
+and native ``details``/``summary`` drill-down. No template engine, no
+JavaScript, no external assets; every number comes from the pre-computed
+run result.
 """
 
 import html
@@ -13,93 +15,159 @@ from datetime import UTC, datetime
 from baseltest.engine import CriterionResult, RunResult, Verdict
 
 _STYLE = """
-  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 46rem;
-         color: #1a1a1a; line-height: 1.5; }
-  h1 { font-size: 1.3rem; } h1 code { font-size: 1.1rem; }
-  .verdict { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 0.3rem;
-             font-weight: 600; }
-  .pass { background: #e6f4e6; color: #1d6b1d; }
-  .fail { background: #fbe7e7; color: #a11212; }
-  .observation { background: #eef2f7; color: #2c4a6e; }
-  .criterion { border: 1px solid #ddd; border-radius: 0.4rem; padding: 0.8rem 1rem;
-               margin: 0.8rem 0; }
-  .criterion h2 { font-size: 1.05rem; margin: 0 0 0.4rem; }
-  .figures { color: #444; margin: 0.2rem 0; }
-  .bar { background: #eee; border-radius: 0.2rem; height: 0.6rem; margin: 0.4rem 0; }
-  .bar > div { background: #4a7fb5; height: 100%; border-radius: 0.2rem; }
-  details { margin-top: 0.5rem; } summary { cursor: pointer; color: #555; }
-  table { border-collapse: collapse; margin-top: 0.4rem; }
-  td { padding: 0.15rem 0.6rem 0.15rem 0; color: #444; vertical-align: top; }
-  footer { margin-top: 1.5rem; color: #777; font-size: 0.85rem;
-           border-top: 1px solid #eee; padding-top: 0.6rem; }
+:root {
+    --pass-color: #2e7d32;
+    --fail-color: #c62828;
+    --inconclusive-color: #6a1b9a;
+    --border-color: #dee2e6;
+    --bg-light: #f8f9fa;
+    --bg-white: #ffffff;
+    --text-color: #212529;
+    --text-muted: #6c757d;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text-color);
+    background: var(--bg-light);
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+header { margin-bottom: 2rem; }
+h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
+h1 code { font-size: 1.5rem; }
+.timestamp { color: var(--text-muted); font-size: 0.875rem; }
+.summary-stats {
+    margin-top: 1rem;
+    display: flex;
+    gap: 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+.stat { padding: 0.25rem 0.75rem; border-radius: 4px; background: var(--bg-white);
+        border: 1px solid var(--border-color); }
+.punit-pass { color: var(--pass-color); font-weight: 600; }
+.punit-fail { color: var(--fail-color); font-weight: 600; }
+.punit-inconclusive { color: var(--inconclusive-color); font-weight: 600; }
+.criterion-block {
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+.criterion-block h4 {
+    font-size: 0.875rem;
+    font-family: monospace;
+    margin-bottom: 0.25rem;
+}
+.criterion-block dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 1rem;
+    row-gap: 0.1rem;
+    font-size: 0.8125rem;
+    margin-left: 0.5rem;
+}
+.criterion-block dt { color: var(--text-muted); }
+.criterion-block dd { font-family: monospace; }
+details > summary { cursor: pointer; font-weight: 500; font-size: 0.8125rem;
+                    margin-top: 0.5rem; }
+details > summary:hover { text-decoration: underline; }
+table.postcondition-failures {
+    margin: 0.5rem 0 0.5rem 1.5rem;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    background: var(--bg-white);
+}
+table.postcondition-failures th,
+table.postcondition-failures td {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    text-align: left;
+}
+footer { margin-top: 1.5rem; color: var(--text-muted); font-size: 0.8125rem;
+         border-top: 1px solid var(--border-color); padding-top: 0.6rem; }
 """
 
 
-def _verdict_chip(result: CriterionResult) -> str:
-    if result.verdict is None:
-        return '<span class="verdict observation">measured</span>'
-    css = "pass" if result.verdict is Verdict.PASS else "fail"
-    return f'<span class="verdict {css}">{result.verdict.value.upper()}</span>'
+def _verdict_class(verdict: Verdict | None) -> str:
+    if verdict is Verdict.PASS:
+        return "punit-pass"
+    if verdict is Verdict.FAIL:
+        return "punit-fail"
+    return "punit-inconclusive"
 
 
-def _criterion_section(result: CriterionResult) -> str:
+def _criterion_block(result: CriterionResult) -> str:
     tally = result.tally
     criterion = result.criterion
-    rate_percent = tally.observed_rate * 100
-    parts = [
-        '<section class="criterion">',
-        f"<h2>{html.escape(result.name)} {_verdict_chip(result)}</h2>",
-        f'<p class="figures">{tally.successes} of {tally.trials} responses met '
-        f"expectations (observed rate {tally.observed_rate:.4f})</p>",
-        f'<div class="bar" role="img" aria-label="observed rate {rate_percent:.1f}%">'
-        f'<div style="width:{rate_percent:.1f}%"></div></div>',
+    if result.verdict is not None:
+        status = (
+            f'<span class="{_verdict_class(result.verdict)}">{result.verdict.value.upper()}</span>'
+        )
+    else:
+        status = '<span class="timestamp">measured (no threshold declared)</span>'
+    rows = [
+        ("observed", f"{tally.successes}/{tally.trials} ({tally.observed_rate:.4f})"),
     ]
     if result.verdict is not None and result.lower_bound is not None:
         assert criterion.threshold is not None
-        relation = "clears" if result.verdict is Verdict.PASS else "falls below"
-        source = ""
-        if criterion.provenance.contract_ref is not None:
-            source = (
-                f" ({html.escape(criterion.provenance.origin)}, "
-                f"{html.escape(criterion.provenance.contract_ref)})"
+        rows.append(
+            (
+                f"{criterion.confidence:.0%} lower bound",
+                f"{result.lower_bound:.4f} vs threshold {criterion.threshold}",
             )
-        parts.append(
-            f'<p class="figures">{criterion.confidence:.0%}-confident lower bound '
-            f"<strong>{result.lower_bound:.4f}</strong> {relation} the declared "
-            f"threshold <strong>{criterion.threshold}</strong>{source}</p>"
         )
+        if criterion.provenance.contract_ref is not None:
+            rows.append(
+                (
+                    "threshold origin",
+                    f"{criterion.provenance.origin}, {criterion.provenance.contract_ref}",
+                )
+            )
     else:
         variance = tally.observed_rate * (1 - tally.observed_rate)
-        parts.append(
-            f'<p class="figures">measurement only — no threshold declared '
-            f"(variance {variance:.4f})</p>"
-        )
+        rows.append(("variance", f"{variance:.4f}"))
+    definitions = "".join(
+        f"<dt>{html.escape(label)}</dt><dd>{html.escape(value)}</dd>" for label, value in rows
+    )
+    failure_details = ""
     if tally.failure_reasons:
-        rows = "".join(
+        failure_rows = "".join(
             f"<tr><td>{count}</td><td>{html.escape(reason)}</td></tr>"
             for reason, count in tally.failure_reasons.most_common()
         )
-        parts.append(
+        failure_details = (
             "<details><summary>failure distribution "
             f"({sum(tally.failure_reasons.values())} failed trials)</summary>"
-            f"<table>{rows}</table></details>"
+            '<table class="postcondition-failures">'
+            "<thead><tr><th>count</th><th>reason</th></tr></thead>"
+            f"<tbody>{failure_rows}</tbody></table></details>"
         )
-    parts.append("</section>")
-    return "".join(parts)
+    return (
+        '<div class="criterion-block">'
+        f"<h4>{html.escape(result.name)} {status}</h4>"
+        f"<dl>{definitions}</dl>{failure_details}</div>"
+    )
 
 
 def render_html_report(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a complete, self-contained HTML page for one run."""
     if result.composite is not None:
-        css = "pass" if result.composite is Verdict.PASS else "fail"
-        headline = f'<span class="verdict {css}">{result.composite.value.upper()}</span>'
+        headline = (
+            f'<span class="{_verdict_class(result.composite)}">'
+            f"{result.composite.value.upper()}</span>"
+        )
     else:
         headline = (
-            '<span class="verdict observation">OBSERVATION — a measurement, not a verdict</span>'
+            '<span class="punit-inconclusive">OBSERVATION</span> '
+            '<span class="timestamp">— a measurement, not a verdict</span>'
         )
-    sections = "".join(_criterion_section(r) for r in result.criterion_results)
+    blocks = "".join(_criterion_block(r) for r in result.criterion_results)
     baseline_note = (
-        f"<p>baseline written: <code>{html.escape(baseline_path)}</code></p>"
+        f'<p class="timestamp">baseline written: <code>{html.escape(baseline_path)}</code></p>'
         if baseline_path
         else ""
     )
@@ -112,10 +180,16 @@ def render_html_report(result: RunResult, baseline_path: str | None = None) -> s
 <style>{_STYLE}</style>
 </head>
 <body>
+<header>
 <h1><code>{html.escape(result.contract_id)}</code> {headline}</h1>
-<p class="figures">{result.plan.samples} samples · kind: {result.kind.value}
-· started {result.started_at.isoformat(timespec="seconds")}</p>
-{sections}
+<p class="timestamp">started {result.started_at.isoformat(timespec="seconds")}</p>
+<div class="summary-stats">
+<span class="stat">{result.plan.samples} samples</span>
+<span class="stat">kind: {result.kind.value}</span>
+<span class="stat">{len(result.criterion_results)} criteria</span>
+</div>
+</header>
+{blocks}
 {baseline_note}
 <footer>generated {generated} · inputs identity
 <code>{html.escape(result.inputs_identity[:16])}…</code> · baseltest</footer>
