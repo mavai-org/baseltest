@@ -30,12 +30,21 @@ Homepage = "https://mavai.org"
 Repository = "https://github.com/mavai-org/baseltest"
 
 [project.optional-dependencies]
+declarative = [
+    "ruamel.yaml>=0.18",
+    "jsonpath-rfc9535>=0.1",
+    "elementpath>=4.4",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "mypy>=1.11",
+    "baseltest[declarative]",
 ]
+
+[project.scripts]
+baseltest = "baseltest.declarative._cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/baseltest"]
@@ -63,5 +72,5 @@ mypy_path = "src"
 # this project's mypy target predates), so both are exempted from the
 # missing-imports check rather than pinned to an incompatible stub package.
 [[tool.mypy.overrides]]
-module = ["statsmodels.*", "scipy.*"]
+module = ["statsmodels.*", "scipy.*", "ruamel.*", "jsonpath_rfc9535.*", "elementpath.*"]
 ignore_missing_imports = true
