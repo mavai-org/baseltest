@@ -30,7 +30,6 @@ services:
       system-prompt: "You are a support agent."
       model: small-model
       temperature: 0.7
-      max-tokens: 400
 """
 
 TASK = """
@@ -134,7 +133,7 @@ class TestZeroCodePath:
         payload = llm_environment[0]
         assert payload["model"] == "small-model"
         assert payload["temperature"] == 0.7
-        assert payload["max_tokens"] == 400
+        assert "max_tokens" not in payload
 
     def test_missing_endpoint_is_a_constructive_refusal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

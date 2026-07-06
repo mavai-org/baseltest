@@ -28,7 +28,7 @@ SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
 _DEFINITION_KEYS = {"type", "configuration", "variations"}
-_CONFIGURATION_KEYS = {"system-prompt", "model", "temperature", "max-tokens"}
+_CONFIGURATION_KEYS = {"system-prompt", "model", "temperature"}
 
 ENV_ENDPOINT = "MAVAI_LLM_ENDPOINT"
 ENV_API_KEY = "MAVAI_LLM_API_KEY"
@@ -42,7 +42,6 @@ class LanguageModelParameters:
     system_prompt: str
     model: str | None = None
     temperature: float | None = None
-    max_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +93,6 @@ def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
             system_prompt=system_prompt,
             model=configuration.get("model"),
             temperature=configuration.get("temperature"),
-            max_tokens=configuration.get("max-tokens"),
         ),
     )
 
@@ -145,8 +143,6 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     }
     if parameters.temperature is not None:
         entries["temperature"] = str(parameters.temperature)
-    if parameters.max_tokens is not None:
-        entries["maxTokens"] = str(parameters.max_tokens)
     return entries
 
 
@@ -182,8 +178,6 @@ def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str
         }
         if parameters.temperature is not None:
             payload["temperature"] = parameters.temperature
-        if parameters.max_tokens is not None:
-            payload["max_tokens"] = parameters.max_tokens
         request = urllib.request.Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
