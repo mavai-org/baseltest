@@ -112,6 +112,7 @@ def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
     )
 
 
+# javai-ref: JVI-GGCWP5H — do not remove (resolves in javai-orchestrator)
 def parse_services(text: str) -> dict[str, ServiceDefinition]:
     """Parse a service-definition file's text."""
     yaml = YAML(typ="safe", pure=True)

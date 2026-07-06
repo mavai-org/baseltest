@@ -52,6 +52,7 @@ def _characterised_lines(result: CriterionResult) -> list[str]:
     ]
 
 
+# javai-ref: JVI-51ASAR0 — do not remove (resolves in javai-orchestrator)
 def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a run result in the honest-output shapes.
 

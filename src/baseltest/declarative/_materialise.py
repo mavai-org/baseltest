@@ -85,6 +85,7 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
     return "\n".join(lines)
 
 
+# javai-ref: JVI-CP4XG45 — do not remove (resolves in javai-orchestrator)
 def materialise(declaration: TaskDeclaration) -> str:
     """Render the task declaration as a standalone Python module."""
     source = declaration.source_path.name if declaration.source_path else "a task file"

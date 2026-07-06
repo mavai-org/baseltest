@@ -257,6 +257,7 @@ def _parse_criterion(entry: Any, index: int) -> CriterionDeclaration:
     )
 
 
+# javai-ref: JVI-E2WH9DE — do not remove (resolves in javai-orchestrator)
 def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     """Parse and structurally validate a task file's text.
 

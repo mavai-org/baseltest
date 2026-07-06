@@ -155,6 +155,7 @@ def _resolve_service(
     return resolve_binding(reference), {}
 
 
+# javai-ref: JVI-RKBJ882 — do not remove (resolves in javai-orchestrator)
 def instantiate(
     declaration: TaskDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
