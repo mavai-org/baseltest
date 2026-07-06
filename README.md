@@ -19,6 +19,10 @@ The repository ships a ready-to-run example that needs no API key, no network, a
 ```bash
 git clone https://github.com/mavai-org/baseltest.git
 cd baseltest
+
+# Python 3.11+ is required — point the venv at a new-enough interpreter,
+# e.g. python3.11 / python3.12 (brew install python@3.12, pyenv, or uv)
+python3.12 -m venv venv && source venv/bin/activate
 pip install -e ".[declarative]"
 
 cd examples/simulated-service

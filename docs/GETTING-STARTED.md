@@ -7,6 +7,7 @@ For your first test you write **two small files and no Python**.
 ## Setup
 
 ```bash
+# Python 3.11+ required
 pip install "baseltest[declarative]"
 
 export MAVAI_LLM_API_KEY="..."   # or your vendor's usual variable, e.g. OPENAI_API_KEY
