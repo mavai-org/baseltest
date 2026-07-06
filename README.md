@@ -12,6 +12,21 @@ The **statistics core** (`baseltest.statistics`) is implemented and conformance-
 
 The framework around it is in active development.
 
+## Try it in two minutes
+
+The repository ships a ready-to-run example that needs no API key, no network, and no Python of your own — the service under test is simulated:
+
+```bash
+git clone https://github.com/mavai-org/baseltest.git
+cd baseltest
+pip install -e ".[declarative]"
+
+cd examples/simulated-service
+baseltest run task.yaml
+```
+
+You'll see a verdict with its uncertainty stated — run it a few times and watch the observed rate move while the conclusion stays statistically honest. Then try `baseltest run measure.yaml` for the other posture: the same service *measured* rather than judged, with a baseline artefact persisted. When you have a model credential to hand, `examples/language-model/` runs a real language-model service from two small files; the [getting-started guide](docs/GETTING-STARTED.md) walks through both paths.
+
 ## Where the project is going
 
 baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic task file — inputs, expectations, a service binding, a threshold, a sample count — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
