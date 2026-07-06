@@ -100,7 +100,8 @@ That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It i
 Anything you can call from Python can be under test. Suppose you have a payment gateway with a contractual success rate — register the invocation once:
 
 ```python
-# conftest.py, or any module imported before the run
+# mavai-bindings.py — discovered beside the task file and imported
+# automatically, exactly as mavai-services.yaml is discovered
 from baseltest.declarative import binding
 from my_app import gateway
 
@@ -123,7 +124,7 @@ criteria:
     contains: "SUCCESS"
 ```
 
-A declined charge is a *response* (the criterion judges it); only genuine defects — the gateway unreachable, a bug — abort the run. The `threshold-origin` lines are optional provenance: the file records not just the bar, but where the bar comes from.
+A declined charge is a *response* (the criterion judges it); only genuine defects — the gateway unreachable, a bug — abort the run. (Registering from any other module you import before an API-driven run works too; `mavai-bindings.py` is simply the convention the CLI discovers.) The `threshold-origin` lines are optional provenance: the file records not just the bar, but where the bar comes from.
 
 ## Measuring without judging
 
@@ -134,6 +135,10 @@ task basket-builder-returns-valid-baskets: OBSERVATION (no threshold declared �
 ```
 
 With `kind: measure`, the run also persists a baseline artefact: the durable record of what was observed, under exactly which service configuration.
+
+## Ready-to-run examples
+
+The [`examples/`](../examples/README.md) directory has both paths ready to run: a **simulated stochastic service** that works offline with zero setup (see the statistics move between runs while the verdict logic holds still), and the **basket-builder** against a real model.
 
 ## When you outgrow the files
 

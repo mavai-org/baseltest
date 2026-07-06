@@ -1,0 +1,16 @@
+format: mavai-task/1
+task: basket-builder-returns-valid-baskets
+service: basket-builder
+samples: 30
+intent: smoke
+inputs:
+  - "two bottles of milk and a loaf of bread"
+  - "add three apples"
+  - "a dozen eggs, please"
+criteria:
+  - name: response-is-a-valid-basket
+    threshold: 0.95
+    transform: json
+    postconditions:
+      - path: "$.items"
+        matches: "."

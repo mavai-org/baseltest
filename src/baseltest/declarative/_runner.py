@@ -9,6 +9,7 @@ from baseltest.reporting import render_html_report, render_run
 from ._errors import TaskConfigurationError
 from ._instantiate import instantiate
 from ._parser import FORMAT_IDENTIFIER, load_task
+from ._registrations import discover_registrations
 from ._services import discover_services
 
 DEFAULT_BASELINE_DIR = Path("baselines")
@@ -44,6 +45,7 @@ def run(
     """
     task_path = Path(path)
     declaration = load_task(task_path)
+    discover_registrations(task_path)
     services = discover_services(task_path)
     contract, plan, derived, service_provenance = instantiate(declaration, services)
     if html_report is not None and plan.kind is not RunKind.TEST:

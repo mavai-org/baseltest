@@ -1,0 +1,14 @@
+# Does the fortune teller mention good fortune often enough?
+# Runs offline: the service is simulated in mavai-bindings.py.
+format: mavai-task/1
+task: fortune-teller-is-usually-encouraging
+service: fortune-teller
+samples: 200
+inputs:
+  - "Alice"
+  - "Bob"
+  - "Chandrima"
+criteria:
+  - name: fortune-is-delivered
+    threshold: 0.8
+    matches: "fortune|favour|surprise"

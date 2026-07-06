@@ -1,0 +1,14 @@
+# The same service, measured instead of judged: no threshold, no verdict —
+# an honest characterisation, persisted as a baseline artefact.
+format: mavai-task/1
+task: fortune-teller-characterisation
+service: fortune-teller
+kind: measure
+samples: 200
+inputs:
+  - "Alice"
+  - "Bob"
+  - "Chandrima"
+criteria:
+  - name: fortune-is-delivered
+    matches: "fortune|favour|surprise"

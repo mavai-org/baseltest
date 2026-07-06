@@ -1,0 +1,24 @@
+# The basket-builder from the getting-started guide: a language model
+# given a job, with a response schema guiding its output shape.
+# Set the credential for your provider first, e.g.:  export OPENAI_API_KEY=...
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      provider: openai
+      model: gpt-4o-mini
+      system-prompt: >
+        You translate shopping instructions into a JSON basket.
+      temperature: 0.2
+      response-schema:
+        type: object
+        properties:
+          items:
+            type: array
+            items:
+              type: object
+              properties:
+                name: { type: string }
+                quantity: { type: integer }
+        required: [items]
