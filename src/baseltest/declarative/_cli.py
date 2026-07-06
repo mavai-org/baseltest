@@ -4,9 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from baseltest.engine import InfeasibleRunError
+from baseltest.engine import InfeasibleRunError, Verdict
 from baseltest.reporting import render_infeasible
-from baseltest.statistics.verdict import Verdict
 
 from ._errors import TaskConfigurationError
 from ._runner import DEFAULT_BASELINE_DIR, run
@@ -27,10 +26,20 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_BASELINE_DIR,
         help="directory measure runs persist baselines into",
     )
+    run_parser.add_argument(
+        "--html-report",
+        type=Path,
+        default=None,
+        help="write a self-contained HTML report to this path",
+    )
     arguments = parser.parse_args(argv)
 
     try:
-        result = run(arguments.task_file, baseline_dir=arguments.baseline_dir)
+        result = run(
+            arguments.task_file,
+            baseline_dir=arguments.baseline_dir,
+            html_report=arguments.html_report,
+        )
     except TaskConfigurationError as refusal:
         print(f"task {arguments.task_file}: cannot run as declared", file=sys.stderr)
         print(f"  {refusal}", file=sys.stderr)

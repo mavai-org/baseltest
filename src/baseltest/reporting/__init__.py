@@ -8,5 +8,6 @@ and uses no verdict vocabulary.
 """
 
 from .console import render_infeasible, render_run
+from .html import render_html_report
 
-__all__ = ["render_infeasible", "render_run"]
+__all__ = ["render_html_report", "render_infeasible", "render_run"]

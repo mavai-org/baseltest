@@ -1,7 +1,6 @@
 """Console rendering of run results, in the task format's own vocabulary."""
 
-from baseltest.engine import CriterionResult, InfeasibleRunError, RunResult
-from baseltest.statistics.verdict import Verdict
+from baseltest.engine import CriterionResult, InfeasibleRunError, RunResult, Verdict
 
 
 def _percent(confidence: float) -> str:

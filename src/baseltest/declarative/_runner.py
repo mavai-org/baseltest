@@ -4,7 +4,7 @@ from pathlib import Path
 
 from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
-from baseltest.reporting import render_run
+from baseltest.reporting import render_html_report, render_run
 
 from ._instantiate import instantiate
 from ._parser import FORMAT_IDENTIFIER, load_task
@@ -17,6 +17,7 @@ def run(
     path: str | Path,
     *,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
+    html_report: str | Path | None = None,
     emit: bool = True,
 ) -> RunResult:
     """Load and execute a task file; render its output; persist when measuring.
@@ -56,6 +57,13 @@ def run(
         }
         record = BaselineRecord.from_run_result(result, provenance=provenance)
         baseline_path = str(write_baseline(record, Path(baseline_dir)))
+
+    if html_report is not None:
+        report_path = Path(html_report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            render_html_report(result, baseline_path=baseline_path), encoding="utf-8"
+        )
 
     if emit:
         if derived is not None:

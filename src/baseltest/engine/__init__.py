@@ -8,6 +8,8 @@ statistics package; everything downstream consumes its
 :class:`~baseltest.engine.run.RunResult` without recomputing.
 """
 
+from baseltest.statistics.verdict import Verdict
+
 from .run import (
     CriterionResult,
     InfeasibleCriterion,
@@ -29,6 +31,7 @@ __all__ = [
     "RunKind",
     "RunPlan",
     "RunResult",
+    "Verdict",
     "derive_minimum_samples",
     "execute",
     "inputs_fingerprint",
