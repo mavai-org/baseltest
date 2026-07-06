@@ -19,7 +19,12 @@ from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples
 
 from ._errors import TaskConfigurationError
 from ._parser import CriterionDeclaration, FormDeclaration, TaskDeclaration
-from ._registry import resolve_binding, resolve_check, resolve_transform
+from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
+from ._services import (
+    ServiceDefinition,
+    language_model_invoker,
+    resolved_provenance,
+)
 from ._structured import (
     STOCK_TRANSFORMS,
     compile_jsonpath,
@@ -129,19 +134,52 @@ def _build_criterion(
     )
 
 
+def _resolve_service(
+    reference: str, services: dict[str, ServiceDefinition]
+) -> tuple[Callable[[str], str], dict[str, str]]:
+    """Resolve a service reference against both registry populations.
+
+    Code registrations and service-file definitions are peers; a name
+    present in both is a configuration defect. Only definitions support
+    ``name/configuration`` addressing.
+    """
+    name, _, configuration_part = reference.partition("/")
+    configuration = configuration_part or None
+    defined = name in services
+    registered = has_binding(name)
+    if defined and registered:
+        raise TaskConfigurationError(
+            f"service {name!r} is both registered in code (@binding) and defined in "
+            "the services file — one name, one owner; rename one of them"
+        )
+    if defined:
+        parameters = services[name].parameters_for(configuration)
+        return language_model_invoker(parameters), resolved_provenance(parameters, configuration)
+    if configuration is not None:
+        raise TaskConfigurationError(
+            f"service {reference!r}: configuration addressing applies to services "
+            "defined in the services file; the code-registered binding "
+            f"{name!r} has no configurations"
+        )
+    return resolve_binding(name), {}
+
+
 def instantiate(
     declaration: TaskDeclaration,
-) -> tuple[ServiceContract, RunPlan, int | None]:
+    services: dict[str, ServiceDefinition] | None = None,
+) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str]]:
     """Instantiate the contract and plan a task declaration describes.
 
-    Returns the contract, the run plan, and the derived sample count when
-    ``samples`` was omitted (``None`` when it was declared).
+    Returns the contract, the run plan, the derived sample count when
+    ``samples`` was omitted (``None`` when it was declared), and the
+    resolved service provenance (empty for code-registered bindings).
 
     Raises:
         TaskConfigurationError: On any load-time refusal (unresolvable
             names, invalid expressions) — before any invocation.
     """
-    invoke = _instrumented_invoke(resolve_binding(declaration.service))
+    resolved, service_provenance = _resolve_service(declaration.service, services or {})
+    invoke = _instrumented_invoke(resolved)
     criteria = tuple(
         _build_criterion(entry, declaration.confidence, declaration.expected_pairs)
         for entry in declaration.criteria
@@ -164,4 +202,4 @@ def instantiate(
 
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
     plan = RunPlan(samples=samples, inputs=declaration.inputs, kind=kind, intent=intent)
-    return contract, plan, derived
+    return contract, plan, derived, service_provenance

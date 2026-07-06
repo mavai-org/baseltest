@@ -8,6 +8,7 @@ from baseltest.reporting import render_run
 
 from ._instantiate import instantiate
 from ._parser import FORMAT_IDENTIFIER, load_task
+from ._services import discover_services
 
 DEFAULT_BASELINE_DIR = Path("baselines")
 
@@ -41,7 +42,8 @@ def run(
     """
     task_path = Path(path)
     declaration = load_task(task_path)
-    contract, plan, derived = instantiate(declaration)
+    services = discover_services(task_path)
+    contract, plan, derived, service_provenance = instantiate(declaration, services)
     result = execute(contract, plan)
 
     baseline_path: str | None = None
@@ -50,6 +52,7 @@ def run(
             "taskFormat": FORMAT_IDENTIFIER,
             "binding": declaration.service,
             "taskFile": task_path.name,
+            **service_provenance,
         }
         record = BaselineRecord.from_run_result(result, provenance=provenance)
         baseline_path = str(write_baseline(record, Path(baseline_dir)))

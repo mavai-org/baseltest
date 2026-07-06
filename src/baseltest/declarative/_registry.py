@@ -77,6 +77,11 @@ def transform(name: str) -> Callable[[_F], _F]:
     return decorate
 
 
+def has_binding(name: str) -> bool:
+    """Whether a code-registered binding exists under this name."""
+    return name in _bindings
+
+
 def resolve_binding(name: str) -> Callable[[str], str]:
     """Look up a binding at task-load time; unresolvable names are refused."""
     if name not in _bindings:
