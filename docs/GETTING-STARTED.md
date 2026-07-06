@@ -58,7 +58,7 @@ Everything in `configuration:` is part of the service's identity, and baseltest 
 
 ## File 2: the task (`task.yaml`)
 
-This file says what you are testing: the inputs, what a good response looks like, and the bar it must clear.
+This file says what you are testing: the inputs, what a good response looks like, and - optionally - the bar it must clear.
 
 ```yaml
 format: mavai-task/1
