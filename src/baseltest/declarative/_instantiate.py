@@ -140,28 +140,19 @@ def _resolve_service(
     """Resolve a service reference against both registry populations.
 
     Code registrations and service-file definitions are peers; a name
-    present in both is a configuration defect. Only definitions support
-    ``name/configuration`` addressing.
+    present in both is a configuration defect.
     """
-    name, _, configuration_part = reference.partition("/")
-    configuration = configuration_part or None
-    defined = name in services
-    registered = has_binding(name)
+    defined = reference in services
+    registered = has_binding(reference)
     if defined and registered:
         raise TaskConfigurationError(
-            f"service {name!r} is both registered in code (@binding) and defined in "
-            "the services file — one name, one owner; rename one of them"
+            f"service {reference!r} is both registered in code (@binding) and defined "
+            "in the services file — one name, one owner; rename one of them"
         )
     if defined:
-        parameters = services[name].parameters_for(configuration)
-        return language_model_invoker(parameters), resolved_provenance(parameters, configuration)
-    if configuration is not None:
-        raise TaskConfigurationError(
-            f"service {reference!r}: configuration addressing applies to services "
-            "defined in the services file; the code-registered binding "
-            f"{name!r} has no configurations"
-        )
-    return resolve_binding(name), {}
+        parameters = services[reference].configuration
+        return language_model_invoker(parameters), resolved_provenance(parameters)
+    return resolve_binding(reference), {}
 
 
 def instantiate(

@@ -1,8 +1,11 @@
 """Declarative service definitions: the mavai-services/1 companion file.
 
 A service file defines named services — including the code-free
-``language-model`` type — that task files reference by name (or by
-``name/configuration`` for a named configuration). Definitions join code
+``language-model`` type — that task files reference by name. A definition
+carries exactly one complete ``configuration:`` block: every covariate
+value the service runs under, in one place, communicated to the service
+uniformly. (A ``variations:`` grid over the default configuration is the
+reserved explore seam and is rejected in v0.) Definitions join code
 registrations as a second population source of the binding registry; a
 name collision between the two is a configuration defect.
 """
@@ -12,7 +15,7 @@ import json
 import os
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -24,15 +27,8 @@ from ._errors import TaskConfigurationError
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
-_LANGUAGE_MODEL_KEYS = {
-    "type",
-    "system-prompt",
-    "model",
-    "temperature",
-    "max-tokens",
-    "configurations",
-}
-_OVERRIDE_KEYS = {"system-prompt", "model", "temperature", "max-tokens"}
+_DEFINITION_KEYS = {"type", "configuration", "variations"}
+_CONFIGURATION_KEYS = {"system-prompt", "model", "temperature", "max-tokens"}
 
 ENV_ENDPOINT = "MAVAI_LLM_ENDPOINT"
 ENV_API_KEY = "MAVAI_LLM_API_KEY"
@@ -41,47 +37,20 @@ ENV_MODEL = "MAVAI_LLM_MODEL"
 
 @dataclass(frozen=True, slots=True)
 class LanguageModelParameters:
-    """The resolved parameters of one language-model service configuration."""
+    """One language-model service configuration: its complete covariate values."""
 
     system_prompt: str
     model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
 
-    def overridden(self, overrides: dict[str, Any]) -> "LanguageModelParameters":
-        """This parameter set with a configuration's overrides applied."""
-        return LanguageModelParameters(
-            system_prompt=overrides.get("system-prompt", self.system_prompt),
-            model=overrides.get("model", self.model),
-            temperature=overrides.get("temperature", self.temperature),
-            max_tokens=overrides.get("max-tokens", self.max_tokens),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class ServiceDefinition:
-    """One service entry: base parameters plus optional named configurations."""
+    """One service entry: its type's single, complete configuration."""
 
     name: str
-    base: LanguageModelParameters
-    configurations: dict[str, dict[str, Any]] = field(default_factory=dict)
-
-    def parameters_for(self, configuration: str | None) -> LanguageModelParameters:
-        """The resolved parameters for a (possibly configuration-addressed) reference."""
-        if configuration is None:
-            if self.configurations:
-                raise TaskConfigurationError(
-                    f"service {self.name!r} declares named configurations — address one "
-                    f"as {self.name}/<configuration> (declared: "
-                    f"{', '.join(sorted(self.configurations))})"
-                )
-            return self.base
-        if configuration not in self.configurations:
-            raise TaskConfigurationError(
-                f"service {self.name!r} declares no configuration {configuration!r} "
-                f"(declared: {', '.join(sorted(self.configurations)) or 'none'})"
-            )
-        return self.base.overridden(self.configurations[configuration])
+    configuration: LanguageModelParameters
 
 
 def _fail(message: str) -> TaskConfigurationError:
@@ -90,39 +59,44 @@ def _fail(message: str) -> TaskConfigurationError:
 
 def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
     for key in data:
-        if key not in _LANGUAGE_MODEL_KEYS:
+        if key not in _DEFINITION_KEYS:
+            if key in _CONFIGURATION_KEYS:
+                raise _fail(
+                    f"service {name!r}: `{key}:` belongs inside the `configuration:` "
+                    "block — every covariate value lives there, uniformly"
+                )
             raise _fail(f"service {name!r}: unknown key `{key}:`")
-    system_prompt = data.get("system-prompt")
+    if "variations" in data:
+        raise _fail(
+            f"service {name!r}: `variations:` is reserved by the mavai service format "
+            "for exploration experiments in a future version — see the format's "
+            "extension seams documentation"
+        )
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        raise _fail(
+            f"service {name!r}: a `configuration:` block is required — the complete "
+            "set of parameter values the service runs under"
+        )
+    for key in configuration:
+        if key not in _CONFIGURATION_KEYS:
+            raise _fail(f"service {name!r}: configuration has unknown key `{key}:`")
+    system_prompt = configuration.get("system-prompt")
     if not isinstance(system_prompt, str) or not system_prompt:
         raise _fail(
-            f"service {name!r}: `system-prompt:` is required — a language-model "
-            "service is a model given a job; without a system prompt there is a "
-            "model, but no service to test"
+            f"service {name!r}: `system-prompt:` is required in the configuration — "
+            "a language-model service is a model given a job; without a system "
+            "prompt there is a model, but no service to test"
         )
-    base = LanguageModelParameters(
-        system_prompt=system_prompt,
-        model=data.get("model"),
-        temperature=data.get("temperature"),
-        max_tokens=data.get("max-tokens"),
+    return ServiceDefinition(
+        name=name,
+        configuration=LanguageModelParameters(
+            system_prompt=system_prompt,
+            model=configuration.get("model"),
+            temperature=configuration.get("temperature"),
+            max_tokens=configuration.get("max-tokens"),
+        ),
     )
-    configurations: dict[str, dict[str, Any]] = {}
-    if "configurations" in data:
-        raw = data["configurations"]
-        if not isinstance(raw, dict) or not raw:
-            raise _fail(f"service {name!r}: `configurations:` must be a non-empty mapping")
-        for config_name, overrides in raw.items():
-            if not isinstance(overrides, dict):
-                raise _fail(
-                    f"service {name!r}: configuration {config_name!r} must be a mapping "
-                    "of parameter overrides"
-                )
-            for key in overrides:
-                if key not in _OVERRIDE_KEYS:
-                    raise _fail(
-                        f"service {name!r}: configuration {config_name!r} has unknown key `{key}:`"
-                    )
-            configurations[str(config_name)] = dict(overrides)
-    return ServiceDefinition(name=name, base=base, configurations=configurations)
 
 
 def parse_services(text: str) -> dict[str, ServiceDefinition]:
@@ -162,17 +136,13 @@ def discover_services(task_path: Path) -> dict[str, ServiceDefinition]:
     return {}
 
 
-def resolved_provenance(
-    parameters: LanguageModelParameters, configuration: str | None
-) -> dict[str, str]:
+def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     """The provenance entries a definition-resolved run must carry."""
     entries = {
         "serviceType": "language-model",
         "systemPrompt": parameters.system_prompt,
         "model": parameters.model or os.environ.get(ENV_MODEL, ""),
     }
-    if configuration is not None:
-        entries["serviceConfiguration"] = configuration
     if parameters.temperature is not None:
         entries["temperature"] = str(parameters.temperature)
     if parameters.max_tokens is not None:
@@ -186,7 +156,7 @@ def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str
     Speaks the OpenAI-compatible chat-completion protocol against the
     environment-configured endpoint. A transport failure or error response
     is a defect (the service was unreachable, not stochastic); an
-    anticipated bad answer is simply the response, judged by the criteria.
+    anticipated bad *answer* is simply the response, judged by the criteria.
     """
     endpoint = os.environ.get(ENV_ENDPOINT)
     if not endpoint:
@@ -197,8 +167,8 @@ def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str
     model = parameters.model or os.environ.get(ENV_MODEL)
     if not model:
         raise TaskConfigurationError(
-            f"no model declared and {ENV_MODEL} is not set — declare `model:` on the "
-            "service or set the environment default"
+            f"no model declared and {ENV_MODEL} is not set — declare `model:` in the "
+            "service configuration or set the environment default"
         )
     api_key = os.environ.get(ENV_API_KEY, "")
 

@@ -22,14 +22,15 @@ format: mavai-services/1
 services:
   greeter:
     type: language-model
-    system-prompt: "You are a polite greeter."
+    configuration:
+      system-prompt: "You are a polite greeter."
   support-agent:
     type: language-model
-    system-prompt: "You are a support agent."
-    max-tokens: 400
-    configurations:
-      conservative: { model: small-model, temperature: 0.0 }
-      creative:     { model: small-model, temperature: 0.7 }
+    configuration:
+      system-prompt: "You are a support agent."
+      model: small-model
+      temperature: 0.7
+      max-tokens: 400
 """
 
 TASK = """
@@ -84,8 +85,23 @@ def write_files(tmp_path: Path, task: str = TASK, services: str = SERVICES) -> P
 
 class TestParsing:
     def test_system_prompt_required(self) -> None:
-        text = SERVICES.replace('    system-prompt: "You are a polite greeter."\n', "")
+        text = SERVICES.replace(
+            '      system-prompt: "You are a polite greeter."', "      model: some-model"
+        )
         with pytest.raises(TaskConfigurationError, match="system-prompt"):
+            parse_services(text)
+
+    def test_parameters_outside_configuration_refused_with_uniformity_rule(self) -> None:
+        text = SERVICES.replace(
+            "  greeter:\n    type: language-model\n",
+            "  greeter:\n    type: language-model\n    temperature: 0.3\n",
+        )
+        with pytest.raises(TaskConfigurationError, match="inside the `configuration:` block"):
+            parse_services(text)
+
+    def test_variations_reserved(self) -> None:
+        text = SERVICES + "    variations:\n      temperature: [0.0, 0.7]\n"
+        with pytest.raises(TaskConfigurationError, match="reserved"):
             parse_services(text)
 
     def test_unknown_type_refused(self) -> None:
@@ -109,30 +125,16 @@ class TestZeroCodePath:
             "content": "You are a polite greeter.",
         }
 
-    def test_configuration_addressing_applies_overrides(
+    def test_full_configuration_reaches_the_endpoint(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent/creative")
+        task = TASK.replace("service: greeter", "service: support-agent")
         result = run(write_files(tmp_path, task=task), emit=False)
         assert result.composite is Verdict.PASS
         payload = llm_environment[0]
         assert payload["model"] == "small-model"
         assert payload["temperature"] == 0.7
         assert payload["max_tokens"] == 400
-
-    def test_multi_configuration_service_requires_addressing(
-        self, tmp_path: Path, llm_environment: list[dict[str, Any]]
-    ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent")
-        with pytest.raises(TaskConfigurationError, match="conservative, creative"):
-            run(write_files(tmp_path, task=task), emit=False)
-
-    def test_unknown_configuration_lists_declared(
-        self, tmp_path: Path, llm_environment: list[dict[str, Any]]
-    ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent/reckless")
-        with pytest.raises(TaskConfigurationError, match="conservative, creative"):
-            run(write_files(tmp_path, task=task), emit=False)
 
     def test_missing_endpoint_is_a_constructive_refusal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -153,26 +155,16 @@ class TestResolutionRules:
         with pytest.raises(TaskConfigurationError, match="one name, one owner"):
             run(write_files(tmp_path), emit=False)
 
-    def test_configuration_addressing_on_code_binding_refused(self, tmp_path: Path) -> None:
-        @binding("coded")
-        def coded(value: str) -> str:
-            return value
-
-        task = TASK.replace("service: greeter", "service: coded/fast")
-        with pytest.raises(TaskConfigurationError, match="no configurations"):
-            run(write_files(tmp_path, task=task), emit=False)
-
 
 class TestProvenance:
     def test_measure_baseline_carries_resolved_service_parameters(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent/conservative")
+        task = TASK.replace("service: greeter", "service: support-agent")
         task += "kind: measure\n"
         run(write_files(tmp_path, task=task), baseline_dir=tmp_path / "b", emit=False)
         content = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
         assert '"serviceType": "language-model"' in content
         assert '"systemPrompt": "You are a support agent."' in content
         assert '"model": "small-model"' in content
-        assert '"serviceConfiguration": "conservative"' in content
-        assert '"temperature": "0.0"' in content
+        assert '"temperature": "0.7"' in content
