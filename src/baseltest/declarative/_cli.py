@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
         "--html-report",
         type=Path,
         default=None,
-        help="write a self-contained HTML report to this path",
+        help="write the self-contained probabilistic-test summary to this path (test runs only)",
     )
     arguments = parser.parse_args(argv)
 

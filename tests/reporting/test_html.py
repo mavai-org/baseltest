@@ -1,4 +1,4 @@
-"""The HTML report: self-contained, honest, and escaping untrusted text."""
+"""The probabilistic-test summary report: self-contained, test-runs-only, escaping untrusted text."""
 
 from pathlib import Path
 
@@ -31,20 +31,21 @@ class TestHtmlReport:
         criterion = Criterion(name="ok", postconditions=(contains("refund"),), threshold=0.5)
         page = render_html_report(result_for((criterion,)))
         assert "PASS" in page
-        assert "100 of 100 responses" in page
+        assert "100/100" in page
         assert "lower bound" in page
         assert "0.5" in page
 
-    def test_observation_uses_no_verdict_vocabulary(self) -> None:
+    def test_non_test_runs_have_no_report(self) -> None:
+        import pytest
+
         criterion = Criterion(name="measured", postconditions=(contains("refund"),))
-        page = render_html_report(result_for((criterion,), kind=RunKind.OBSERVATION))
-        assert "OBSERVATION" in page
-        assert "not a verdict" in page
-        assert "PASS" not in page and "FAIL" not in page
+        with pytest.raises(ValueError, match="baseline artefact"):
+            render_html_report(result_for((criterion,), kind=RunKind.OBSERVATION))
 
     def test_failure_distribution_in_details_element(self) -> None:
-        criterion = Criterion(name="never", postconditions=(contains("nope"),))
-        page = render_html_report(result_for((criterion,), kind=RunKind.OBSERVATION))
+        judged = Criterion(name="ok", postconditions=(contains("refund"),), threshold=0.5)
+        never = Criterion(name="never", postconditions=(contains("nope"),))
+        page = render_html_report(result_for((judged, never)))
         assert "<details>" in page
         assert "failure distribution" in page
 

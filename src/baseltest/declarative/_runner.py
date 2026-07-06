@@ -6,6 +6,7 @@ from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
 from baseltest.reporting import render_html_report, render_run
 
+from ._errors import TaskConfigurationError
 from ._instantiate import instantiate
 from ._parser import FORMAT_IDENTIFIER, load_task
 from ._services import discover_services
@@ -45,6 +46,11 @@ def run(
     declaration = load_task(task_path)
     services = discover_services(task_path)
     contract, plan, derived, service_provenance = instantiate(declaration, services)
+    if html_report is not None and plan.kind is not RunKind.TEST:
+        raise TaskConfigurationError(
+            "the HTML report is the probabilistic-test summary and applies to test "
+            "runs only — a measure run's product is its baseline artefact"
+        )
     result = execute(contract, plan)
 
     baseline_path: str | None = None
@@ -61,9 +67,7 @@ def run(
     if html_report is not None:
         report_path = Path(html_report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
-            render_html_report(result, baseline_path=baseline_path), encoding="utf-8"
-        )
+        report_path.write_text(render_html_report(result), encoding="utf-8")
 
     if emit:
         if derived is not None:

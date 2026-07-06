@@ -1,18 +1,19 @@
-"""The single-file HTML report: one run, one self-contained page.
+"""The probabilistic-test summary: one test run, one self-contained page.
 
+This is the family's test-summary report, and deliberately nothing else: a
+measure run's product is its baseline artefact (it has no HTML report in
+the family), and exploration/optimisation reports arrive with their seams.
 Zero-dependency by philosophy and styled in the family's shared report
-design language (the same palette, typography, and layout idioms as the
-Java framework's report tooling): CSS custom properties for the verdict
-colours, a light page with white panels, definition-list criterion blocks,
-and native ``details``/``summary`` drill-down. No template engine, no
-JavaScript, no external assets; every number comes from the pre-computed
-run result.
+design language: CSS custom properties for the verdict colours, a light
+page with white panels, definition-list criterion blocks, and native
+``details``/``summary`` drill-down. No template engine, no JavaScript, no
+external assets; every number comes from the pre-computed run result.
 """
 
 import html
 from datetime import UTC, datetime
 
-from baseltest.engine import CriterionResult, RunResult, Verdict
+from baseltest.engine import CriterionResult, RunKind, RunResult, Verdict
 
 _STYLE = """
 :root {
@@ -153,24 +154,22 @@ def _criterion_block(result: CriterionResult) -> str:
     )
 
 
-def render_html_report(result: RunResult, baseline_path: str | None = None) -> str:
-    """Render a complete, self-contained HTML page for one run."""
-    if result.composite is not None:
-        headline = (
-            f'<span class="{_verdict_class(result.composite)}">'
-            f"{result.composite.value.upper()}</span>"
+def render_html_report(result: RunResult) -> str:
+    """Render the test-summary page for one probabilistic test run.
+
+    Raises:
+        ValueError: For a non-test run — a measurement's product is its
+            baseline artefact, not a report.
+    """
+    if result.kind is not RunKind.TEST or result.composite is None:
+        raise ValueError(
+            "the HTML report is the probabilistic-test summary; a measure or "
+            "observation run has no report — its product is the baseline artefact"
         )
-    else:
-        headline = (
-            '<span class="punit-inconclusive">OBSERVATION</span> '
-            '<span class="timestamp">— a measurement, not a verdict</span>'
-        )
-    blocks = "".join(_criterion_block(r) for r in result.criterion_results)
-    baseline_note = (
-        f'<p class="timestamp">baseline written: <code>{html.escape(baseline_path)}</code></p>'
-        if baseline_path
-        else ""
+    headline = (
+        f'<span class="{_verdict_class(result.composite)}">{result.composite.value.upper()}</span>'
     )
+    blocks = "".join(_criterion_block(r) for r in result.criterion_results)
     generated = datetime.now(tz=UTC).isoformat(timespec="seconds")
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -190,7 +189,6 @@ def render_html_report(result: RunResult, baseline_path: str | None = None) -> s
 </div>
 </header>
 {blocks}
-{baseline_note}
 <footer>generated {generated} · inputs identity
 <code>{html.escape(result.inputs_identity[:16])}…</code> · baseltest</footer>
 </body>

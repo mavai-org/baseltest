@@ -358,6 +358,30 @@ criteria:
         assert result.composite is Verdict.PASS
 
 
+class TestHtmlReportGating:
+    def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
+        @binding("svc")
+        def invoke(value: str) -> str:
+            return "hello"
+
+        task = tmp_path / "task.yaml"
+        task.write_text(
+            """
+format: mavai-task/1
+task: measured
+service: svc
+samples: 50
+inputs: ["a"]
+kind: measure
+criteria:
+  - contains: "hello"
+""",
+            encoding="utf-8",
+        )
+        with pytest.raises(TaskConfigurationError, match="baseline artefact"):
+            run(task, html_report=tmp_path / "r.html", emit=False)
+
+
 class TestMaterialisation:
     def test_emits_python_for_the_same_contract(self, tmp_path: Path) -> None:
         declaration = load_task(write_task(tmp_path, GREETING_TASK))
