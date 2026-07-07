@@ -12,5 +12,5 @@ criteria:
     threshold: 0.95
     transform: json
     postconditions:
-      - path: "$.items"
+      - path: "$.items[*].name"
         matches: "."

@@ -154,3 +154,16 @@ class TestRunMechanics:
     def test_inputs_fingerprint_is_order_insensitive(self) -> None:
         assert inputs_fingerprint(["b", "a"]) == inputs_fingerprint(["a", "b"])
         assert inputs_fingerprint(["a"]) != inputs_fingerprint(["a", "b"])
+
+
+class TestProgressCallback:
+    def test_on_sample_observes_every_sample(self) -> None:
+        seen: list[tuple[int, int]] = []
+        criterion = Criterion(name="c", postconditions=(contains("a"),))
+        contract = ServiceContract(contract_id="svc", invoke=lambda v: v, criteria=(criterion,))
+        execute(
+            contract,
+            RunPlan(samples=4, inputs=("a",), kind=RunKind.OBSERVATION),
+            on_sample=lambda done, total: seen.append((done, total)),
+        )
+        assert seen == [(1, 4), (2, 4), (3, 4), (4, 4)]

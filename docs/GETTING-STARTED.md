@@ -75,11 +75,11 @@ criteria:
     threshold: 0.95
     transform: json
     postconditions:
-      - path: "$.items"
+      - path: "$.items[*].name"
         matches: "."
 ```
 
-Reading it aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON and contain an `items` selection; require a 95% pass rate.
+Reading it aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON and every selected item name must be non-empty (an empty selection fails the trial too — a basket with no items is not a valid basket); require a 95% pass rate.
 
 ## Run it
 

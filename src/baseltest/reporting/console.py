@@ -37,7 +37,20 @@ def _verdict_lines(result: CriterionResult) -> list[str]:
             f"{result.lower_bound:.4f} — {relation} your {criterion.threshold} "
             f"threshold{source}"
         ),
+        *(_failure_reason_lines(result) if result.verdict is Verdict.FAIL else []),
     ]
+
+
+def _failure_reason_lines(result: CriterionResult, limit: int = 3) -> list[str]:
+    """The most common failure reasons — a FAIL should say what failed."""
+    reasons = result.tally.failure_reasons
+    if not reasons:
+        return []
+    lines = [f"      {count}× {reason}" for reason, count in reasons.most_common(limit)]
+    remainder = len(reasons) - limit
+    if remainder > 0:
+        lines.append(f"      … and {remainder} further reason(s)")
+    return lines
 
 
 def _characterised_lines(result: CriterionResult) -> list[str]:
@@ -49,6 +62,7 @@ def _characterised_lines(result: CriterionResult) -> list[str]:
             f"(observed rate {tally.observed_rate:.4f}, "
             f"variance {_variance(tally.successes, tally.trials):.4f})"
         ),
+        *_failure_reason_lines(result),
     ]
 
 

@@ -1,5 +1,7 @@
 """The runner: load, instantiate, execute, render, persist."""
 
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from baseltest.baseline import BaselineRecord, write_baseline
@@ -13,6 +15,22 @@ from ._registrations import discover_registrations
 from ._services import discover_services
 
 DEFAULT_BASELINE_DIR = Path("baselines")
+
+
+def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
+    """A transient stderr progress line — only when stderr is a terminal.
+
+    stdout stays clean for the run's actual output; non-interactive runs
+    (pipes, CI) see nothing.
+    """
+    if not sys.stderr.isatty():
+        return None
+
+    def on_sample(completed: int, total: int) -> None:
+        end = "\r" if completed < total else "\r\033[K"
+        print(f"  sampling {label}: {completed}/{total}", end=end, file=sys.stderr, flush=True)
+
+    return on_sample
 
 
 def run(
@@ -53,7 +71,7 @@ def run(
             "the HTML report is the probabilistic-test summary and applies to test "
             "runs only — a measure run's product is its baseline artefact"
         )
-    result = execute(contract, plan)
+    result = execute(contract, plan, on_sample=_tty_progress(declaration.service) if emit else None)
 
     baseline_path: str | None = None
     if plan.kind is RunKind.MEASURE:

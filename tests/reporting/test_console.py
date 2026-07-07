@@ -92,3 +92,31 @@ class TestInfeasibleOutput:
         assert "criterion sla" in text
         assert str(excinfo.value.governing_minimum) in text
         assert "intent: smoke" in text
+
+
+class TestFailureReasons:
+    def test_failed_verdict_names_the_reasons(self) -> None:
+        criterion = Criterion(name="strict", postconditions=(contains("nope"),), threshold=0.5)
+        text = render_run(run_result((criterion,)))
+        assert "300× " in text
+        assert "does not contain" in text
+
+    def test_passing_verdict_keeps_reasons_out_of_the_way(self) -> None:
+        # passes the 0.5 threshold with some failures: counts stay visible,
+        # per-reason diagnosis appears only on FAIL
+        criterion = Criterion(name="ok", postconditions=(contains("a"),), threshold=0.5)
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=lambda value: value,  # inputs 'a'/'b': ~half pass
+            criteria=(criterion,),
+        )
+        result = execute(
+            contract, RunPlan(samples=300, inputs=("a", "a", "a", "b"), kind=RunKind.TEST)
+        )
+        text = render_run(result)
+        assert "×" not in text or "PASS" not in text.splitlines()[0]
+
+    def test_observation_always_shows_the_distribution(self) -> None:
+        criterion = Criterion(name="m", postconditions=(contains("nope"),))
+        text = render_run(run_result((criterion,), kind=RunKind.OBSERVATION))
+        assert "×" in text

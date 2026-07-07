@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
@@ -190,12 +190,19 @@ def _judge(criterion: Criterion, tally: CriterionTally) -> tuple[float | None, V
     return bound, verdict
 
 
-def execute(contract: ServiceContract, plan: RunPlan) -> RunResult:
+def execute(
+    contract: ServiceContract,
+    plan: RunPlan,
+    on_sample: Callable[[int, int], None] | None = None,
+) -> RunResult:
     """Run the plan: preflight, sample, judge, compose.
 
     Invocations cycle through the plan's inputs. An exception from the
     contract's invocation is a defect and aborts the run; anticipated bad
     responses are returned by the invocation and judged by the criteria.
+    ``on_sample(completed, total)`` — when given — is called after each
+    sample purely for progress display; it observes the loop and can never
+    alter it.
     """
     _preflight(contract, plan)
     started_at = datetime.now(tz=UTC)
@@ -204,6 +211,8 @@ def execute(contract: ServiceContract, plan: RunPlan) -> RunResult:
         response = contract.invoke(plan.inputs[i % len(plan.inputs)])
         for criterion in contract.criteria:
             tallies[criterion.name].record(evaluate_trial(criterion, response))
+        if on_sample is not None:
+            on_sample(i + 1, plan.samples)
     finished_at = datetime.now(tz=UTC)
 
     results = []
