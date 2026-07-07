@@ -7,14 +7,15 @@ format: mavai-task/1
 task: basket-builder-returns-valid-baskets
 service: basket-builder
 samples: 30
-intent: smoke
+intent: smoke                        # quick first try; see README to graduate
 
 transforms:
   basket: json                         # parse each response; the view is 'basket'
 
 criteria:
   - name: response-is-a-valid-basket
-    threshold: 0.95
+    threshold: 0.8                     # a bar 30 samples can support; raise it
+                                       # together with samples: for a real test
     postconditions:
       - in: basket
         path: "$.items[*].name"

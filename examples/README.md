@@ -35,4 +35,4 @@ baseltest test task.yaml       # test posture: verdict, nothing persisted
 baseltest measure task.yaml    # measure posture: characterisation + baseline artefact
 ```
 
-The task declares `intent: smoke` with 30 samples so a first try is quick and cheap; for a statistically enforced verdict, remove that line and raise `samples` (baseltest will tell you the minimum that supports the threshold — or delete `samples:` and it derives the minimum for you).
+The task declares `intent: smoke` with 30 samples and a 0.8 bar so a first try is quick, cheap, and *honestly passable* — 30 samples can never support a 0.95 claim, however well the model does, and baseltest refuses to pretend otherwise. To graduate to a production bar: raise `threshold`, remove `intent: smoke`, and either raise `samples` or delete it and let baseltest derive the minimum the bar needs.
