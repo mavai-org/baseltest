@@ -3,10 +3,12 @@
 # cases (inputs).
 #   baseltest test contract.yaml     -> verdict against the 0.95 bar
 #   baseltest measure contract.yaml  -> characterisation + baseline artefact
+#   baseltest explore contract.yaml  -> one descriptive artefact per configuration
 format: mavai-contract/1
 contract: basket-builder-returns-valid-baskets
 service: basket-builder
 samples: 30
+samples-per-config: 3                # explore only: a few samples per grid point
 intent: smoke                        # quick first try; see README to graduate
 
 transforms:

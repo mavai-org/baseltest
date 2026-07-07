@@ -110,7 +110,7 @@ That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It i
 
 Both verbs accept `--samples N`, overriding the file: the contract file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
 
-**`test` judges; `measure` records.** The same file, run as `baseltest measure contract.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `baselines/`: the durable record of what was observed, under exactly which service configuration. A test run persists no baseline: its product is the verdict, written into `verdicts/` as the verdict record described below. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+**`test` judges; `measure` records.** The same file, run as `baseltest measure contract.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
 
 ```
 criterion spirits-stay-polite: PASS
@@ -155,9 +155,43 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact. Declare `samples:` explicitly in that case (with no bar there is no feasibility arithmetic to derive one from).
 
+## Exploring configurations
+
+Before you measure or test a configuration seriously, you often want to know *which* configuration deserves it — does a lower temperature help? a different model? The third verb answers that cheaply. In the services file, the `configuration:` block is the baseline; an `explorations:` section lists the variants, each entry declaring only what deviates from it:
+
+```yaml
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:                 # the baseline — what measure and test run
+      system-prompt: "You translate shopping instructions into a JSON basket."
+      model: gpt-4o-mini
+      temperature: 0.2
+    explorations:                  # each entry: the baseline with these values replaced
+      - temperature: 0.0
+      - temperature: 0.7
+      - model: gpt-4o
+        temperature: 0.7
+```
+
+Add `samples-per-config:` to the contract file (it is required for explore — the count is a pure cost decision of yours, and small counts are the point: 1–10 is typical, and baseltest never complains about a low one) and run:
+
+```bash
+baseltest explore contract.yaml
+```
+
+Every configuration in the grid — the baseline included — runs like a miniature measure experiment, and each writes one YAML artefact into `_baseltest/explorations/{contract}/`, named after the factor values that distinguish it (`model-gpt-4o-mini_temperature-0.0.yaml`, …). The artefacts are **descriptive only** — observed rates, per-criterion counts, failure reasons; no bounds, no thresholds, no verdicts (a declared `threshold:` in the contract file is simply not consulted). Triage, not judgement: the core move is
+
+```bash
+diff _baseltest/explorations/basket-builder-returns-valid-baskets/model-gpt-4o-mini_temperature-0.{0,7}.yaml
+```
+
+then promote the winner by folding its values into the `configuration:` block, run `baseltest measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore currently requires a service declared in the services file (a code-registered `@binding` carries no configuration grid to explore).
+
 ## The verdict record
 
-Every `test` run also writes its results as a **verdict record** — XML in the mavai family's canonical schema (defined by punit, namespace `http://mavai.org/verdict/1.0`), into `verdicts/` by default (`--verdict-dir` to move it, `--no-verdict-xml` to switch it off). The record carries the full decomposition: per-criterion verdicts with counts and thresholds, the composite, failure-reason clauses, threshold provenance (including the baseline artefact an empirical bar came from), and the run's execution facts. Because every framework in the family emits the same schema, the same downstream tooling reads them all.
+Every `test` run also writes its results as a **verdict record** — XML in the mavai family's canonical schema (defined by punit, namespace `http://mavai.org/verdict/1.0`), into `_baseltest/verdicts/` by default (`--verdict-dir` to move it, `--no-verdict-xml` to switch it off). The record carries the full decomposition: per-criterion verdicts with counts and thresholds, the composite, failure-reason clauses, threshold provenance (including the baseline artefact an empirical bar came from), and the run's execution facts. Because every framework in the family emits the same schema, the same downstream tooling reads them all.
 
 ## Exit codes
 
@@ -165,9 +199,9 @@ The return code is the machine-readable half of the honest-output story — CI r
 
 | Code | Meaning |
 |---|---|
-| `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). |
+| `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, or a test whose sample count cannot support its bars. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars, or an explore without `samples-per-config:` or over a code-registered binding. |
 | `3` | **Unsupportable assertion.** `measure --assert` only: the sample size could never have supported a declared bar — no assertion can rest on the evidence, in either direction. Recorded and persisted all the same. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.

@@ -50,7 +50,9 @@ inputs: ["a"]
         contract.write_text(contract.read_text().replace('contains: "ok"', 'contains: "nope"'))
         code = main(["measure", str(contract), "--assert"])
         assert code == 1
-        assert list((tmp_path / "baselines").glob("*.yaml"))  # persisted before assertion
+        assert list(
+            (tmp_path / "_baseltest" / "baselines").glob("*.yaml")
+        )  # persisted before assertion
         assert "failing after recording" in capsys.readouterr().err
 
     def test_assert_passes_when_bar_met(self, tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
@@ -64,7 +66,7 @@ inputs: ["a"]
         contract = self._contract(tmp_path, threshold="0.99", samples=20)
         code = main(["measure", str(contract), "--assert"])
         assert code == 3
-        assert list((tmp_path / "baselines").glob("*.yaml"))
+        assert list((tmp_path / "_baseltest" / "baselines").glob("*.yaml"))
         assert "unsupportable" in capsys.readouterr().err
 
 

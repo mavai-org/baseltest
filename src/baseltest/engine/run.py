@@ -24,6 +24,7 @@ class RunKind(Enum):
 
     TEST = "test"
     MEASURE = "measure"
+    EXPLORE = "explore"
 
 
 class Intent(Enum):

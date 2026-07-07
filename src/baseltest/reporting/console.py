@@ -1,5 +1,7 @@
 """Console rendering of run results, in the contract format's own vocabulary."""
 
+from collections.abc import Sequence
+
 from baseltest.engine import (
     CriterionResult,
     InfeasibleRunError,
@@ -138,6 +140,38 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
             lines.extend(_characterised_lines(criterion_result))
     if baseline_path is not None:
         lines.append(f"  baseline written: {baseline_path}")
+    return "\n".join(lines)
+
+
+def render_explorations(
+    contract_id: str,
+    samples_per_config: int,
+    entries: Sequence[tuple[str, RunResult, str]],
+) -> str:
+    """Render an explore run's summary: descriptive, one line pair per configuration.
+
+    Each entry is ``(label, result, artefact_path)`` — the label is the
+    configuration's factor-derived stem, the same one its artefact file
+    carries. No verdict vocabulary appears anywhere: an exploration
+    records what each configuration did; judging one is a test's job.
+    """
+    count = len(entries)
+    plural = "" if count == 1 else "s"
+    lines = [
+        f"contract {contract_id}: explored {count} configuration{plural}, "
+        f"{samples_per_config} sample(s) each (descriptive — an exploration "
+        "renders no verdict)"
+    ]
+    for label, result, path in entries:
+        successes = result.overall_successes
+        total = result.plan.samples
+        rate = successes / total if total else 0.0
+        lines.append(
+            f"  configuration {label}: {successes} of {total} responses met "
+            f"expectations (observed rate {rate:.4f})"
+        )
+        lines.append(f"    artefact: {path}")
+    lines.append("  compare configurations by diffing their artefacts")
     return "\n".join(lines)
 
 

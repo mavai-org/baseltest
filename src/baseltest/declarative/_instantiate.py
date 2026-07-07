@@ -7,6 +7,7 @@ The run mode is supplied by the invocation (the verb), never by the file:
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from dataclasses import replace as _replace
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,13 @@ from ._parser import (
     FormDeclaration,
 )
 from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
-from ._services import ServiceDefinition, language_model_invoker, resolved_provenance
+from ._services import (
+    LanguageModelParameters,
+    ServiceDefinition,
+    factor_values,
+    language_model_invoker,
+    resolved_provenance,
+)
 from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
 from ._structured import compile_jsonpath, compile_xpath, path_qualified
 
@@ -191,6 +198,87 @@ def _resolve_run_size(
     )
     derived = derive_minimum_samples(probe)
     return derived, derived
+
+
+@dataclass(frozen=True, slots=True)
+class ExploreConfiguration:
+    """One grid point, ready to run: its factors, contract instance, and plan."""
+
+    parameters: LanguageModelParameters
+    factors: dict[str, Any]
+    contract: ServiceContract
+    plan: RunPlan
+
+
+def instantiate_explore(
+    declaration: ContractDeclaration,
+    services: dict[str, ServiceDefinition] | None = None,
+) -> tuple[ExploreConfiguration, ...]:
+    """Instantiate one runnable configuration per grid point for an explore run.
+
+    An explore run is a measure run per configuration with a descriptive
+    posture: every criterion participates, but thresholds are not
+    consulted — the instantiated criteria carry no bar, so the engine
+    characterises without judging, at any sample size.
+
+    Raises:
+        ContractConfigurationError: The contract file declares no
+            ``samples-per-config:`` (a pure characterisation has no anchor
+            to derive a count from), or the service resolves to a
+            code-registered binding — explore currently requires a service
+            declared in the services file, whose configuration grid is the
+            factor source.
+    """
+    definition = (services or {}).get(declaration.service)
+    if definition is None:
+        if has_binding(declaration.service):
+            raise ContractConfigurationError(
+                f"explore requires a declared service: {declaration.service!r} is "
+                "registered in code (@binding), and a code binding carries no "
+                "configuration grid to explore — declare the service (and its "
+                "`explorations:` entries) in the services file"
+            )
+        resolve_binding(declaration.service)  # raises the standard unresolvable refusal
+        raise AssertionError("unreachable: resolve_binding refuses unknown names")
+    if declaration.samples_per_config is None:
+        raise ContractConfigurationError(
+            "`samples-per-config:` is required for an explore run — exploration "
+            "is a pure characterisation per configuration, so the sample count "
+            "is yours to choose (any positive number; small counts are the point)"
+        )
+    transforms = declaration.transforms
+    views = _build_views(declaration)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms)
+    criteria = tuple(
+        _replace(
+            _build_criterion(entry, declaration.confidence, expected, transforms),
+            threshold=None,
+        )
+        for entry in declaration.criteria
+    )
+    configurations = []
+    for parameters in definition.grid:
+        contract = ServiceContract(
+            contract_id=declaration.contract,
+            invoke=_instrumented_invoke(language_model_invoker(parameters)),
+            criteria=criteria,
+            views=views,
+        )
+        plan = RunPlan(
+            samples=declaration.samples_per_config,
+            inputs=declaration.inputs,
+            kind=RunKind.EXPLORE,
+            intent=Intent.SMOKE,
+        )
+        configurations.append(
+            ExploreConfiguration(
+                parameters=parameters,
+                factors=factor_values(definition, parameters),
+                contract=contract,
+                plan=plan,
+            )
+        )
+    return tuple(configurations)
 
 
 def instantiate(

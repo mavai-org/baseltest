@@ -8,11 +8,17 @@ from baseltest.engine import InfeasibleRunError, RunResult, Verdict
 from baseltest.reporting import bar_standing, render_infeasible
 
 from ._errors import ContractConfigurationError
-from ._runner import DEFAULT_BASELINE_DIR, run
+from ._runner import (
+    DEFAULT_BASELINE_DIR,
+    DEFAULT_EXPLORATIONS_DIR,
+    DEFAULT_VERDICT_DIR,
+    explore,
+    run,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point: ``baseltest test contract.yaml`` / ``baseltest measure contract.yaml``."""
+    """Entry point: the ``test`` / ``measure`` / ``explore`` verbs over a contract file."""
     parser = argparse.ArgumentParser(
         prog="baseltest",
         description="Statistically honest testing for stochastic services.",
@@ -50,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             verb_parser.add_argument(
                 "--verdict-dir",
                 type=Path,
-                default=Path("verdicts"),
+                default=DEFAULT_VERDICT_DIR,
                 help="directory for the canonical verdict-record XML (family schema)",
             )
             verb_parser.add_argument(
@@ -69,9 +75,26 @@ def main(argv: list[str] | None = None) -> int:
                     "the sample size cannot support exits 3"
                 ),
             )
+    explore_parser = subparsers.add_parser(
+        "explore",
+        help=(
+            "run every configuration in the service's grid and persist one "
+            "descriptive artefact per configuration — triage, not judgement"
+        ),
+    )
+    explore_parser.add_argument("contract_file", type=Path, help="path to the contract file")
+    explore_parser.add_argument(
+        "--explorations-dir",
+        type=Path,
+        default=DEFAULT_EXPLORATIONS_DIR,
+        help="directory exploration artefacts are written into (one file per configuration)",
+    )
     arguments = parser.parse_args(argv)
 
     try:
+        if arguments.command == "explore":
+            explore(arguments.contract_file, explorations_dir=arguments.explorations_dir)
+            return 0
         verdict_dir = None
         if arguments.command == "test" and not arguments.no_verdict_xml:
             verdict_dir = arguments.verdict_dir

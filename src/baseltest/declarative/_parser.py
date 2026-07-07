@@ -29,16 +29,17 @@ _TOP_LEVEL_KEYS = {
     "contract",
     "service",
     "samples",
+    "samples-per-config",
     "transforms",
     "inputs",
     "criteria",
     "intent",
     "confidence",
 }
+# `factors:` is deliberately absent from both sets: the explore grid lives in
+# the services file, and the retired key fails the ordinary unknown-key check.
 _RESERVED_TOP_LEVEL = {
     "facets",
-    "factors",
-    "samples-per-config",
     "covariates",
     "latency",
     "budget",
@@ -92,6 +93,7 @@ class ContractDeclaration:
     contract: str
     service: str
     samples: int | None
+    samples_per_config: int | None
     transforms: dict[str, str]
     inputs: tuple[str, ...]
     expected_pairs: tuple[tuple[str, tuple[FormDeclaration, ...]], ...]
@@ -328,6 +330,12 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
     if samples is not None and (not isinstance(samples, int) or samples <= 0):
         raise _fail("`samples:` must be a positive integer")
 
+    samples_per_config = data.get("samples-per-config")
+    if samples_per_config is not None and (
+        not isinstance(samples_per_config, int) or samples_per_config <= 0
+    ):
+        raise _fail("`samples-per-config:` must be a positive integer")
+
     confidence = data.get("confidence", DEFAULT_CONFIDENCE)
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:
         raise _fail("`confidence:` must be a number in (0, 1)")
@@ -336,6 +344,7 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
         contract=_require_string(data, "contract"),
         service=_require_string(data, "service"),
         samples=samples,
+        samples_per_config=samples_per_config,
         transforms=views,
         inputs=inputs,
         expected_pairs=expected_pairs,

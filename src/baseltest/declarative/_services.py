@@ -2,12 +2,16 @@
 
 A service file defines named services — including the code-free
 ``language-model`` type — that contract files reference by name. A definition
-carries exactly one complete ``configuration:`` block: every covariate
-value the service runs under, in one place, communicated to the service
-uniformly. (A ``variations:`` grid over the default configuration is the
-reserved explore seam and is rejected in v0.) Definitions join code
-registrations as a second population source of the binding registry; a
-name collision between the two is a configuration defect.
+carries a complete ``configuration:`` block — the baseline factor record:
+every covariate value the service runs under, in one place, communicated to
+the service uniformly. An optional ``explorations:`` section extends the
+baseline into a configuration grid: each entry declares only the covariates
+that deviate from the baseline (entry = baseline with those keys replaced),
+and the grid is the baseline plus the entries. A test or measure run
+consumes exactly the baseline; an explore run consumes the whole grid.
+Definitions join code registrations as a second population source of the
+binding registry; a name collision between the two is a configuration
+defect.
 """
 
 import hashlib
@@ -33,8 +37,11 @@ from ._providers import (
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
-_DEFINITION_KEYS = {"type", "configuration", "variations"}
+_DEFINITION_KEYS = {"type", "configuration", "explorations"}
 _CONFIGURATION_KEYS = {"system-prompt", "provider", "model", "temperature", "response-schema"}
+# Canonical parameter order: stems and factor blocks list swept covariates
+# in this order so artefacts from one grid stay field-for-field diffable.
+_PARAMETER_ORDER = ("system-prompt", "provider", "model", "temperature", "response-schema")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,44 +57,45 @@ class LanguageModelParameters:
 
 @dataclass(frozen=True, slots=True)
 class ServiceDefinition:
-    """One service entry: its type's single, complete configuration."""
+    """One service entry: its baseline configuration plus any exploration grid.
+
+    Attributes:
+        name: The service's registry name.
+        configuration: The baseline factor record — the configuration a
+            test or measure run consumes.
+        explorations: The resolved exploration entries (each already the
+            baseline with the entry's keys replaced), in declaration order.
+            Empty unless the definition declares an ``explorations:`` section.
+        swept_keys: The configuration keys any exploration entry replaces,
+            in canonical parameter order — the grid's discriminating factors.
+    """
 
     name: str
     configuration: LanguageModelParameters
+    explorations: tuple[LanguageModelParameters, ...] = ()
+    swept_keys: tuple[str, ...] = ()
+
+    @property
+    def grid(self) -> tuple[LanguageModelParameters, ...]:
+        """Every configuration an explore run samples: baseline first."""
+        return (self.configuration, *self.explorations)
 
 
 def _fail(message: str) -> ContractConfigurationError:
     return ContractConfigurationError(message)
 
 
-def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
-    for key in data:
-        if key not in _DEFINITION_KEYS:
-            if key in _CONFIGURATION_KEYS:
-                raise _fail(
-                    f"service {name!r}: `{key}:` belongs inside the `configuration:` "
-                    "block — every covariate value lives there, uniformly"
-                )
-            raise _fail(f"service {name!r}: unknown key `{key}:`")
-    if "variations" in data:
-        raise _fail(
-            f"service {name!r}: `variations:` is reserved by the mavai service format "
-            "for exploration experiments in a future version — see the format's "
-            "extension seams documentation"
-        )
-    configuration = data.get("configuration")
-    if not isinstance(configuration, dict):
-        raise _fail(
-            f"service {name!r}: a `configuration:` block is required — the complete "
-            "set of parameter values the service runs under"
-        )
+def _validate_configuration(
+    name: str, configuration: dict[str, Any], where: str
+) -> LanguageModelParameters:
+    """Validate one resolved configuration mapping into its parameters."""
     for key in configuration:
         if key not in _CONFIGURATION_KEYS:
-            raise _fail(f"service {name!r}: configuration has unknown key `{key}:`")
+            raise _fail(f"service {name!r}: {where} has unknown key `{key}:`")
     system_prompt = configuration.get("system-prompt")
     if not isinstance(system_prompt, str) or not system_prompt:
         raise _fail(
-            f"service {name!r}: `system-prompt:` is required in the configuration — "
+            f"service {name!r}: `system-prompt:` is required in the {where} — "
             "a language-model service is a model given a job; without a system "
             "prompt there is a model, but no service to test"
         )
@@ -100,15 +108,102 @@ def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
             f"service {name!r}: `response-schema:` must be a mapping (the JSON "
             "Schema the model is instructed to satisfy)"
         )
+    return LanguageModelParameters(
+        system_prompt=system_prompt,
+        provider=provider_name,
+        model=configuration.get("model"),
+        temperature=configuration.get("temperature"),
+        response_schema=response_schema,
+    )
+
+
+def _resolved_point(parameters: LanguageModelParameters) -> tuple[tuple[str, str], ...]:
+    """A configuration's identity: its resolved covariate values, nothing else.
+
+    Resolution has already happened by the time this is called — deltas
+    applied, environment defaults filled in (via the same rule provenance
+    uses) — so how a grid point was expressed in the file cannot influence
+    its identity.
+    """
+    return tuple(sorted(resolved_provenance(parameters).items()))
+
+
+def _parse_explorations(
+    name: str, entries: Any, baseline: dict[str, Any]
+) -> tuple[tuple[LanguageModelParameters, ...], tuple[str, ...]]:
+    """Resolve the ``explorations:`` entries over the baseline record.
+
+    Each entry declares only deviations; its resolution is the baseline
+    with those keys replaced. Two entries resolving to the same covariate
+    point — or an entry restating the baseline — are refused: one
+    population, one grid point (and one output filename).
+    """
+    if not isinstance(entries, list) or not entries:
+        raise _fail(
+            f"service {name!r}: `explorations:` must be a non-empty list of "
+            "entries, each declaring the configuration values it replaces"
+        )
+    swept: set[str] = set()
+    resolved: list[LanguageModelParameters] = []
+    for index, entry in enumerate(entries, start=1):
+        where = f"exploration entry {index}"
+        if not isinstance(entry, dict):
+            raise _fail(f"service {name!r}: {where} must be a mapping of replacement values")
+        for key, value in entry.items():
+            if key not in _CONFIGURATION_KEYS:
+                raise _fail(f"service {name!r}: {where} has unknown key `{key}:`")
+            if value is None:
+                raise _fail(
+                    f"service {name!r}: {where}: `{key}:` declares no value — an "
+                    "entry states replacements; omit a key to keep its baseline value"
+                )
+        merged = {**baseline, **entry}
+        resolved.append(_validate_configuration(name, merged, where))
+        swept.update(entry)
+    seen: dict[tuple[tuple[str, str], ...], str] = {
+        _resolved_point(_validate_configuration(name, baseline, "configuration")): (
+            "the baseline `configuration:`"
+        )
+    }
+    for index, parameters in enumerate(resolved, start=1):
+        point = _resolved_point(parameters)
+        previous = seen.get(point)
+        if previous is not None:
+            raise _fail(
+                f"service {name!r}: exploration entry {index} resolves to the same "
+                f"configuration as {previous} — two grid entries for one population; "
+                "each entry must resolve to a distinct covariate point"
+            )
+        seen[point] = f"exploration entry {index}"
+    swept_keys = tuple(key for key in _PARAMETER_ORDER if key in swept)
+    return tuple(resolved), swept_keys
+
+
+def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
+    for key in data:
+        if key not in _DEFINITION_KEYS:
+            if key in _CONFIGURATION_KEYS:
+                raise _fail(
+                    f"service {name!r}: `{key}:` belongs inside the `configuration:` "
+                    "block — every covariate value lives there, uniformly"
+                )
+            raise _fail(f"service {name!r}: unknown key `{key}:`")
+    configuration = data.get("configuration")
+    if not isinstance(configuration, dict):
+        raise _fail(
+            f"service {name!r}: a `configuration:` block is required — the complete "
+            "set of parameter values the service runs under"
+        )
+    parameters = _validate_configuration(name, configuration, "configuration")
+    explorations: tuple[LanguageModelParameters, ...] = ()
+    swept_keys: tuple[str, ...] = ()
+    if "explorations" in data:
+        explorations, swept_keys = _parse_explorations(name, data["explorations"], configuration)
     return ServiceDefinition(
         name=name,
-        configuration=LanguageModelParameters(
-            system_prompt=system_prompt,
-            provider=provider_name,
-            model=configuration.get("model"),
-            temperature=configuration.get("temperature"),
-            response_schema=response_schema,
-        ),
+        configuration=parameters,
+        explorations=explorations,
+        swept_keys=swept_keys,
     )
 
 
@@ -166,6 +261,26 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     if parameters.provider == "anthropic":
         entries["providerRequiredMaxTokens"] = str(ANTHROPIC_REQUIRED_MAX_TOKENS)
     return entries
+
+
+def factor_values(
+    definition: ServiceDefinition, parameters: LanguageModelParameters
+) -> dict[str, Any]:
+    """One grid point's discriminating factor values, in canonical order.
+
+    The keys are the definition's swept keys; the values are the point's
+    resolved covariates (environment defaults applied, per the same rule
+    provenance follows). This is what identifies the configuration in
+    exploration artefacts and their filenames.
+    """
+    resolved: dict[str, Any] = {
+        "system-prompt": parameters.system_prompt,
+        "provider": parameters.provider,
+        "model": parameters.model or os.environ.get(ENV_MODEL) or None,
+        "temperature": parameters.temperature,
+        "response-schema": parameters.response_schema,
+    }
+    return {key: resolved[key] for key in definition.swept_keys}
 
 
 def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str], str]:
