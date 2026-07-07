@@ -1,6 +1,7 @@
 """Console rendering of run results, in the task format's own vocabulary."""
 
 from baseltest.engine import CriterionResult, InfeasibleRunError, RunKind, RunResult, Verdict
+from baseltest.statistics import wilson_lower_bound
 
 
 def _percent(confidence: float) -> str:
@@ -68,20 +69,40 @@ def _characterised_lines(
     ]
 
 
+def bar_standing(result: CriterionResult) -> str:
+    """The recorded standing of a declared bar: ``met``, ``not met``, or
+    ``unsupportable`` when even a perfect run of this size could not have
+    supported the bar — the family's three-way experiment-time judgement."""
+    criterion = result.criterion
+    assert criterion.threshold is not None
+    if result.verdict is Verdict.PASS:
+        return "met"
+    trials = result.tally.trials
+    best_possible = wilson_lower_bound(trials, trials, criterion.confidence)
+    if best_possible < criterion.threshold:
+        return "unsupportable"
+    return "not met"
+
+
 def _recorded_bar_lines(result: CriterionResult) -> list[str]:
     """A declared bar under measure: noted against the evidence — data, not a verdict."""
     criterion = result.criterion
     assert result.lower_bound is not None and criterion.threshold is not None
-    standing = "met" if result.verdict is Verdict.PASS else "not met"
-    lines = _characterised_lines(result, label="bar declared")
-    lines.insert(
-        2,
-        (
+    standing = bar_standing(result)
+    if standing == "unsupportable":
+        note = (
+            f"    declared bar {criterion.threshold}: judgement unsupportable at "
+            f"{result.tally.trials} samples — even a perfect run of this size could "
+            "not support the bar — recorded, not a verdict"
+        )
+    else:
+        note = (
             f"    declared bar {criterion.threshold}: the evidence records it as "
             f"{standing} ({_percent(criterion.confidence)} lower bound "
             f"{result.lower_bound:.4f}) — recorded, not a verdict"
-        ),
-    )
+        )
+    lines = _characterised_lines(result, label="bar declared")
+    lines.insert(2, note)
     return lines
 
 

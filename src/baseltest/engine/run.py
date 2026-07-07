@@ -170,7 +170,13 @@ def derive_minimum_samples(contract: ServiceContract) -> int:
 
 
 def _preflight(contract: ServiceContract, plan: RunPlan) -> None:
-    """Refuse an infeasible verification run before any invocation."""
+    """Refuse an infeasible verification test before any invocation.
+
+    Only a test is refused: feasibility guards verdicts, and a measure run
+    renders none -- an unsupportable bar is recorded as such instead.
+    """
+    if plan.kind is not RunKind.TEST:
+        return
     infeasible = [
         InfeasibleCriterion(
             name=c.name,

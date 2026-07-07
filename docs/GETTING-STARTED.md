@@ -145,6 +145,19 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact. Declare `samples:` explicitly in that case (with no bar there is no feasibility arithmetic to derive one from).
 
+## Exit codes
+
+The return code is the machine-readable half of the honest-output story — CI reads it, and each number means one thing:
+
+| Code | Meaning |
+|---|---|
+| `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). |
+| `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
+| `2` | **Refusal.** The run never invoked the service: malformed task file, unresolvable binding, nothing to test, or a test whose sample count cannot support its bars. |
+| `3` | **Unsupportable assertion.** `measure --assert` only: the sample size could never have supported a declared bar — no assertion can rest on the evidence, in either direction. Recorded and persisted all the same. |
+
+`0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.
+
 ## Ready-to-run examples
 
 The [`examples/`](../examples/README.md) directory has both paths ready to run: a **simulated stochastic service** that works offline with zero setup (see the statistics move between runs while the verdict logic holds still), and the **basket-builder** against a real model.

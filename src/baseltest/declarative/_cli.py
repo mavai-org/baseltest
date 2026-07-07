@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from baseltest.engine import InfeasibleRunError, Verdict
-from baseltest.reporting import render_infeasible
+from baseltest.engine import InfeasibleRunError, RunResult, Verdict
+from baseltest.reporting import bar_standing, render_infeasible
 
 from ._errors import TaskConfigurationError
 from ._runner import DEFAULT_BASELINE_DIR, run
@@ -36,6 +36,17 @@ def main(argv: list[str] | None = None) -> int:
             default=None,
             help="write the probabilistic-test summary to this path (test only)",
         )
+        if verb == "measure":
+            verb_parser.add_argument(
+                "--assert",
+                dest="assert_bars",
+                action="store_true",
+                help=(
+                    "after recording (the baseline is persisted regardless), fail "
+                    "the run if a declared bar was not met (exit 1); a judgement "
+                    "the sample size cannot support exits 3"
+                ),
+            )
     arguments = parser.parse_args(argv)
 
     try:
@@ -52,9 +63,37 @@ def main(argv: list[str] | None = None) -> int:
     except InfeasibleRunError as infeasible:
         print(render_infeasible(arguments.task_file.stem, infeasible), file=sys.stderr)
         return 2
-    if result.composite is Verdict.FAIL:
-        return 1
-    return 0
+    if arguments.command == "test":
+        return 1 if result.composite is Verdict.FAIL else 0
+    if getattr(arguments, "assert_bars", False):
+        return _assert_recorded_bars(result)
+    return 0  # a plain measure run records; recording cannot fail
+
+
+def _assert_recorded_bars(result: RunResult) -> int:
+    """The opt-in assertion: fail after recording, unsupportable distinguished."""
+    standings = {
+        r.name: bar_standing(r)
+        for r in result.criterion_results
+        if r.criterion.threshold is not None
+    }
+    unsupportable = [name for name, standing in standings.items() if standing == "unsupportable"]
+    unmet = [name for name, standing in standings.items() if standing == "not met"]
+    for name in unsupportable:
+        print(
+            f"assertion: judgement for criterion {name} is unsupportable at this "
+            "sample size — recorded, but no assertion can rest on it",
+            file=sys.stderr,
+        )
+    for name in unmet:
+        print(
+            f"assertion: declared bar for criterion {name} not met — "
+            "failing after recording (the baseline is on disk)",
+            file=sys.stderr,
+        )
+    if unsupportable:
+        return 3
+    return 1 if unmet else 0
 
 
 if __name__ == "__main__":
