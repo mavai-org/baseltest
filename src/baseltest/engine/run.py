@@ -130,6 +130,7 @@ class RunResult:
     started_at: datetime
     finished_at: datetime
     inputs_identity: str
+    overall_successes: int = 0
 
     @property
     def thresholded_results(self) -> tuple[CriterionResult, ...]:
@@ -218,11 +219,16 @@ def execute(
     _preflight(contract, plan)
     started_at = datetime.now(tz=UTC)
     tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
+    overall_successes = 0
     for i in range(plan.samples):
         response = contract.invoke(plan.inputs[i % len(plan.inputs)])
         views = TrialViews(response, contract.views)  # one cache per trial, all criteria
+        trial_passed = True
         for criterion in contract.criteria:
-            tallies[criterion.name].record(evaluate_trial(criterion, views))
+            evaluation = evaluate_trial(criterion, views)
+            tallies[criterion.name].record(evaluation)
+            trial_passed = trial_passed and evaluation.passed
+        overall_successes += int(trial_passed)
         if on_sample is not None:
             on_sample(i + 1, plan.samples)
     finished_at = datetime.now(tz=UTC)
@@ -248,4 +254,5 @@ def execute(
         started_at=started_at,
         finished_at=finished_at,
         inputs_identity=inputs_fingerprint(plan.inputs),
+        overall_successes=overall_successes,
     )

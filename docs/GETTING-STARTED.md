@@ -155,6 +155,10 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact. Declare `samples:` explicitly in that case (with no bar there is no feasibility arithmetic to derive one from).
 
+## The verdict record
+
+Every `test` run also writes its results as a **verdict record** — XML in the mavai family's canonical schema (defined by punit, namespace `http://mavai.org/verdict/1.0`), into `verdicts/` by default (`--verdict-dir` to move it, `--no-verdict-xml` to switch it off). The record carries the full decomposition: per-criterion verdicts with counts and thresholds, the composite, failure-reason clauses, threshold provenance (including the baseline artefact an empirical bar came from), and the run's execution facts. Because every framework in the family emits the same schema, the same downstream tooling reads them all.
+
 ## Exit codes
 
 The return code is the machine-readable half of the honest-output story — CI reads it, and each number means one thing:

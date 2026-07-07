@@ -6,7 +6,7 @@ from pathlib import Path
 
 from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
-from baseltest.reporting import render_html_report, render_run
+from baseltest.reporting import render_html_report, render_run, write_verdict_record
 
 from ._errors import TaskConfigurationError
 from ._instantiate import instantiate
@@ -39,6 +39,7 @@ def run(
     *,
     samples: int | None = None,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
+    verdict_dir: str | Path | None = None,
     html_report: str | Path | None = None,
     emit: bool = True,
 ) -> RunResult:
@@ -81,6 +82,11 @@ def run(
             "runs only — a measure run's product is its baseline artefact"
         )
     result = execute(contract, plan, on_sample=_tty_progress(declaration.service) if emit else None)
+
+    if verdict_dir is not None and run_mode is RunKind.TEST:
+        verdict_path = write_verdict_record(result, Path(verdict_dir))
+        if emit:
+            print(f"  verdict record written: {verdict_path.as_posix()}")
 
     baseline_path: str | None = None
     if run_mode is RunKind.MEASURE:

@@ -40,6 +40,7 @@ class StoredBaseline:
     contract_id: str
     sample_count: int
     inputs_identity: str
+    generated_at: str
     provenance: dict[str, str]
     criteria: dict[str, StoredCriterion]
 
@@ -115,6 +116,7 @@ def read_baseline(path: Path) -> StoredBaseline:
         contract_id=str(data["contractId"]),
         sample_count=int(data["sampleCount"]),
         inputs_identity=str(data["inputsIdentity"]),
+        generated_at=str(data.get("generatedAt", "")),
         provenance=provenance,
         criteria=criteria,
     )
