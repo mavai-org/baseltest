@@ -88,7 +88,7 @@ class TestMultiCriterion:
 
     def test_no_thresholds_means_no_composite(self) -> None:
         measured = Criterion(name="measured", postconditions=(contains("ok"),))
-        result = execute(contract_with((measured,)), plan(50, kind=RunKind.OBSERVATION))
+        result = execute(contract_with((measured,)), plan(50, kind=RunKind.MEASURE))
         assert result.composite is None
 
 
@@ -137,7 +137,7 @@ class TestRunMechanics:
         criterion = Criterion(name="c", postconditions=(contains("x"),))
         contract = ServiceContract(contract_id="svc", invoke=invoke, criteria=(criterion,))
         with pytest.raises(ConnectionError):
-            execute(contract, plan(10, kind=RunKind.OBSERVATION))
+            execute(contract, plan(10, kind=RunKind.MEASURE))
 
     def test_inputs_cycle_round_robin(self) -> None:
         seen: list[str] = []
@@ -148,7 +148,7 @@ class TestRunMechanics:
 
         criterion = Criterion(name="c", postconditions=(contains("a"),))
         contract = ServiceContract(contract_id="svc", invoke=invoke, criteria=(criterion,))
-        execute(contract, RunPlan(samples=5, inputs=("a", "b"), kind=RunKind.OBSERVATION))
+        execute(contract, RunPlan(samples=5, inputs=("a", "b"), kind=RunKind.MEASURE))
         assert seen == ["a", "b", "a", "b", "a"]
 
     def test_inputs_fingerprint_is_order_insensitive(self) -> None:
@@ -163,7 +163,7 @@ class TestProgressCallback:
         contract = ServiceContract(contract_id="svc", invoke=lambda v: v, criteria=(criterion,))
         execute(
             contract,
-            RunPlan(samples=4, inputs=("a",), kind=RunKind.OBSERVATION),
+            RunPlan(samples=4, inputs=("a",), kind=RunKind.MEASURE),
             on_sample=lambda done, total: seen.append((done, total)),
         )
         assert seen == [(1, 4), (2, 4), (3, 4), (4, 4)]

@@ -64,7 +64,7 @@ class TestVerdictOutput:
 class TestObservationOutput:
     def test_labelled_measurement_with_rate_and_variance_no_verdict_vocabulary(self) -> None:
         measured = Criterion(name="measured", postconditions=(contains("refund"),))
-        text = render_run(run_result((measured,), samples=100, kind=RunKind.OBSERVATION))
+        text = render_run(run_result((measured,), samples=100, kind=RunKind.MEASURE))
         assert "OBSERVATION" in text
         assert "this is a measurement, not a verdict" in text
         assert "observed rate" in text and "variance" in text
@@ -118,5 +118,5 @@ class TestFailureReasons:
 
     def test_observation_always_shows_the_distribution(self) -> None:
         criterion = Criterion(name="m", postconditions=(contains("nope"),))
-        text = render_run(run_result((criterion,), kind=RunKind.OBSERVATION))
+        text = render_run(run_result((criterion,), kind=RunKind.MEASURE))
         assert "×" in text

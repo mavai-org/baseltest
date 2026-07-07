@@ -1,4 +1,10 @@
-"""Instantiation: a validated task declaration into a live service contract and plan."""
+"""Instantiation: a validated task declaration into a live service contract and plan.
+
+The run mode is supplied by the invocation (the verb), never by the file:
+``test`` instantiates a probabilistic test over the thresholded criteria
+(criteria without a bar are skipped, reported by name — never silently);
+``measure`` instantiates a measure experiment over every criterion.
+"""
 
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -18,82 +24,93 @@ from baseltest.contract import (
 from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples
 
 from ._errors import TaskConfigurationError
-from ._parser import CriterionDeclaration, FormDeclaration, TaskDeclaration
+from ._parser import (
+    RAW_VIEW,
+    CriterionDeclaration,
+    FormDeclaration,
+    TaskDeclaration,
+)
 from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
-from ._services import (
-    ServiceDefinition,
-    language_model_invoker,
-    resolved_provenance,
-)
-from ._structured import (
-    STOCK_TRANSFORMS,
-    compile_jsonpath,
-    compile_xpath,
-    path_qualified,
-)
+from ._services import ServiceDefinition, language_model_invoker, resolved_provenance
+from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
+from ._structured import compile_jsonpath, compile_xpath, path_qualified
 
-_STRING_FORMS: dict[str, Callable[[Any], Postcondition]] = {
-    "equals": lambda arg: equals(str(arg)),
-    "contains": lambda arg: contains(str(arg)),
-    "matches": lambda arg: matches(str(arg)),
-    "one-of": lambda arg: one_of([str(item) for item in arg]),
+_STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
+    "equals": lambda arg, view: equals(str(arg), view=view),
+    "contains": lambda arg, view: contains(str(arg), view=view),
+    "matches": lambda arg, view: matches(str(arg), view=view),
+    "one-of": lambda arg, view: one_of([str(item) for item in arg], view=view),
 }
 
 
-def _parse_check_postcondition(transform_name: str) -> Postcondition:
-    """The ``parses:`` sugar: the transform ran, nothing further to check."""
+def _build_views(declaration: TaskDeclaration) -> dict[str, Callable[[str], Any]]:
+    views: dict[str, Callable[[str], Any]] = {}
+    for view_name, transformation in declaration.transforms.items():
+        views[view_name] = STOCK_TRANSFORM_FNS.get(transformation) or resolve_transform(
+            transformation
+        )
+    return views
+
+
+def _parses_postcondition(view: str) -> Postcondition:
+    """``parses: <view>``: forcing the view's computation is the whole check."""
     return Postcondition(
-        name=f"parses as {transform_name}",
-        check=lambda _raw, _value: PostconditionResult.ok(),
+        name=f"parses as {view}",
+        check=lambda _subject: PostconditionResult.ok(),
+        view=view,
     )
 
 
 def _build_form(
-    declaration: FormDeclaration, transform_name: str | None, where: str
+    declaration: FormDeclaration, transforms: dict[str, str], where: str
 ) -> Postcondition:
     if declaration.form == "satisfies":
         name = str(declaration.argument)
-        return satisfies(name, resolve_check(name))
+        return satisfies(name, resolve_check(name), view=declaration.view)
     if declaration.form == "parses":
-        return _parse_check_postcondition(str(declaration.argument))
+        return _parses_postcondition(str(declaration.argument))
     builder = _STRING_FORMS[declaration.form]
-    inner = builder(declaration.argument)
     if declaration.path is None:
-        return inner
-    if transform_name in ("json", "yaml"):
+        return builder(declaration.argument, declaration.view)
+    inner = builder(declaration.argument, RAW_VIEW)
+    transformation = transforms.get(declaration.view)
+    if transformation in ("json", "yaml"):
         compiled = compile_jsonpath(declaration.path, where)
-        return path_qualified("jsonpath", declaration.path, compiled, inner)
-    if transform_name == "xml":
+        return path_qualified("jsonpath", declaration.path, compiled, inner, view=declaration.view)
+    if transformation == "xml":
         expression = compile_xpath(declaration.path, where)
-        return path_qualified("xpath", expression, expression, inner)
-    raise TaskConfigurationError(
-        f"{where}: `path:` requires a stock transform (json, xml, or yaml)"
+        return path_qualified("xpath", expression, expression, inner, view=declaration.view)
+    raise TaskConfigurationError(f"{where}: `path:` requires a view with a stock transformation")
+
+
+def _expected_postconditions(
+    pairs: Sequence[tuple[str, tuple[FormDeclaration, ...]]],
+    transforms: dict[str, str],
+) -> list[Postcondition]:
+    """Per-input expectations: each check dispatches on the trial's input."""
+    dispatching: list[Postcondition] = []
+    for input_value, declarations in pairs:
+        for declaration in declarations:
+            where = f"expected for input {input_value!r}"
+            inner = _build_form(declaration, transforms, where)
+            dispatching.append(_dispatch_on_input(input_value, inner))
+    return dispatching
+
+
+def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
+    def check(subject: Any) -> PostconditionResult:
+        if _CURRENT_INPUT.get("value") != input_value:
+            return PostconditionResult.ok()
+        return inner.evaluate(subject)
+
+    return Postcondition(
+        name=f"{inner.name} (for input {input_value!r})", check=check, view=inner.view
     )
 
 
-def _expected_pair_postcondition(
-    pairs: Sequence[tuple[str, FormDeclaration]],
-) -> Postcondition:
-    """Per-input expectations: dispatch on the input at evaluation time."""
-    checks = {
-        input_value: _STRING_FORMS[declaration.form](declaration.argument)
-        for input_value, declaration in pairs
-    }
-
-    def check(raw: str, _value: Any) -> PostconditionResult:
-        current = _CURRENT_INPUT.get("value")
-        expected = checks.get(current) if current is not None else None
-        if expected is None:
-            return PostconditionResult.ok()
-        return expected.evaluate(raw, raw)
-
-    return Postcondition(name="expected response per input", check=check)
-
-
-# The engine evaluates postconditions on (response, value) without threading
-# the input through; per-input expectation dispatch needs it. The runner sets
-# the current input via the instrumented invoke below -- single-threaded per
-# run by design.
+# The engine evaluates postconditions without threading the input through;
+# per-input dispatch needs it. The instrumented invoke below records the
+# current input -- single-threaded per run by design.
 _CURRENT_INPUT: dict[str, str] = {}
 
 
@@ -108,18 +125,12 @@ def _instrumented_invoke(invoke: Callable[[str], str]) -> Callable[[str], str]:
 def _build_criterion(
     declaration: CriterionDeclaration,
     confidence: float,
-    expected_pairs: Sequence[tuple[str, FormDeclaration]],
+    expected: Sequence[Postcondition],
+    transforms: dict[str, str],
 ) -> Criterion:
     where = f"criterion {declaration.name}"
-    transform_name = declaration.transform or declaration.parses
-    transform: Callable[[str], Any] | None = None
-    if transform_name is not None:
-        transform = STOCK_TRANSFORMS.get(transform_name) or resolve_transform(transform_name)
-
-    postconditions = [_build_form(form, transform_name, where) for form in declaration.forms]
-    if expected_pairs:
-        postconditions.append(_expected_pair_postcondition(expected_pairs))
-
+    postconditions = [_build_form(form, transforms, where) for form in declaration.forms]
+    postconditions.extend(expected)
     provenance = ThresholdProvenance(
         origin=declaration.threshold_origin or "unspecified",
         contract_ref=declaration.contract_ref,
@@ -129,7 +140,6 @@ def _build_criterion(
         postconditions=tuple(postconditions),
         threshold=declaration.threshold,
         confidence=confidence,
-        transform=transform,
         provenance=provenance,
     )
 
@@ -137,11 +147,7 @@ def _build_criterion(
 def _resolve_service(
     reference: str, services: dict[str, ServiceDefinition]
 ) -> tuple[Callable[[str], str], dict[str, str]]:
-    """Resolve a service reference against both registry populations.
-
-    Code registrations and service-file definitions are peers; a name
-    present in both is a configuration defect.
-    """
+    """Resolve a service reference against both registry populations."""
     defined = reference in services
     registered = has_binding(reference)
     if defined and registered:
@@ -155,43 +161,62 @@ def _resolve_service(
     return resolve_binding(reference), {}
 
 
-# javai-ref: JVI-RKBJ882 — do not remove (resolves in javai-orchestrator)
 def instantiate(
     declaration: TaskDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
-) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str]]:
-    """Instantiate the contract and plan a task declaration describes.
+    mode: RunKind = RunKind.TEST,
+) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str], tuple[str, ...]]:
+    """Instantiate the contract and plan for a task declaration under a run mode.
 
     Returns the contract, the run plan, the derived sample count when
-    ``samples`` was omitted (``None`` when it was declared), and the
-    resolved service provenance (empty for code-registered bindings).
+    ``samples`` was omitted (``None`` when declared), the resolved service
+    provenance, and — under ``test`` — the names of criteria skipped for
+    declaring no threshold.
 
     Raises:
-        TaskConfigurationError: On any load-time refusal (unresolvable
-            names, invalid expressions) — before any invocation.
+        TaskConfigurationError: On any load-time refusal — before any
+            invocation. In particular, a ``test`` over a file with no
+            thresholded criterion, and a threshold-less ``measure`` with
+            no ``samples``.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
     invoke = _instrumented_invoke(resolved)
-    criteria = tuple(
-        _build_criterion(entry, declaration.confidence, declaration.expected_pairs)
-        for entry in declaration.criteria
-    )
-    contract = ServiceContract(contract_id=declaration.task, invoke=invoke, criteria=criteria)
+    transforms = declaration.transforms
+    views = _build_views(declaration)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms)
 
-    thresholded = any(criterion.is_thresholded for criterion in criteria)
-    if declaration.kind == "measure":
-        kind = RunKind.MEASURE
-    elif declaration.kind == "test" or thresholded:
-        kind = RunKind.TEST
-    else:
-        kind = RunKind.OBSERVATION
+    skipped: tuple[str, ...] = ()
+    criterion_declarations: Sequence[CriterionDeclaration] = declaration.criteria
+    if mode is RunKind.TEST:
+        thresholded = [c for c in declaration.criteria if c.threshold is not None]
+        if not thresholded:
+            raise TaskConfigurationError(
+                "nothing to test: no criterion declares a `threshold:`. Run "
+                "`baseltest measure` to characterise the service, or declare a bar."
+            )
+        skipped = tuple(c.name for c in declaration.criteria if c.threshold is None)
+        criterion_declarations = thresholded
+
+    criteria = tuple(
+        _build_criterion(entry, declaration.confidence, expected, transforms)
+        for entry in criterion_declarations
+    )
+    contract = ServiceContract(
+        contract_id=declaration.task, invoke=invoke, criteria=criteria, views=views
+    )
 
     derived: int | None = None
     samples = declaration.samples
     if samples is None:
+        if not contract.thresholded_criteria:
+            raise TaskConfigurationError(
+                "`samples:` is required for a measure run with no thresholded "
+                "criterion — a pure characterisation has no feasibility anchor to "
+                "derive a sample count from"
+            )
         derived = derive_minimum_samples(contract)
         samples = derived
 
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
-    plan = RunPlan(samples=samples, inputs=declaration.inputs, kind=kind, intent=intent)
-    return contract, plan, derived, service_provenance
+    plan = RunPlan(samples=samples, inputs=declaration.inputs, kind=mode, intent=intent)
+    return contract, plan, derived, service_provenance, skipped

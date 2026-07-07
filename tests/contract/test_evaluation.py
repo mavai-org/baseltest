@@ -1,4 +1,4 @@
-"""Per-trial evaluation: transform stage, conjunction, failure reasons, tallies."""
+"""Per-trial evaluation: views, conjunction, failure reasons, tallies."""
 
 import json
 from typing import Any
@@ -8,7 +8,9 @@ import pytest
 from baseltest.contract import (
     Criterion,
     CriterionTally,
+    ServiceContract,
     TransformError,
+    TrialViews,
     contains,
     equals,
     evaluate_trial,
@@ -18,89 +20,128 @@ from baseltest.contract import (
 )
 
 
-def json_transform(raw: str) -> Any:
+def json_view(raw: str) -> Any:
     try:
         return json.loads(raw)
     except ValueError as error:
         raise TransformError(f"response does not parse as json: {error}") from error
 
 
+VIEWS = {"doc": json_view}
+
+
+def views_for(response: str) -> TrialViews:
+    return TrialViews(response, VIEWS)
+
+
+def evaluate(criterion: Criterion, response: str):  # type: ignore[no-untyped-def]
+    return evaluate_trial(criterion, views_for(response))
+
+
 class TestStringForms:
     def test_equals_passes_on_exact_match(self) -> None:
         criterion = Criterion(name="c", postconditions=(equals("hello"),))
-        assert evaluate_trial(criterion, "hello").passed
+        assert evaluate(criterion, "hello").passed
 
     def test_equals_fails_with_reason(self) -> None:
         criterion = Criterion(name="c", postconditions=(equals("hello"),))
-        evaluation = evaluate_trial(criterion, "goodbye")
+        evaluation = evaluate(criterion, "goodbye")
         assert not evaluation.passed
         assert evaluation.reason is not None and "does not equal" in evaluation.reason
 
     def test_one_of(self) -> None:
         criterion = Criterion(name="c", postconditions=(one_of(["a", "b"]),))
-        assert evaluate_trial(criterion, "b").passed
-        assert not evaluate_trial(criterion, "c").passed
+        assert evaluate(criterion, "b").passed
+        assert not evaluate(criterion, "c").passed
 
     def test_contains(self) -> None:
         criterion = Criterion(name="c", postconditions=(contains("hello"),))
-        assert evaluate_trial(criterion, "why hello there").passed
-        assert not evaluate_trial(criterion, "goodbye").passed
+        assert evaluate(criterion, "why hello there").passed
+        assert not evaluate(criterion, "goodbye").passed
 
     def test_matches_searches_anywhere(self) -> None:
         criterion = Criterion(name="c", postconditions=(matches(r"RF-\d{8}"),))
-        assert evaluate_trial(criterion, "your ref is RF-12345678, thanks").passed
-        assert not evaluate_trial(criterion, "no reference here").passed
+        assert evaluate(criterion, "your ref is RF-12345678, thanks").passed
+        assert not evaluate(criterion, "no reference here").passed
 
     def test_conjunction_requires_every_form(self) -> None:
         criterion = Criterion(name="c", postconditions=(contains("case"), contains("refund")))
-        assert evaluate_trial(criterion, "refund case 12").passed
-        evaluation = evaluate_trial(criterion, "refund only")
+        assert evaluate(criterion, "refund case 12").passed
+        evaluation = evaluate(criterion, "refund only")
         assert not evaluation.passed
         assert evaluation.reason is not None and "case" in evaluation.reason
 
-    def test_first_failing_form_supplies_the_reason(self) -> None:
-        criterion = Criterion(name="c", postconditions=(contains("alpha"), contains("beta")))
-        evaluation = evaluate_trial(criterion, "beta only")
-        assert evaluation.reason is not None and "alpha" in evaluation.reason
 
-
-class TestTransformStage:
-    def test_satisfies_receives_transformed_value(self) -> None:
+class TestViews:
+    def test_satisfies_receives_the_named_view(self) -> None:
         criterion = Criterion(
             name="c",
-            transform=json_transform,
-            postconditions=(satisfies("status confirmed", lambda v: v["status"] == "ok"),),
+            postconditions=(satisfies("status ok", lambda v: v["status"] == "ok", view="doc"),),
         )
-        assert evaluate_trial(criterion, '{"status": "ok"}').passed
+        assert evaluate(criterion, '{"status": "ok"}').passed
 
-    def test_transform_failure_is_a_failed_trial_with_transform_reason(self) -> None:
+    def test_view_failure_is_a_failed_trial_with_transform_reason(self) -> None:
         criterion = Criterion(
             name="c",
-            transform=json_transform,
-            postconditions=(satisfies("any", lambda v: True),),
+            postconditions=(satisfies("any", lambda v: True, view="doc"),),
         )
-        evaluation = evaluate_trial(criterion, "not json {")
+        evaluation = evaluate(criterion, "not json {")
         assert not evaluation.passed
         assert evaluation.reason is not None
-        assert evaluation.reason.startswith("transform failed")
+        assert evaluation.reason.startswith("transform failed (doc)")
 
-    def test_string_forms_judge_the_raw_response_even_under_transform(self) -> None:
+    def test_raw_is_the_default_subject_even_when_views_exist(self) -> None:
         criterion = Criterion(
             name="c",
-            transform=json_transform,
             postconditions=(contains('"ok"'),),
         )
-        assert evaluate_trial(criterion, '{"status": "ok"}').passed
+        assert evaluate(criterion, '{"status": "ok"}').passed
 
-    def test_defect_in_transform_propagates(self) -> None:
-        def broken(raw: str) -> Any:
-            raise RuntimeError("bug in transform")
+    def test_view_computed_once_and_shared_within_a_trial(self) -> None:
+        calls = []
 
-        criterion = Criterion(
-            name="c", transform=broken, postconditions=(satisfies("any", lambda v: True),)
+        def counting_view(raw: str) -> Any:
+            calls.append(raw)
+            return json.loads(raw)
+
+        views = TrialViews('{"a": 1}', {"doc": counting_view})
+        first = Criterion(
+            name="first", postconditions=(satisfies("has a", lambda v: "a" in v, view="doc"),)
         )
+        second = Criterion(name="second", postconditions=(satisfies("truthy", bool, view="doc"),))
+        assert evaluate_trial(first, views).passed
+        assert evaluate_trial(second, views).passed
+        assert len(calls) == 1  # one computation, both criteria served
+
+    def test_string_form_on_structured_view_is_a_type_failure(self) -> None:
+        criterion = Criterion(name="c", postconditions=(contains("x", view="doc"),))
+        evaluation = evaluate(criterion, '{"a": 1}')
+        assert not evaluation.passed
+        assert evaluation.reason is not None and "not text" in evaluation.reason
+
+    def test_undeclared_view_is_rejected_by_the_contract(self) -> None:
+        criterion = Criterion(name="c", postconditions=(satisfies("any", bool, view="ghost"),))
+        with pytest.raises(ValueError, match="undeclared view"):
+            ServiceContract(contract_id="svc", invoke=lambda v: v, criteria=(criterion,))
+
+    def test_raw_cannot_be_declared_as_a_view(self) -> None:
+        criterion = Criterion(name="c", postconditions=(contains("x"),))
+        with pytest.raises(ValueError, match="reserved"):
+            ServiceContract(
+                contract_id="svc",
+                invoke=lambda v: v,
+                criteria=(criterion,),
+                views={"raw": lambda raw: raw},
+            )
+
+    def test_defect_in_view_propagates(self) -> None:
+        def broken(raw: str) -> Any:
+            raise RuntimeError("bug in transformation")
+
+        views = TrialViews("anything", {"doc": broken})
+        criterion = Criterion(name="c", postconditions=(satisfies("any", bool, view="doc"),))
         with pytest.raises(RuntimeError):
-            evaluate_trial(criterion, "anything")
+            evaluate_trial(criterion, views)
 
     def test_defect_in_postcondition_propagates(self) -> None:
         criterion = Criterion(
@@ -108,7 +149,7 @@ class TestTransformStage:
             postconditions=(satisfies("buggy", lambda v: 1 / 0 > 0),),
         )
         with pytest.raises(ZeroDivisionError):
-            evaluate_trial(criterion, "anything")
+            evaluate(criterion, "anything")
 
 
 class TestTally:
@@ -116,21 +157,20 @@ class TestTally:
         criterion = Criterion(name="c", postconditions=(contains("ok"),))
         tally = CriterionTally()
         for response in ["ok", "ok", "nope", "ok", "nah"]:
-            tally.record(evaluate_trial(criterion, response))
+            tally.record(evaluate(criterion, response))
         assert tally.trials == 5
         assert tally.successes == 3
         assert tally.observed_rate == 0.6
         assert sum(tally.failure_reasons.values()) == 2
 
-    def test_transform_failures_are_attributed_distinctly(self) -> None:
+    def test_view_failures_are_attributed_distinctly(self) -> None:
         criterion = Criterion(
             name="c",
-            transform=json_transform,
-            postconditions=(satisfies("truthy", bool),),
+            postconditions=(satisfies("truthy", bool, view="doc"),),
         )
         tally = CriterionTally()
-        tally.record(evaluate_trial(criterion, "not json"))
-        tally.record(evaluate_trial(criterion, "0"))
+        tally.record(evaluate(criterion, "not json"))
+        tally.record(evaluate(criterion, "0"))
         reasons = list(tally.failure_reasons)
         assert any(r.startswith("transform failed") for r in reasons)
         assert any("truthy" in r for r in reasons)

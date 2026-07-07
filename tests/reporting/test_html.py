@@ -40,7 +40,7 @@ class TestHtmlReport:
 
         criterion = Criterion(name="measured", postconditions=(contains("refund"),))
         with pytest.raises(ValueError, match="baseline artefact"):
-            render_html_report(result_for((criterion,), kind=RunKind.OBSERVATION))
+            render_html_report(result_for((criterion,), kind=RunKind.MEASURE))
 
     def test_failure_distribution_in_details_element(self) -> None:
         judged = Criterion(name="ok", postconditions=(contains("refund"),), threshold=0.5)

@@ -1,7 +1,7 @@
 """Graduation: emit the equivalent contract as Python source the developer owns.
 
 The emitted module is the contract the task file instantiates — the same
-criteria, thresholds, transform, and run plan — expressed directly against
+criteria, thresholds, views, and run plan — expressed directly against
 ``baseltest.contract`` and ``baseltest.engine``. It is one-shot scaffolding:
 after materialising, the source is the developer's; nothing round-trips.
 """
@@ -45,13 +45,19 @@ def _form_source(declaration: FormDeclaration) -> str:
             "  # TODO: import your registered predicate"
         )
     else:  # parses
-        base = "satisfies('parses', lambda value: True)  # parseability via the transform"
+        base = (
+            f"satisfies('parses as {argument}', lambda value: True, "
+            f"view={str(argument)!r})  # forcing the view is the check"
+        )
     if declaration.path is not None:
         return (
-            f"# TODO: path-qualified check (`path: {declaration.path}`): select with "
-            "your JSONPath/XPath library of choice inside a satisfies() predicate\n"
+            f"# TODO: path-qualified check (`path: {declaration.path}` in view "
+            f"{declaration.view!r}): select with your JSONPath/XPath library of "
+            "choice inside a satisfies() predicate\n"
             f"        {base}"
         )
+    if declaration.view != "raw" and declaration.form != "parses":
+        return base[:-1] + f", view={declaration.view!r})"
     return base
 
 
@@ -69,12 +75,6 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
     lines.append("        ),")
     if declaration.threshold is not None:
         lines.append(f"        threshold={declaration.threshold},")
-    transform_name = declaration.transform or declaration.parses
-    if transform_name is not None:
-        lines.append(
-            f"        # TODO: transform ({transform_name}): supply your own callable; "
-            "raise TransformError for unparseable responses"
-        )
     if declaration.threshold_origin or declaration.contract_ref:
         lines.append(
             "        provenance=ThresholdProvenance("
@@ -99,6 +99,15 @@ def materialise(declaration: TaskDeclaration) -> str:
     parts.append("\ncontract = ServiceContract(")
     parts.append(f"    contract_id={declaration.task!r},")
     parts.append("    invoke=invoke,")
+    if declaration.transforms:
+        parts.append("    views={")
+        for view_name, transformation in declaration.transforms.items():
+            parts.append(
+                f"        {view_name!r}: ...,  # TODO: the {transformation} "
+                "transformation -- supply your own callable; raise TransformError "
+                "for unparseable responses"
+            )
+        parts.append("    },")
     parts.append("    criteria=(")
     for criterion in declaration.criteria:
         parts.append(_criterion_source(criterion))

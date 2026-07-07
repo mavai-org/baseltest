@@ -19,7 +19,7 @@ hand-authored contract and one instantiated from a task file are the same
 type.
 """
 
-from .evaluation import CriterionTally, TrialEvaluation, evaluate_trial
+from .evaluation import CriterionTally, TrialEvaluation, TrialViews, evaluate_trial
 from .model import Criterion, ServiceContract, ThresholdProvenance, TransformError
 from .postconditions import (
     Postcondition,
@@ -40,6 +40,7 @@ __all__ = [
     "ThresholdProvenance",
     "TransformError",
     "TrialEvaluation",
+    "TrialViews",
     "contains",
     "equals",
     "evaluate_trial",

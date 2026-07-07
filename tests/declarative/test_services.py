@@ -157,8 +157,12 @@ class TestProvenance:
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
         task = TASK.replace("service: greeter", "service: support-agent")
-        task += "kind: measure\n"
-        run(write_files(tmp_path, task=task), baseline_dir=tmp_path / "b", emit=False)
+        run(
+            write_files(tmp_path, task=task),
+            mode="measure",
+            baseline_dir=tmp_path / "b",
+            emit=False,
+        )
         content = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
         assert '"serviceType": "language-model"' in content
         assert '"systemPrompt": "You are a support agent."' in content

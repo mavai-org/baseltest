@@ -1,9 +1,12 @@
 """Parsing and validation: a task file into a checked task model.
 
 Everything here happens at load time, before any invocation: structural
-validation, reserved-key rejection with a pointer, the run-kind
-contradiction, transform/parses exclusivity, path legality, and eager
-compilation of selection expressions.
+validation, reserved-key rejection with a pointer, the views block
+(``raw`` reserved), subject/``path`` legality, per-input expectation
+lists, and constructive refusals in format vocabulary.
+
+The task file is posture-free: the run mode (``test``/``measure``) is the
+invocation verb, never a key.
 """
 
 import io
@@ -18,17 +21,19 @@ from ._errors import TaskConfigurationError
 
 FORMAT_IDENTIFIER = "mavai-task/1"
 DEFAULT_CONFIDENCE = 0.95
+RAW_VIEW = "raw"
+STOCK_TRANSFORMS = {"json", "xml", "yaml"}
 
 _TOP_LEVEL_KEYS = {
     "format",
     "task",
     "service",
     "samples",
+    "transforms",
     "inputs",
     "criteria",
     "intent",
     "confidence",
-    "kind",
 }
 _RESERVED_TOP_LEVEL = {
     "facets",
@@ -38,13 +43,11 @@ _RESERVED_TOP_LEVEL = {
     "latency",
     "budget",
 }
-_RESERVED_KINDS = {"explore", "optimize"}
 _CRITERION_KEYS = {
     "name",
     "threshold",
     "threshold-origin",
     "contract-ref",
-    "transform",
     "postconditions",
     "equals",
     "one-of",
@@ -54,7 +57,7 @@ _CRITERION_KEYS = {
     "satisfies",
 }
 _FORM_KEYS = ("equals", "one-of", "contains", "matches", "parses", "satisfies")
-_STOCK_TRANSFORMS = {"json", "xml", "yaml"}
+_STRING_FORMS = ("equals", "one-of", "contains", "matches")
 _SEAM_POINTER = (
     "reserved by the mavai task format for a future version — see the format's "
     "extension seams documentation"
@@ -63,10 +66,11 @@ _SEAM_POINTER = (
 
 @dataclass(frozen=True, slots=True)
 class FormDeclaration:
-    """One postcondition form as declared: the form key, its argument, optional path."""
+    """One postcondition form as declared: form key, argument, subject view, path."""
 
     form: str
     argument: Any
+    view: str = RAW_VIEW
     path: str | None = None
 
 
@@ -77,29 +81,27 @@ class CriterionDeclaration:
     name: str
     forms: tuple[FormDeclaration, ...]
     threshold: float | None
-    transform: str | None
-    parses: str | None
     threshold_origin: str | None
     contract_ref: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class TaskDeclaration:
-    """The whole task file, structurally validated."""
+    """The whole task file, structurally validated. Posture-free by design."""
 
     task: str
     service: str
     samples: int | None
+    transforms: dict[str, str]
     inputs: tuple[str, ...]
-    expected_pairs: tuple[tuple[str, FormDeclaration], ...]
+    expected_pairs: tuple[tuple[str, tuple[FormDeclaration, ...]], ...]
     criteria: tuple[CriterionDeclaration, ...]
     intent: str
     confidence: float
-    kind: str | None
     source_path: Path | None = field(default=None, compare=False)
 
 
-def _fail(message: str) -> "TaskConfigurationError":
+def _fail(message: str) -> TaskConfigurationError:
     return TaskConfigurationError(message)
 
 
@@ -123,6 +125,11 @@ def _require_mapping(value: Any, what: str) -> dict[str, Any]:
 
 def _check_top_level_keys(data: dict[str, Any]) -> None:
     for key in data:
+        if key == "kind":
+            raise _fail(
+                "`kind:` was withdrawn — the run mode is the invocation verb: "
+                "`baseltest test task.yaml` or `baseltest measure task.yaml`"
+            )
         if key in _RESERVED_TOP_LEVEL:
             raise _fail(f"`{key}:` is {_SEAM_POINTER}")
         if key not in _TOP_LEVEL_KEYS:
@@ -134,49 +141,44 @@ def _check_top_level_keys(data: dict[str, Any]) -> None:
         raise _fail(f"`format:` must be {FORMAT_IDENTIFIER!r}, got {data['format']!r}")
 
 
-def _parse_kind_and_intent(data: dict[str, Any]) -> tuple[str | None, str]:
-    kind = data.get("kind")
-    if kind is not None:
-        if kind in _RESERVED_KINDS:
-            raise _fail(f"`kind: {kind}` is {_SEAM_POINTER}")
-        if kind not in ("test", "measure"):
-            raise _fail(f"unknown `kind: {kind}` — expected test or measure")
-    intent = data.get("intent", "verification")
-    if intent not in ("verification", "smoke"):
-        raise _fail(f"unknown `intent: {intent}` — expected verification or smoke")
-    return kind, intent
+def _parse_transforms(data: dict[str, Any]) -> dict[str, str]:
+    if "transforms" not in data:
+        return {}
+    block = _require_mapping(data["transforms"], "`transforms:`")
+    if not block:
+        raise _fail("`transforms:` must be a non-empty mapping when declared")
+    views: dict[str, str] = {}
+    for view_name, transformation in block.items():
+        if view_name == RAW_VIEW:
+            raise _fail(
+                "`raw` is the reserved name of the untransformed response and "
+                "cannot be declared as a view"
+            )
+        if not isinstance(transformation, str) or not transformation:
+            raise _fail(
+                f"view {view_name!r}: the transformation must be a name — a stock "
+                "one (json, xml, yaml) or a transformation registered in code"
+            )
+        views[view_name] = transformation
+    return views
 
 
-def _parse_inputs(
-    value: Any,
-) -> tuple[tuple[str, ...], tuple[tuple[str, FormDeclaration], ...]]:
-    if not isinstance(value, list) or not value:
-        raise _fail("`inputs:` must be a non-empty list")
-    inputs: list[str] = []
-    pairs: list[tuple[str, FormDeclaration]] = []
-    for entry in value:
-        if isinstance(entry, str):
-            inputs.append(entry)
-        elif isinstance(entry, dict) and set(entry) == {"input", "expected"}:
-            input_value = entry["input"]
-            if not isinstance(input_value, str):
-                raise _fail("`input:` in an input/expected pair must be a string")
-            expected = _require_mapping(entry["expected"], "`expected:`")
-            if len(expected) != 1:
-                raise _fail("`expected:` declares exactly one postcondition form")
-            form, argument = next(iter(expected.items()))
-            if form not in ("equals", "one-of", "contains", "matches"):
-                raise _fail(f"`expected:` does not support the `{form}` form")
-            inputs.append(input_value)
-            pairs.append((input_value, FormDeclaration(form=form, argument=argument)))
-        else:
-            raise _fail("each `inputs:` entry is a string or an {input, expected} pair")
-    return tuple(inputs), tuple(pairs)
-
-
-def _parse_form_entry(entry: dict[str, Any], where: str) -> FormDeclaration:
+def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) -> FormDeclaration:
     keys = set(entry)
+    view = RAW_VIEW
     path = None
+    if "in" in keys:
+        view_value = entry["in"]
+        if not isinstance(view_value, str) or not view_value:
+            raise _fail(f"{where}: `in:` must name a view")
+        if view_value != RAW_VIEW and view_value not in views:
+            declared = ", ".join(sorted(views)) or "none declared"
+            raise _fail(
+                f"{where}: `in: {view_value}` names an undeclared view "
+                f"(declared: {declared}; `raw` is always available)"
+            )
+        view = view_value
+        keys.discard("in")
     if "path" in keys:
         path_value = entry["path"]
         if not isinstance(path_value, str) or not path_value:
@@ -188,15 +190,68 @@ def _parse_form_entry(entry: dict[str, Any], where: str) -> FormDeclaration:
     form = keys.pop()
     if form not in _FORM_KEYS:
         raise _fail(f"{where}: unknown postcondition form `{form}`")
-    if path is not None and form in ("parses", "satisfies"):
-        raise _fail(f"{where}: `path:` qualifies the string forms only")
-    return FormDeclaration(form=form, argument=entry[form], path=path)
+    if path is not None:
+        if form not in _STRING_FORMS:
+            raise _fail(f"{where}: `path:` qualifies the string forms only")
+        if views.get(view) not in STOCK_TRANSFORMS:
+            raise _fail(
+                f"{where}: `path:` requires `in:` naming a view with a stock "
+                "transformation (json, xml, or yaml)"
+            )
+    if form == "parses":
+        target = entry[form]
+        if view != RAW_VIEW:
+            raise _fail(f"{where}: `parses:` takes no `in:` — it names its view directly")
+        if not isinstance(target, str) or target not in views:
+            declared = ", ".join(sorted(views)) or "none declared"
+            raise _fail(f"{where}: `parses:` references a declared view (declared: {declared})")
+    return FormDeclaration(form=form, argument=entry[form], view=view, path=path)
 
 
-def _parse_criterion(entry: Any, index: int) -> CriterionDeclaration:
+def _parse_inputs(
+    value: Any, views: dict[str, str]
+) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[FormDeclaration, ...]], ...]]:
+    if not isinstance(value, list) or not value:
+        raise _fail("`inputs:` must be a non-empty list")
+    inputs: list[str] = []
+    pairs: list[tuple[str, tuple[FormDeclaration, ...]]] = []
+    for entry in value:
+        if isinstance(entry, str):
+            inputs.append(entry)
+            continue
+        if not (isinstance(entry, dict) and set(entry) == {"input", "expected"}):
+            raise _fail("each `inputs:` entry is a string or an {input, expected} entry")
+        input_value = entry["input"]
+        if not isinstance(input_value, str):
+            raise _fail("`input:` in an input/expected entry must be a string")
+        where = f"expected for input {input_value!r}"
+        expected = entry["expected"]
+        if isinstance(expected, dict):
+            expected = [expected]
+        if not isinstance(expected, list) or not expected:
+            raise _fail(f"{where}: `expected:` is a form or a non-empty list of forms")
+        forms = tuple(
+            _parse_form_entry(_require_mapping(form_entry, where), where, views)
+            for form_entry in expected
+        )
+        for declaration in forms:
+            if declaration.form == "parses":
+                raise _fail(f"{where}: `parses:` is a criterion-level form")
+        inputs.append(input_value)
+        pairs.append((input_value, forms))
+    return tuple(inputs), tuple(pairs)
+
+
+def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> CriterionDeclaration:
     where = f"criteria entry {index + 1}"
     data = _require_mapping(entry, where)
     for key in data:
+        if key in ("transform", "in"):
+            raise _fail(
+                f"{where}: `{key}:` does not belong on the criterion — declare views "
+                "in the `transforms:` block and name a check's subject with `in:` on "
+                "the check itself"
+            )
         if key not in _CRITERION_KEYS and key != "path":
             raise _fail(f"{where}: unknown key `{key}:`")
 
@@ -208,36 +263,16 @@ def _parse_criterion(entry: Any, index: int) -> CriterionDeclaration:
             raise _fail(f"{where}: `threshold:` must be a number in (0, 1)")
         threshold = float(threshold)
 
-    transform_name = data.get("transform")
-    parses = data.get("parses")
-    if transform_name is not None and parses is not None:
-        raise _fail(
-            f"{where}: declare at most one of `transform:` and `parses:` "
-            "(`parses:` is shorthand for a transform with no value-consumers)"
-        )
-    if parses is not None and parses not in _STOCK_TRANSFORMS:
-        raise _fail(f"{where}: `parses:` supports json, xml, or yaml")
-    if transform_name is not None and (not isinstance(transform_name, str) or not transform_name):
-        raise _fail(f"{where}: `transform:` must be a non-empty name")
-
     forms: list[FormDeclaration] = []
-    inline_forms = [key for key in _FORM_KEYS if key in data]
-    for form in inline_forms:
-        forms.append(FormDeclaration(form=form, argument=data[form], path=None))
+    for form in _FORM_KEYS:
+        if form in data:
+            forms.append(_parse_form_entry({form: data[form]}, where, views))
     if "postconditions" in data:
         entries = data["postconditions"]
         if not isinstance(entries, list) or not entries:
             raise _fail(f"{where}: `postconditions:` must be a non-empty list")
         for form_entry in entries:
-            forms.append(_parse_form_entry(_require_mapping(form_entry, where), where))
-
-    effective_transform = transform_name or parses
-    for declaration in forms:
-        if declaration.path is not None and (effective_transform not in _STOCK_TRANSFORMS):
-            raise _fail(
-                f"{where}: `path:` requires a stock transform "
-                "(`transform: json`, `xml`, or `yaml`) on the criterion"
-            )
+            forms.append(_parse_form_entry(_require_mapping(form_entry, where), where, views))
 
     name = data.get("name")
     if name is None:
@@ -250,14 +285,11 @@ def _parse_criterion(entry: Any, index: int) -> CriterionDeclaration:
         name=name,
         forms=tuple(forms),
         threshold=threshold,
-        transform=transform_name,
-        parses=parses,
         threshold_origin=data.get("threshold-origin"),
         contract_ref=data.get("contract-ref"),
     )
 
 
-# javai-ref: JVI-E2WH9DE — do not remove (resolves in javai-orchestrator)
 def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     """Parse and structurally validate a task file's text.
 
@@ -267,19 +299,25 @@ def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     """
     data = _require_mapping(_load_yaml(text), "the task file")
     _check_top_level_keys(data)
-    kind, intent = _parse_kind_and_intent(data)
-    inputs, expected_pairs = _parse_inputs(data["inputs"])
+    intent = data.get("intent", "verification")
+    if intent not in ("verification", "smoke"):
+        raise _fail(f"unknown `intent: {intent}` — expected verification or smoke")
+
+    views = _parse_transforms(data)
+    inputs, expected_pairs = _parse_inputs(data["inputs"], views)
 
     criteria_value = data["criteria"]
     if not isinstance(criteria_value, list) or not criteria_value:
         raise _fail("`criteria:` must be a non-empty list of criterion entries")
-    criteria = tuple(_parse_criterion(entry, index) for index, entry in enumerate(criteria_value))
+    criteria = tuple(
+        _parse_criterion(entry, index, views) for index, entry in enumerate(criteria_value)
+    )
     names = [criterion.name for criterion in criteria]
     if len(names) != len(set(names)):
         raise _fail("criterion names must be unique within the task")
     if expected_pairs and len(criteria) != 1:
         raise _fail(
-            "per-input `expected:` pairs require exactly one criteria entry — with "
+            "per-input `expected:` entries require exactly one criteria entry — with "
             "several criteria their owner would be ambiguous; move the expectations "
             "into the criterion entries"
         )
@@ -294,28 +332,16 @@ def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:
         raise _fail("`confidence:` must be a number in (0, 1)")
 
-    thresholded = any(c.threshold is not None for c in criteria)
-    if kind == "test" and not thresholded:
-        raise _fail(
-            "`kind: test` requires at least one criterion to declare a `threshold:` "
-            "— a test needs a bar; without one, run the task as a measurement"
-        )
-    if samples is None and not thresholded:
-        raise _fail(
-            "`samples:` is required when no criterion declares a `threshold:` — an "
-            "observation has no feasibility anchor to derive a sample count from"
-        )
-
     return TaskDeclaration(
         task=_require_string(data, "task"),
         service=_require_string(data, "service"),
         samples=samples,
+        transforms=views,
         inputs=inputs,
         expected_pairs=expected_pairs,
         criteria=criteria,
         intent=intent,
         confidence=float(confidence),
-        kind=kind,
         source_path=source_path,
     )
 

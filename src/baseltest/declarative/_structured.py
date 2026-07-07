@@ -142,16 +142,18 @@ def path_qualified(
     expression: str,
     compiled: Any,
     inner: Postcondition,
+    view: str = "raw",
 ) -> Postcondition:
     """Wrap a string-form postcondition to judge the values a path selects.
 
-    ``language`` is ``"jsonpath"`` (for json and yaml transforms) or
-    ``"xpath"``. The wrapped check applies the inner form to every selected
-    value's string projection; empty selections and structural values under
-    a string form are per-trial failures with their own reasons.
+    ``language`` is ``"jsonpath"`` (for json and yaml views) or ``"xpath"``.
+    The wrapped check applies the inner form to every selected value's
+    string projection; empty selections and structural values under a
+    string form are per-trial failures with their own reasons. The check's
+    subject is the named view's document.
     """
 
-    def check(_raw: str, value: Any) -> PostconditionResult:
+    def check(value: Any) -> PostconditionResult:
         if language == "jsonpath":
             selected = [node.value for node in compiled.find(value)]
             texts: list[str] = []
@@ -168,9 +170,9 @@ def path_qualified(
         if not texts:
             return PostconditionResult.failed(f"path {expression} selected nothing")
         for text in texts:
-            result = inner.evaluate(text, text)
+            result = inner.evaluate(text)
             if not result.passed:
                 return PostconditionResult.failed(f"path {expression}: {result.reason}")
         return PostconditionResult.ok()
 
-    return Postcondition(name=f"{inner.name} at {expression}", check=check)
+    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)

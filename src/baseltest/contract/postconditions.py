@@ -1,15 +1,16 @@
 """Postconditions: the checks a criterion applies to each response.
 
-A postcondition receives both the raw response text and the transformed
-value (when the criterion declares a transform; otherwise the raw text
-again) and reports a result -- pass, or a reasoned failure. Anticipated
-negative outcomes travel as data, never as exceptions: an exception escaping
-a postcondition is a defect in the check itself and aborts the run.
+Every postcondition judges exactly one **view** of the response, named by
+its ``view`` attribute; the default subject is ``"raw"`` — the
+untransformed response text. Checks report a result — pass, or a reasoned
+failure — and anticipated negative outcomes travel as data, never as
+exceptions: an exception escaping a check is a defect in the check itself
+and aborts the run.
 
 The string forms here are dependency-free and public: they are the
-graduation surface's building blocks. Structured checks over parsed
-documents are composed by callers (as further ``Postcondition`` values);
-this module neither knows nor cares how a check was built.
+graduation surface's building blocks. They require a text subject; judging
+a non-text view value with a string form is a per-trial type failure, not
+an error.
 """
 
 import re
@@ -44,79 +45,101 @@ class PostconditionResult:
 
 @dataclass(frozen=True, slots=True)
 class Postcondition:
-    """A named check over a response.
+    """A named check over one view of the response.
 
     Attributes:
         name: A short label identifying the check in output and failure
             distributions (e.g. ``'contains "hello"'``).
-        check: The predicate: ``(raw_response, value_under_judgement) ->
+        check: The predicate over the subject: ``(subject) ->
             PostconditionResult``.
+        view: The name of the view the check judges; ``"raw"`` (the
+            untransformed response) by default.
     """
 
     name: str
-    check: Callable[[str, Any], PostconditionResult]
+    check: Callable[[Any], PostconditionResult]
+    view: str = "raw"
 
-    def evaluate(self, raw: str, value: Any) -> PostconditionResult:
-        """Apply the check to one response."""
-        return self.check(raw, value)
+    def evaluate(self, subject: Any) -> PostconditionResult:
+        """Apply the check to the resolved subject."""
+        return self.check(subject)
 
 
-def equals(expected: str) -> Postcondition:
-    """The response equals the string exactly."""
+def _text(subject: Any) -> str | None:
+    """The text a string form judges, or None (type failure) for non-text."""
+    return subject if isinstance(subject, str) else None
 
-    def check(raw: str, _value: Any) -> PostconditionResult:
-        if raw == expected:
+
+def _type_failure(form: str, subject: Any) -> PostconditionResult:
+    return PostconditionResult.failed(
+        f"{form}: subject is {type(subject).__name__}, not text — a string form judges text"
+    )
+
+
+def equals(expected: str, view: str = "raw") -> Postcondition:
+    """The subject equals the string exactly."""
+
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("equals", subject)
+        if text == expected:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not equal {expected!r}")
 
-    return Postcondition(name=f"equals {expected!r}", check=check)
+    return Postcondition(name=f"equals {expected!r}", check=check, view=view)
 
 
-def one_of(expected: Sequence[str]) -> Postcondition:
-    """The response is any one of the listed strings."""
+def one_of(expected: Sequence[str], view: str = "raw") -> Postcondition:
+    """The subject is any one of the listed strings."""
     allowed = tuple(expected)
 
-    def check(raw: str, _value: Any) -> PostconditionResult:
-        if raw in allowed:
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("one-of", subject)
+        if text in allowed:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response is not one of {list(allowed)!r}")
 
-    return Postcondition(name=f"one-of {list(allowed)!r}", check=check)
+    return Postcondition(name=f"one-of {list(allowed)!r}", check=check, view=view)
 
 
-def contains(substring: str) -> Postcondition:
-    """The response contains the substring."""
+def contains(substring: str, view: str = "raw") -> Postcondition:
+    """The subject contains the substring."""
 
-    def check(raw: str, _value: Any) -> PostconditionResult:
-        if substring in raw:
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("contains", subject)
+        if substring in text:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not contain {substring!r}")
 
-    return Postcondition(name=f'contains "{substring}"', check=check)
+    return Postcondition(name=f'contains "{substring}"', check=check, view=view)
 
 
-def matches(pattern: str) -> Postcondition:
-    """The response matches the regular expression (searched, per ``re.search``)."""
+def matches(pattern: str, view: str = "raw") -> Postcondition:
+    """The subject matches the regular expression (searched, per ``re.search``)."""
     compiled = re.compile(pattern)
 
-    def check(raw: str, _value: Any) -> PostconditionResult:
-        if compiled.search(raw) is not None:
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("matches", subject)
+        if compiled.search(text) is not None:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not match /{pattern}/")
 
-    return Postcondition(name=f"matches /{pattern}/", check=check)
+    return Postcondition(name=f"matches /{pattern}/", check=check, view=view)
 
 
-def satisfies(name: str, predicate: Callable[[Any], bool]) -> Postcondition:
-    """A named check: the predicate holds for the value under judgement.
+def satisfies(name: str, predicate: Callable[[Any], bool], view: str = "raw") -> Postcondition:
+    """A named check: the predicate holds for the subject view's value."""
 
-    The predicate receives the transformed value when the criterion declares
-    a transform, and the raw response text otherwise.
-    """
-
-    def check(_raw: str, value: Any) -> PostconditionResult:
-        if predicate(value):
+    def check(subject: Any) -> PostconditionResult:
+        if predicate(subject):
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"check {name!r} not satisfied")
 
-    return Postcondition(name=name, check=check)
+    return Postcondition(name=name, check=check, view=view)

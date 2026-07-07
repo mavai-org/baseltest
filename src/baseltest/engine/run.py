@@ -7,18 +7,23 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
-from baseltest.contract import Criterion, CriterionTally, ServiceContract, evaluate_trial
+from baseltest.contract import (
+    Criterion,
+    CriterionTally,
+    ServiceContract,
+    TrialViews,
+    evaluate_trial,
+)
 from baseltest.statistics import check_feasibility
 from baseltest.statistics.verdict import Verdict
 from baseltest.statistics.wilson import wilson_lower_bound
 
 
 class RunKind(Enum):
-    """The nature of a run, mirroring the family's run taxonomy."""
+    """The run mode, chosen at invocation: the family's verb-carries-the-posture rule."""
 
     TEST = "test"
     MEASURE = "measure"
-    OBSERVATION = "observation"
 
 
 class Intent(Enum):
@@ -35,7 +40,7 @@ class RunPlan:
     Attributes:
         samples: Total number of invocations.
         inputs: The fixed, finite input list; invocations cycle through it.
-        kind: The run kind (test, measure, or bare observation).
+        kind: The run mode (test or measure), chosen at invocation.
         intent: Verification (feasibility enforced) or smoke (advisory).
     """
 
@@ -209,8 +214,9 @@ def execute(
     tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
     for i in range(plan.samples):
         response = contract.invoke(plan.inputs[i % len(plan.inputs)])
+        views = TrialViews(response, contract.views)  # one cache per trial, all criteria
         for criterion in contract.criteria:
-            tallies[criterion.name].record(evaluate_trial(criterion, response))
+            tallies[criterion.name].record(evaluate_trial(criterion, views))
         if on_sample is not None:
             on_sample(i + 1, plan.samples)
     finished_at = datetime.now(tz=UTC)

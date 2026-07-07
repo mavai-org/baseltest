@@ -184,7 +184,7 @@ def render_html_report(result: RunResult) -> str:
 <p class="timestamp">started {result.started_at.isoformat(timespec="seconds")}</p>
 <div class="summary-stats">
 <span class="stat">{result.plan.samples} samples</span>
-<span class="stat">kind: {result.kind.value}</span>
+<span class="stat">mode: {result.kind.value}</span>
 <span class="stat">{len(result.criterion_results)} criteria</span>
 </div>
 </header>

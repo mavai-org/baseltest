@@ -1,4 +1,4 @@
-"""The reader end-to-end: parse, validate, instantiate, run, persist, refuse."""
+"""The reader end-to-end: parse, validate, instantiate per mode, run, persist, refuse."""
 
 from pathlib import Path
 
@@ -9,8 +9,7 @@ from baseltest.declarative._errors import TaskConfigurationError
 from baseltest.declarative._materialise import materialise
 from baseltest.declarative._parser import load_task, parse_task
 from baseltest.declarative._registry import clear_registries
-from baseltest.engine import InfeasibleRunError
-from baseltest.statistics.verdict import Verdict
+from baseltest.engine import InfeasibleRunError, Verdict
 
 
 @pytest.fixture(autouse=True)
@@ -31,13 +30,18 @@ format: mavai-task/1
 task: greeting-service-is-polite
 service: greeting-service
 samples: 100
-inputs:
-  - "Alice"
-  - "Bob"
 criteria:
   - threshold: 0.5
     contains: "hello"
+inputs:
+  - "Alice"
+  - "Bob"
 """
+
+TWO_CRITERIA = (
+    'criteria:\n  - name: judged\n    threshold: 0.5\n    contains: "hello"\n'
+    '  - name: watched\n    contains: "Alice"'
+)
 
 
 class TestFirstContactPath:
@@ -72,6 +76,79 @@ class TestFirstContactPath:
         assert result.plan.samples == check_feasibility(1, 0.5, 0.95).minimum_samples
 
 
+class TestRunModes:
+    def test_kind_key_withdrawn_with_pointer_to_the_verbs(self) -> None:
+        with pytest.raises(TaskConfigurationError, match="invocation verb"):
+            parse_task(GREETING_TASK + "kind: measure\n")
+
+    def test_test_mode_without_thresholds_is_refused(self, tmp_path: Path) -> None:
+        @binding("greeting-service")
+        def greet(value: str) -> str:
+            return f"hello {value}"
+
+        task = GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains")
+        with pytest.raises(TaskConfigurationError, match="nothing to test"):
+            run(write_task(tmp_path, task), mode="test")
+
+    def test_test_mode_skips_unthresholded_criteria_with_notice(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        @binding("greeting-service")
+        def greet(value: str) -> str:
+            return f"hello {value}"
+
+        task = GREETING_TASK.replace(
+            'criteria:\n  - threshold: 0.5\n    contains: "hello"', TWO_CRITERIA
+        )
+        result = run(write_task(tmp_path, task), mode="test")
+        assert [r.name for r in result.criterion_results] == ["judged"]
+        out = capsys.readouterr().out
+        assert "criterion watched declares no threshold and was not judged" in out
+        assert "baseltest measure" in out
+
+    def test_measure_mode_records_all_and_persists(self, tmp_path: Path) -> None:
+        @binding("greeting-service")
+        def greet(value: str) -> str:
+            return f"hello {value}"
+
+        task = GREETING_TASK.replace(
+            'criteria:\n  - threshold: 0.5\n    contains: "hello"', TWO_CRITERIA
+        )
+        result = run(
+            write_task(tmp_path, task), mode="measure", baseline_dir=tmp_path / "b", emit=False
+        )
+        assert {r.name for r in result.criterion_results} == {"judged", "watched"}
+        artefacts = list((tmp_path / "b").glob("*.yaml"))
+        assert len(artefacts) == 1
+        content = artefacts[0].read_text(encoding="utf-8")
+        assert '"runMode": "measure"' in content
+        assert '"watched"' in content
+
+    def test_measure_without_thresholds_requires_samples(self, tmp_path: Path) -> None:
+        @binding("greeting-service")
+        def greet(value: str) -> str:
+            return f"hello {value}"
+
+        task = GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains").replace(
+            "samples: 100\n", ""
+        )
+        with pytest.raises(TaskConfigurationError, match="feasibility anchor"):
+            run(write_task(tmp_path, task), mode="measure", emit=False)
+
+    def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
+        @binding("greeting-service")
+        def greet(value: str) -> str:
+            return f"hello {value}"
+
+        with pytest.raises(TaskConfigurationError, match="baseline artefact"):
+            run(
+                write_task(tmp_path, GREETING_TASK),
+                mode="measure",
+                html_report=tmp_path / "r.html",
+                emit=False,
+            )
+
+
 class TestValidationRefusals:
     def test_reserved_key_rejected_with_pointer(self, tmp_path: Path) -> None:
         task = GREETING_TASK + "covariates:\n  model: x\n"
@@ -80,49 +157,55 @@ class TestValidationRefusals:
         assert "reserved" in str(excinfo.value)
         assert "extension seams" in str(excinfo.value)
 
-    def test_reserved_kind_rejected(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="reserved"):
-            parse_task(GREETING_TASK + "kind: explore\n")
-
     def test_unknown_key_named(self) -> None:
         with pytest.raises(TaskConfigurationError, match="samplez"):
             parse_task(GREETING_TASK + "samplez: 3\n")
 
-    def test_kind_test_without_threshold_is_a_contradiction(self) -> None:
-        task = (
-            GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains") + "kind: test\n"
-        )
-        with pytest.raises(TaskConfigurationError, match="needs a bar"):
+    def test_criterion_level_transform_directed_to_the_views_block(self) -> None:
+        task = GREETING_TASK.replace('contains: "hello"', 'contains: "hello"\n    transform: json')
+        with pytest.raises(TaskConfigurationError, match="transforms:"):
             parse_task(task)
 
-    def test_samples_required_without_threshold(self) -> None:
-        task = GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains").replace(
-            "samples: 100\n", ""
-        )
-        with pytest.raises(TaskConfigurationError, match="feasibility anchor"):
+    def test_raw_view_reserved(self) -> None:
+        task = GREETING_TASK + "transforms:\n  raw: json\n"
+        with pytest.raises(TaskConfigurationError, match="reserved name"):
             parse_task(task)
 
-    def test_transform_and_parses_are_exclusive(self) -> None:
-        task = GREETING_TASK.replace(
-            'contains: "hello"', 'contains: "hello"\n    transform: json\n    parses: json'
-        )
-        with pytest.raises(TaskConfigurationError, match="at most one"):
-            parse_task(task)
-
-    def test_path_requires_stock_transform(self) -> None:
+    def test_in_names_a_declared_view(self) -> None:
         task = """
 format: mavai-task/1
 task: t
 service: s
 samples: 10
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: ghost
+        contains: "x"
 inputs: ["a"]
+"""
+        with pytest.raises(TaskConfigurationError, match="undeclared view"):
+            parse_task(task)
+
+    def test_path_requires_a_stock_transformed_view(self) -> None:
+        task = """
+format: mavai-task/1
+task: t
+service: s
+samples: 10
 criteria:
   - threshold: 0.5
     postconditions:
       - path: "$.x"
         equals: "1"
+inputs: ["a"]
 """
-        with pytest.raises(TaskConfigurationError, match="stock transform"):
+        with pytest.raises(TaskConfigurationError, match="stock"):
+            parse_task(task)
+
+    def test_parses_references_a_declared_view(self) -> None:
+        task = GREETING_TASK.replace('contains: "hello"', "parses: json")
+        with pytest.raises(TaskConfigurationError, match="declared view"):
             parse_task(task)
 
     def test_bad_jsonpath_refused_at_load(self, tmp_path: Path) -> None:
@@ -135,30 +218,32 @@ format: mavai-task/1
 task: t
 service: s
 samples: 100
-inputs: ["a"]
+transforms:
+  doc: json
 criteria:
   - threshold: 0.5
-    transform: json
     postconditions:
-      - path: "$[["
+      - in: doc
+        path: "$[["
         equals: "1"
+inputs: ["a"]
 """
         with pytest.raises(TaskConfigurationError, match="JSONPath"):
             run(write_task(tmp_path, task))
 
-    def test_expected_pairs_require_single_criterion(self) -> None:
+    def test_expected_entries_require_single_criterion(self) -> None:
         task = """
 format: mavai-task/1
 task: t
 service: s
 samples: 10
-inputs:
-  - { input: "a", expected: { contains: "A" } }
 criteria:
   - threshold: 0.5
     contains: "x"
   - threshold: 0.6
     contains: "y"
+inputs:
+  - { input: "a", expected: { contains: "A" } }
 """
         with pytest.raises(TaskConfigurationError, match="ambiguous"):
             parse_task(task)
@@ -175,8 +260,8 @@ criteria:
             run(write_task(tmp_path, task))
 
 
-class TestStructuredResponses:
-    def test_json_path_checks(self, tmp_path: Path) -> None:
+class TestViewsEndToEnd:
+    def test_views_and_paths(self, tmp_path: Path) -> None:
         @binding("refund-service")
         def refund(value: str) -> str:
             return '{"refund": {"id": "RF-12345678"}, "status": "CONFIRMED"}'
@@ -186,15 +271,18 @@ format: mavai-task/1
 task: refund-confirmation
 service: refund-service
 samples: 100
-inputs: ["order 1"]
+transforms:
+  doc: json
 criteria:
   - threshold: 0.5
-    transform: json
     postconditions:
-      - path: "$.refund.id"
+      - in: doc
+        path: "$.refund.id"
         matches: "RF-\\\\d{8}"
-      - path: "$.status"
+      - in: doc
+        path: "$.status"
         equals: "CONFIRMED"
+inputs: ["order 1"]
 """
         result = run(write_task(tmp_path, task), emit=False)
         assert result.composite is Verdict.PASS
@@ -209,41 +297,22 @@ format: mavai-task/1
 task: t
 service: svc
 samples: 100
-inputs: ["a"]
+transforms:
+  doc: json
 criteria:
   - threshold: 0.5
-    transform: json
     postconditions:
-      - path: "$.missing"
+      - in: doc
+        path: "$.missing"
         equals: "x"
+inputs: ["a"]
 """
         result = run(write_task(tmp_path, task), emit=False)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any("selected nothing" in r for r in tally.failure_reasons)
 
-    def test_yaml_transform_norway_projection(self, tmp_path: Path) -> None:
-        @binding("svc")
-        def invoke(value: str) -> str:
-            return "country: no"
-
-        task = """
-format: mavai-task/1
-task: t
-service: svc
-samples: 100
-inputs: ["a"]
-criteria:
-  - threshold: 0.5
-    transform: yaml
-    postconditions:
-      - path: "$.country"
-        equals: "no"
-"""
-        result = run(write_task(tmp_path, task), emit=False)
-        assert result.composite is Verdict.PASS
-
-    def test_unparseable_response_is_a_transform_failure_not_an_abort(self, tmp_path: Path) -> None:
+    def test_parses_forces_the_view(self, tmp_path: Path) -> None:
         @binding("svc")
         def invoke(value: str) -> str:
             return "not json"
@@ -253,17 +322,19 @@ format: mavai-task/1
 task: t
 service: svc
 samples: 100
-inputs: ["a"]
+transforms:
+  doc: json
 criteria:
   - threshold: 0.5
-    parses: json
+    parses: doc
+inputs: ["a"]
 """
         result = run(write_task(tmp_path, task), emit=False)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any(r.startswith("transform failed") for r in tally.failure_reasons)
 
-    def test_registered_transform_and_check(self, tmp_path: Path) -> None:
+    def test_registered_transformation_and_check(self, tmp_path: Path) -> None:
         @binding("svc")
         def invoke(value: str) -> str:
             return f"value={value}"
@@ -282,104 +353,77 @@ format: mavai-task/1
 task: t
 service: svc
 samples: 100
-inputs: ["a"]
+transforms:
+  kv: key-value
 criteria:
   - threshold: 0.5
-    transform: key-value
-    satisfies: has-value
+    postconditions:
+      - in: kv
+        satisfies: has-value
+inputs: ["a"]
 """
         result = run(write_task(tmp_path, task), emit=False)
         assert result.composite is Verdict.PASS
 
 
-class TestMeasureAndPairs:
-    def test_measure_persists_baseline_before_returning(self, tmp_path: Path) -> None:
-        @binding("svc")
-        def invoke(value: str) -> str:
-            return "hello"
+class TestPerInputExpectations:
+    def test_expected_lists_dispatch_per_input_with_views(self, tmp_path: Path) -> None:
+        @binding("baskets")
+        def baskets(value: str) -> str:
+            item = "egg" if "egg" in value else "milk"
+            quantity = 6 if item == "egg" else 2
+            return f'{{"items": [{{"name": "{item}", "quantity": {quantity}}}]}}'
 
         task = """
 format: mavai-task/1
-task: measured-task
-service: svc
-samples: 50
-inputs: ["a"]
-kind: measure
-criteria:
-  - contains: "hello"
-"""
-        run(write_task(tmp_path, task), baseline_dir=tmp_path / "b", emit=False)
-        artefacts = list((tmp_path / "b").glob("measured-task-*.yaml"))
-        assert len(artefacts) == 1
-        content = artefacts[0].read_text(encoding="utf-8")
-        assert "baseltest-baseline-1" in content
-        assert "mavai-task/1" in content
-
-    def test_thresholded_measure_records_judgement(self, tmp_path: Path) -> None:
-        @binding("svc")
-        def invoke(value: str) -> str:
-            return "hello"
-
-        task = """
-format: mavai-task/1
-task: gated-measure
-service: svc
+task: basket-per-input
+service: baskets
 samples: 100
-inputs: ["a"]
-kind: measure
+transforms:
+  basket: json
 criteria:
-  - threshold: 0.5
-    contains: "hello"
-"""
-        result = run(write_task(tmp_path, task), baseline_dir=tmp_path / "b", emit=False)
-        assert result.composite is Verdict.PASS
-        content = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
-        assert "normativeJudgement" in content
-        assert '"met"' in content
-
-    def test_expected_pairs_dispatch_per_input(self, tmp_path: Path) -> None:
-        @binding("capitals")
-        def capitals(value: str) -> str:
-            return {"France?": "Paris.", "Italy?": "Rome."}[value]
-
-        task = """
-format: mavai-task/1
-task: capitals
-service: capitals
-samples: 100
+  - threshold: 0.9
+    postconditions:
+      - in: basket
+        path: "$.items[*].name"
+        matches: '\\w'
 inputs:
-  - { input: "France?", expected: { contains: "Paris" } }
-  - { input: "Italy?", expected: { contains: "Rome" } }
-criteria:
-  - threshold: 0.5
-    matches: "."
+  - input: "place 6 eggs in the basket"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        contains: "egg"
+      - in: basket
+        path: "$.items[*].quantity"
+        equals: "6"
+  - input: "two bottles of milk"
+    expected: { contains: "milk" }
 """
         result = run(write_task(tmp_path, task), emit=False)
         assert result.composite is Verdict.PASS
 
+    def test_wrong_expectation_fails_only_its_input_trials(self, tmp_path: Path) -> None:
+        @binding("echo")
+        def echo(value: str) -> str:
+            return value
 
-class TestHtmlReportGating:
-    def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
-        @binding("svc")
-        def invoke(value: str) -> str:
-            return "hello"
-
-        task = tmp_path / "task.yaml"
-        task.write_text(
-            """
+        task = """
 format: mavai-task/1
-task: measured
-service: svc
-samples: 50
-inputs: ["a"]
-kind: measure
+task: t
+service: echo
+samples: 100
 criteria:
-  - contains: "hello"
-""",
-            encoding="utf-8",
-        )
-        with pytest.raises(TaskConfigurationError, match="baseline artefact"):
-            run(task, html_report=tmp_path / "r.html", emit=False)
+  - threshold: 0.9
+    matches: "."
+inputs:
+  - input: "good"
+    expected: { contains: "good" }
+  - input: "bad"
+    expected: { contains: "impossible" }
+"""
+        result = run(write_task(tmp_path, task), emit=False)
+        tally = result.criterion_results[0].tally
+        assert 0 < tally.successes < tally.trials  # 'good' trials pass, 'bad' fail
 
 
 class TestMaterialisation:

@@ -41,12 +41,13 @@ python --version                 # verify: must print 3.11+ — if not, stop and
 pip install -e ".[declarative]"
 
 cd examples/simulated-service
-baseltest run task.yaml
+baseltest test task.yaml       # judge it against its declared bar
+baseltest measure task.yaml    # or: record everything, persist a baseline
 ```
 
 (If pip ever answers with `Package 'baseltest' requires a different Python`, that is this issue: the active `pip` still belongs to an older interpreter. `deactivate`, delete `venv/`, and recreate it with the 3.11+ interpreter as above.)
 
-You'll see a verdict with its uncertainty stated — run it a few times and watch the observed rate move while the conclusion stays statistically honest. Then try `baseltest run measure.yaml` for the other posture: the same service *measured* rather than judged, with a baseline artefact persisted. When you have a model credential to hand, `examples/language-model/` runs a real language-model service from two small files; the [getting-started guide](docs/GETTING-STARTED.md) walks through both paths.
+You'll see a verdict with its uncertainty stated — run the test a few times and watch the observed rate move while the conclusion stays statistically honest. The `measure` verb is the other posture over the same file: every criterion recorded, a baseline artefact persisted. When you have a model credential to hand, `examples/language-model/` runs a real language-model service from two small files; the [getting-started guide](docs/GETTING-STARTED.md) walks through both paths.
 
 ## Where the project is going
 

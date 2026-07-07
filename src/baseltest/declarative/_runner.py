@@ -35,6 +35,7 @@ def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
 
 def run(
     path: str | Path,
+    mode: str | RunKind = RunKind.TEST,
     *,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
     html_report: str | Path | None = None,
@@ -43,7 +44,7 @@ def run(
     """Load and execute a task file; render its output; persist when measuring.
 
     Persistence strictly precedes rendering and any downstream assertion:
-    under ``kind: measure`` the baseline artefact is on disk before this
+    for a measure run the baseline artefact is on disk before this
     function returns.
 
     Args:
@@ -61,12 +62,15 @@ def run(
         InfeasibleRunError: The declared sample count cannot support every
             declared threshold under verification intent.
     """
+    run_mode = RunKind(mode) if isinstance(mode, str) else mode
     task_path = Path(path)
     declaration = load_task(task_path)
     discover_registrations(task_path)
     services = discover_services(task_path)
-    contract, plan, derived, service_provenance = instantiate(declaration, services)
-    if html_report is not None and plan.kind is not RunKind.TEST:
+    contract, plan, derived, service_provenance, skipped = instantiate(
+        declaration, services, mode=run_mode
+    )
+    if html_report is not None and run_mode is not RunKind.TEST:
         raise TaskConfigurationError(
             "the HTML report is the probabilistic-test summary and applies to test "
             "runs only — a measure run's product is its baseline artefact"
@@ -74,9 +78,10 @@ def run(
     result = execute(contract, plan, on_sample=_tty_progress(declaration.service) if emit else None)
 
     baseline_path: str | None = None
-    if plan.kind is RunKind.MEASURE:
+    if run_mode is RunKind.MEASURE:
         provenance = {
             "taskFormat": FORMAT_IDENTIFIER,
+            "runMode": run_mode.value,
             "binding": declaration.service,
             "taskFile": task_path.name,
             **service_provenance,
@@ -94,6 +99,11 @@ def run(
             print(
                 f"samples not declared — derived {derived} (the smallest count "
                 "supporting every declared threshold at its confidence)"
+            )
+        for name in skipped:
+            print(
+                f"note: criterion {name} declares no threshold and was not judged "
+                "(`baseltest measure` records it)"
             )
         print(render_run(result, baseline_path=baseline_path))
     return result

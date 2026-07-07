@@ -1,14 +1,19 @@
-# Does the fortune teller mention good fortune often enough?
-# Runs offline: the service is simulated in mavai-bindings.py.
+# The fortune teller: one declaration, two questions.
+#   baseltest test task.yaml     -> does it clear its bar? (verdict)
+#   baseltest measure task.yaml  -> what does it actually do? (baseline persisted)
 format: mavai-task/1
 task: fortune-teller-is-usually-encouraging
 service: fortune-teller
 samples: 200
-inputs:
-  - "Alice"
-  - "Bob"
-  - "Chandrima"
+
 criteria:
   - name: fortune-is-delivered
     threshold: 0.8
     matches: "fortune|favour|surprise"
+  - name: spirits-stay-polite          # no threshold: recorded by measure,
+    contains: "."                      # skipped (with notice) by test
+
+inputs:
+  - "Alice"
+  - "Bob"
+  - "Chandrima"

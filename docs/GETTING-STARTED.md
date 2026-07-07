@@ -59,34 +59,44 @@ Everything in `configuration:` is part of the service's identity, and baseltest 
 
 ## File 2: the task (`task.yaml`)
 
-This file says what you are testing: the inputs, what a good response looks like, and - optionally - the bar it must clear.
+This file says what you are examining: the inputs, what a good response looks like, and - optionally - the bar it must clear. It is deliberately **posture-free**: whether a run judges or measures is decided by how you invoke it, not by the file.
 
 ```yaml
 format: mavai-task/1
 task: basket-builder-returns-valid-baskets
 service: basket-builder
 samples: 100
-inputs:
-  - "two bottles of milk and a loaf of bread"
-  - "add three apples"
-  - "a dozen eggs, please"
+
+transforms:
+  basket: json                         # parse each response as JSON; the result is 'basket'
+
 criteria:
   - name: response-is-a-valid-basket
     threshold: 0.95
-    transform: json
     postconditions:
-      - path: "$.items[*].name"
+      - in: basket
+        path: "$.items[*].name"
         matches: '\w'                  # every item has a real name
-      - path: "$.items[*].quantity"
+      - in: basket
+        path: "$.items[*].quantity"
         matches: '^[1-9][0-9]*$'       # every quantity is a positive integer
+
+inputs:
+  - input: "a dozen eggs, please"
+    expected:                          # this input's own expectation
+      - in: basket
+        path: "$.items[*].name"
+        contains: "egg"
+  - "two bottles of milk and a loaf of bread"
+  - "add three apples"
 ```
 
-Reading it aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON, every item must carry a real name, and every quantity must be a positive integer — and because a `path` check fails the trial when it selects nothing, a basket with no items fails too. Require a 95% pass rate. Note that a `path` check judges **every** value it selects: one bad quantity among five items fails that trial.
+The file reads top to bottom as *machinery, rules, cases*. The `transforms:` block declares a **view**: a named transformation of the response, computed at most once per response and shared by every check that names it via `in:`. A check without `in:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). Reading the whole file aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON, every item must carry a real name, every quantity must be a positive integer — and the egg order must actually contain eggs. Because a `path` check fails the trial when it selects nothing, a basket with no items fails too; and a `path` check judges **every** value it selects: one bad quantity among five items fails that trial.
 
 ## Run it
 
 ```bash
-baseltest run task.yaml
+baseltest test task.yaml
 ```
 
 ```
@@ -97,6 +107,8 @@ task basket-builder-returns-valid-baskets: PASS
 ```
 
 That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a 98% observation over too few samples would honestly fail. If you declare a threshold your sample count cannot support, baseltest refuses to run and tells you the minimum that would work (or omit `samples:` entirely and baseltest derives that minimum for you). Add `--html-report report.html` for a self-contained summary page.
+
+The verb is half the story. **`test` judges; `measure` records.** The same file, run as `baseltest measure task.yaml`, records *every* criterion (rate, variance, failure distribution), still judges the ones with bars, and always persists a **baseline artefact** into `baselines/` — the durable record of what was observed, under exactly which service configuration. A test run persists nothing: its product is the verdict. And a criterion with no `threshold:` takes no part in a test — there is nothing to test it against — so `test` skips it with a one-line notice pointing at `measure`, where it is recorded.
 
 ## Testing your own (non-LLM) service
 
@@ -131,13 +143,7 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 ## Measuring without judging
 
-Drop the `threshold` and the run becomes an honest measurement — a characterisation, never dressed up as a verdict:
-
-```
-task basket-builder-returns-valid-baskets: OBSERVATION (no threshold declared — this is a measurement, not a verdict)
-```
-
-With `kind: measure`, the run also persists a baseline artefact: the durable record of what was observed, under exactly which service configuration.
+A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact. Declare `samples:` explicitly in that case (with no bar there is no feasibility arithmetic to derive one from).
 
 ## Ready-to-run examples
 

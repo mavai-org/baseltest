@@ -1,6 +1,6 @@
 """Core value types: the service contract, its criteria, and their metadata."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,9 +42,9 @@ class Criterion:
     """One criterion: a single Bernoulli stream with its own bar.
 
     A response passes the criterion iff every postcondition holds (a
-    conjunction). When ``transform`` is set, the raw response is first
-    turned into the value under judgement; a :class:`TransformError` from
-    the transform is a failed trial, not an abort.
+    conjunction). Each postcondition names the view it judges; the views
+    themselves are declared on the contract and computed at most once per
+    response, shared across criteria.
 
     Attributes:
         name: The criterion's stable identifier within its contract.
@@ -52,8 +52,6 @@ class Criterion:
         threshold: The declared minimum acceptable pass rate in ``(0, 1)``,
             or ``None`` for a criterion that is characterised, never judged.
         confidence: The confidence level for this criterion's verdict.
-        transform: Optional callable turning the raw response into the value
-            under judgement, made available to postconditions.
         provenance: Where the threshold comes from, when one is declared.
     """
 
@@ -61,7 +59,6 @@ class Criterion:
     postconditions: tuple[Postcondition, ...]
     threshold: float | None = None
     confidence: float = 0.95
-    transform: Callable[[str], Any] | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
 
     def __post_init__(self) -> None:
@@ -96,11 +93,17 @@ class ServiceContract:
             invocation aborts the run.
         criteria: One or more criteria, each judged independently over the
             same samples.
+        views: Named transformations of the response -- the transformation
+            stage, declared once and shared: each view is computed at most
+            once per response, lazily, by every consumer that names it.
+            ``"raw"`` is reserved for the untransformed response and never
+            appears here.
     """
 
     contract_id: str
     invoke: Callable[[str], str]
     criteria: tuple[Criterion, ...]
+    views: Mapping[str, Callable[[str], Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.contract_id:
@@ -110,6 +113,17 @@ class ServiceContract:
         names = [criterion.name for criterion in self.criteria]
         if len(names) != len(set(names)):
             raise ValueError(f"contract {self.contract_id!r} has duplicate criterion names")
+        if "raw" in self.views:
+            raise ValueError("'raw' is the reserved name of the untransformed response")
+        declared = set(self.views) | {"raw"}
+        for criterion in self.criteria:
+            for postcondition in criterion.postconditions:
+                if postcondition.view not in declared:
+                    raise ValueError(
+                        f"criterion {criterion.name!r}: postcondition "
+                        f"{postcondition.name!r} names undeclared view "
+                        f"{postcondition.view!r}"
+                    )
 
     @property
     def thresholded_criteria(self) -> tuple[Criterion, ...]:
