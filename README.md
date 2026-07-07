@@ -16,18 +16,35 @@ The framework around it is in active development.
 
 The repository ships a ready-to-run example that needs no API key, no network, and no Python of your own — the service under test is simulated:
 
+baseltest requires **Python 3.11 or newer**. Check what you have first:
+
+```bash
+python3 --version
+```
+
+If that prints 3.11+ you can use `python3` below. Otherwise install a newer interpreter — it will live alongside your system Python, nothing is replaced:
+
+- **macOS (Homebrew):** `brew install python@3.12` → the interpreter is `python3.12`. If the command isn't found afterwards, run `brew link python@3.12` or use the full path `$(brew --prefix python@3.12)/bin/python3.12`.
+- **Linux (Debian/Ubuntu):** `sudo apt install python3.12 python3.12-venv` (on older releases, via the deadsnakes PPA).
+- **Any platform, [pyenv](https://github.com/pyenv/pyenv):** `pyenv install 3.12 && pyenv local 3.12`.
+- **Any platform, [uv](https://docs.astral.sh/uv/):** `uv venv --python 3.12` creates the venv below in one step.
+
+Then — creating the venv **with the new interpreter** is the step that matters; installing 3.12 alone changes nothing until a venv is built from it:
+
 ```bash
 git clone https://github.com/mavai-org/baseltest.git
 cd baseltest
 
-# Python 3.11+ is required — point the venv at a new-enough interpreter,
-# e.g. python3.11 / python3.12 (brew install python@3.12, pyenv, or uv)
-python3.12 -m venv venv && source venv/bin/activate
+python3.12 -m venv venv          # or python3, if yours is already 3.11+
+source venv/bin/activate
+python --version                 # verify: must print 3.11+ — if not, stop and re-check the venv line
 pip install -e ".[declarative]"
 
 cd examples/simulated-service
 baseltest run task.yaml
 ```
+
+(If pip ever answers with `Package 'baseltest' requires a different Python`, that is this issue: the active `pip` still belongs to an older interpreter. `deactivate`, delete `venv/`, and recreate it with the 3.11+ interpreter as above.)
 
 You'll see a verdict with its uncertainty stated — run it a few times and watch the observed rate move while the conclusion stays statistically honest. Then try `baseltest run measure.yaml` for the other posture: the same service *measured* rather than judged, with a baseline artefact persisted. When you have a model credential to hand, `examples/language-model/` runs a real language-model service from two small files; the [getting-started guide](docs/GETTING-STARTED.md) walks through both paths.
 
