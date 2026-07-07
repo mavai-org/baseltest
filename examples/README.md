@@ -12,6 +12,8 @@ Three files, three roles:
 | `task.yaml` | **The test posture** — declares a threshold (0.8), so the run renders a verdict: PASS only if the evidence supports, at 95% confidence, that the *true* rate clears the bar. |
 | `measure.yaml` | **The observation posture** — same service, same criterion, *no threshold*: nothing to judge against, so the run reports what is (rate, variance), labelled as a measurement, and persists a baseline artefact into `baselines/` — the durable record of how the service behaved. |
 
+The filenames are just labels — what decides a run's nature is the file's *content*: `kind: measure` persists a baseline; a declared `threshold:` makes a test (verdict, nothing persisted); neither makes a bare observation (characterisation only, no files left behind).
+
 ```bash
 pip install "baseltest[declarative]"
 cd examples/simulated-service
