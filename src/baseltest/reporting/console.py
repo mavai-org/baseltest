@@ -1,7 +1,13 @@
 """Console rendering of run results, in the task format's own vocabulary."""
 
-from baseltest.engine import CriterionResult, InfeasibleRunError, RunKind, RunResult, Verdict
-from baseltest.statistics import wilson_lower_bound
+from baseltest.engine import (
+    CriterionResult,
+    InfeasibleRunError,
+    RunKind,
+    RunResult,
+    Verdict,
+    bar_standing,
+)
 
 
 def _percent(confidence: float) -> str:
@@ -26,6 +32,11 @@ def _verdict_lines(result: CriterionResult) -> list[str]:
         and criterion.threshold is not None
     )
     relation = "clears" if result.verdict is Verdict.PASS else "below"
+    threshold_text = (
+        f"{criterion.threshold:.4f}"
+        if criterion.provenance.origin == "empirical"  # derived: display rounded
+        else f"{criterion.threshold}"
+    )
     source = ""
     if criterion.provenance.contract_ref is not None:
         source = f" ({criterion.provenance.origin}, {criterion.provenance.contract_ref})"
@@ -35,7 +46,7 @@ def _verdict_lines(result: CriterionResult) -> list[str]:
         (
             f"    observed rate {tally.observed_rate:.4f}; we can be "
             f"{_percent(criterion.confidence)} confident the true rate is at least "
-            f"{result.lower_bound:.4f} — {relation} your {criterion.threshold} "
+            f"{result.lower_bound:.4f} — {relation} your {threshold_text} "
             f"threshold{source}"
         ),
         *(_failure_reason_lines(result) if result.verdict is Verdict.FAIL else []),
@@ -67,21 +78,6 @@ def _characterised_lines(
         ),
         *_failure_reason_lines(result),
     ]
-
-
-def bar_standing(result: CriterionResult) -> str:
-    """The recorded standing of a declared bar: ``met``, ``not met``, or
-    ``unsupportable`` when even a perfect run of this size could not have
-    supported the bar — the family's three-way experiment-time judgement."""
-    criterion = result.criterion
-    assert criterion.threshold is not None
-    if result.verdict is Verdict.PASS:
-        return "met"
-    trials = result.tally.trials
-    best_possible = wilson_lower_bound(trials, trials, criterion.confidence)
-    if best_possible < criterion.threshold:
-        return "unsupportable"
-    return "not met"
 
 
 def _recorded_bar_lines(result: CriterionResult) -> list[str]:

@@ -24,6 +24,8 @@ baseltest measure task.yaml    # everything recorded, baseline persisted
 
 Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence, not a comparison of one lucky sample.
 
+Then run them **in order** — `measure` first, `test` second — and watch the ratchet: the bar-less `spirits-stay-polite` criterion is skipped by the first test (*requires a baseline*), but after a measure run the next test judges it **against the baseline** — no worse than measured, the artefact named on the verdict line.
+
 ## `language-model/` — a real model, two files, no Python
 
 The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md): a language model given a job, its response parsed as JSON (the `transforms:` block declares the `basket` view) and judged structurally — every item named, every quantity positive, plus an input-specific expectation (eggs in the egg order). Needs a credential for the declared provider (or edit `mavai-services.yaml` to use `anthropic`, `mistral`, `ollama`, or `apertus`):

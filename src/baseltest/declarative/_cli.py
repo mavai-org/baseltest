@@ -46,6 +46,18 @@ def main(argv: list[str] | None = None) -> int:
                 "(a test is refused if it cannot support the declared bars)"
             ),
         )
+        if verb == "test":
+            verb_parser.add_argument(
+                "--verdict-dir",
+                type=Path,
+                default=Path("verdicts"),
+                help="directory for the canonical verdict-record XML (family schema)",
+            )
+            verb_parser.add_argument(
+                "--no-verdict-xml",
+                action="store_true",
+                help="do not write the verdict-record XML",
+            )
         if verb == "measure":
             verb_parser.add_argument(
                 "--assert",
@@ -60,12 +72,16 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     try:
+        verdict_dir = None
+        if arguments.command == "test" and not arguments.no_verdict_xml:
+            verdict_dir = arguments.verdict_dir
         result = run(
             arguments.task_file,
             mode=arguments.command,
             samples=arguments.samples,
             baseline_dir=arguments.baseline_dir,
             html_report=arguments.html_report,
+            verdict_dir=verdict_dir,
         )
     except TaskConfigurationError as refusal:
         print(f"task {arguments.task_file}: cannot run as declared", file=sys.stderr)
