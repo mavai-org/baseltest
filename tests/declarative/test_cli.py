@@ -66,3 +66,46 @@ inputs: ["a"]
         assert code == 3
         assert list((tmp_path / "baselines").glob("*.yaml"))
         assert "unsupportable" in capsys.readouterr().err
+
+
+class TestSampleLimit:
+    def _task(self, tmp_path):  # type: ignore[no-untyped-def]
+        (tmp_path / "mavai-bindings.py").write_text(
+            "from baseltest.declarative import binding\n"
+            "@binding('svc')\n"
+            "def invoke(value: str) -> str:\n"
+            "    return 'ok'\n",
+            encoding="utf-8",
+        )
+        task = tmp_path / "task.yaml"
+        task.write_text(
+            """
+format: mavai-task/1
+task: limited
+service: svc
+samples: 1000
+criteria:
+  - threshold: 0.5
+    contains: "ok"
+inputs: ["a"]
+""",
+            encoding="utf-8",
+        )
+        return task
+
+    def test_samples_flag_overrides_the_file(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        assert main(["test", str(self._task(tmp_path)), "--samples", "60"]) == 0
+        assert "60 of 60 responses" in capsys.readouterr().out
+
+    def test_override_too_small_for_the_bar_is_refused(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        task = self._task(tmp_path)
+        task.write_text(task.read_text().replace("threshold: 0.5", "threshold: 0.99"))
+        assert main(["test", str(task), "--samples", "50"]) == 2
+        assert "cannot support" in capsys.readouterr().err
+
+    def test_samples_flag_applies_to_measure_too(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        assert main(["measure", str(self._task(tmp_path)), "--samples", "40"]) == 0
+        assert "40 of 40 responses" in capsys.readouterr().out

@@ -36,6 +36,16 @@ def main(argv: list[str] | None = None) -> int:
             default=None,
             help="write the probabilistic-test summary to this path (test only)",
         )
+        verb_parser.add_argument(
+            "--samples",
+            type=int,
+            default=None,
+            help=(
+                "run with this many samples instead of the file's -- a cheaper run; "
+                "bounds and recorded standings are honestly computed at this size "
+                "(a test is refused if it cannot support the declared bars)"
+            ),
+        )
         if verb == "measure":
             verb_parser.add_argument(
                 "--assert",
@@ -53,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run(
             arguments.task_file,
             mode=arguments.command,
+            samples=arguments.samples,
             baseline_dir=arguments.baseline_dir,
             html_report=arguments.html_report,
         )
