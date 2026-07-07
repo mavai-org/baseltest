@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from baseltest.declarative import binding, run
-from baseltest.declarative._errors import TaskConfigurationError
+from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
 from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._services import parse_services
@@ -29,9 +29,9 @@ services:
       temperature: 0.7
 """
 
-TASK = """
-format: mavai-task/1
-task: greeting-is-polite
+CONTRACT = """
+format: mavai-contract/1
+contract: greeting-is-polite
 service: greeter
 samples: 100
 inputs: ["Alice", "Bob"]
@@ -72,11 +72,11 @@ def llm_environment(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped
     return captured
 
 
-def write_files(tmp_path: Path, task: str = TASK, services: str = SERVICES) -> Path:
+def write_files(tmp_path: Path, contract: str = CONTRACT, services: str = SERVICES) -> Path:
     (tmp_path / "mavai-services.yaml").write_text(services, encoding="utf-8")
-    task_path = tmp_path / "task.yaml"
-    task_path.write_text(task, encoding="utf-8")
-    return task_path
+    contract_path = tmp_path / "contract.yaml"
+    contract_path.write_text(contract, encoding="utf-8")
+    return contract_path
 
 
 class TestParsing:
@@ -84,7 +84,7 @@ class TestParsing:
         text = SERVICES.replace(
             '      system-prompt: "You are a polite greeter."', "      model: some-model"
         )
-        with pytest.raises(TaskConfigurationError, match="system-prompt"):
+        with pytest.raises(ContractConfigurationError, match="system-prompt"):
             parse_services(text)
 
     def test_parameters_outside_configuration_refused_with_uniformity_rule(self) -> None:
@@ -92,20 +92,20 @@ class TestParsing:
             "  greeter:\n    type: language-model\n",
             "  greeter:\n    type: language-model\n    temperature: 0.3\n",
         )
-        with pytest.raises(TaskConfigurationError, match="inside the `configuration:` block"):
+        with pytest.raises(ContractConfigurationError, match="inside the `configuration:` block"):
             parse_services(text)
 
     def test_variations_reserved(self) -> None:
         text = SERVICES + "    variations:\n      temperature: [0.0, 0.7]\n"
-        with pytest.raises(TaskConfigurationError, match="reserved"):
+        with pytest.raises(ContractConfigurationError, match="reserved"):
             parse_services(text)
 
     def test_unknown_type_refused(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="language-model"):
+        with pytest.raises(ContractConfigurationError, match="language-model"):
             parse_services(SERVICES.replace("type: language-model", "type: robot", 1))
 
     def test_unknown_key_refused(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="api-key"):
+        with pytest.raises(ContractConfigurationError, match="api-key"):
             parse_services(SERVICES + "    api-key: leak\n")
 
 
@@ -124,8 +124,8 @@ class TestZeroCodePath:
     def test_full_configuration_reaches_the_endpoint(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent")
-        result = run(write_files(tmp_path, task=task), emit=False)
+        contract = CONTRACT.replace("service: greeter", "service: support-agent")
+        result = run(write_files(tmp_path, contract=contract), emit=False)
         assert result.composite is Verdict.PASS
         payload = llm_environment[0]
         assert payload["model"] == "small-model"
@@ -136,7 +136,7 @@ class TestZeroCodePath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv(ENV_ENDPOINT, raising=False)
-        with pytest.raises(TaskConfigurationError, match=ENV_ENDPOINT):
+        with pytest.raises(ContractConfigurationError, match=ENV_ENDPOINT):
             run(write_files(tmp_path), emit=False)
 
 
@@ -148,7 +148,7 @@ class TestResolutionRules:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        with pytest.raises(TaskConfigurationError, match="one name, one owner"):
+        with pytest.raises(ContractConfigurationError, match="one name, one owner"):
             run(write_files(tmp_path), emit=False)
 
 
@@ -156,9 +156,9 @@ class TestProvenance:
     def test_measure_baseline_carries_resolved_service_parameters(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        task = TASK.replace("service: greeter", "service: support-agent")
+        contract = CONTRACT.replace("service: greeter", "service: support-agent")
         run(
-            write_files(tmp_path, task=task),
+            write_files(tmp_path, contract=contract),
             mode="measure",
             baseline_dir=tmp_path / "b",
             emit=False,

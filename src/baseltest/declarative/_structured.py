@@ -24,7 +24,7 @@ from ruamel.yaml.error import YAMLError
 
 from baseltest.contract import Postcondition, PostconditionResult, TransformError
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 
 _YAML_NODE_BUDGET = 1_000_000
 
@@ -103,7 +103,7 @@ def compile_jsonpath(expression: str, where: str) -> Any:
     try:
         return jsonpath_rfc9535.compile(expression)
     except Exception as error:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"{where}: `path: {expression}` is not a valid JSONPath (RFC 9535) expression: {error}"
         ) from error
 
@@ -113,7 +113,7 @@ def compile_xpath(expression: str, where: str) -> Any:
     try:
         elementpath.Selector(expression, parser=XPath1Parser)
     except Exception as error:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"{where}: `path: {expression}` is not a valid XPath 1.0 expression: {error}"
         ) from error
     return expression

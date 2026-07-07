@@ -31,7 +31,7 @@ def record() -> BaselineRecord:
             ),
             "measured": CriterionCharacterisation(successes=150, trials=300),
         },
-        provenance={"taskFormat": "mavai-task/1", "binding": "refund-service"},
+        provenance={"taskFormat": "mavai-contract/1", "binding": "refund-service"},
     )
 
 

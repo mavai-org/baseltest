@@ -15,7 +15,7 @@ Illustrative artefact:
     sampleCount: 300
     inputsIdentity: "3fd0..."
     provenance:
-      taskFormat: "mavai-task/1"
+      taskFormat: "mavai-contract/1"
       binding: "refund-service"
     criteria:
       "relevant":

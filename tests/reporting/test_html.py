@@ -67,11 +67,11 @@ class TestHtmlReport:
             def invoke(value: str) -> str:
                 return "hello"
 
-            task = tmp_path / "task.yaml"
-            task.write_text(
+            contract = tmp_path / "contract.yaml"
+            contract.write_text(
                 """
-format: mavai-task/1
-task: report-me
+format: mavai-contract/1
+contract: report-me
 service: svc
 samples: 50
 inputs: ["a"]
@@ -82,7 +82,7 @@ criteria:
                 encoding="utf-8",
             )
             report = tmp_path / "out" / "report.html"
-            run(task, html_report=report, emit=False)
+            run(contract, html_report=report, emit=False)
             page = report.read_text(encoding="utf-8")
             assert "report-me" in page
             assert "PASS" in page

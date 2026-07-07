@@ -13,9 +13,9 @@ aggregation, persistence, and rendering live in their own packages and
 depend on this one, never the reverse.
 
 Contracts hold plain callables for invocation and transformation. Where those
-callables come from -- hand-written code, or resolution from a task file's
+callables come from -- hand-written code, or resolution from a contract file's
 registries -- is deliberately outside this package's knowledge: a
-hand-authored contract and one instantiated from a task file are the same
+hand-authored contract and one instantiated from a contract file are the same
 type.
 """
 

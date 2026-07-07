@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative._errors import TaskConfigurationError
+from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import (
     ENV_API_KEY,
     ENV_ENDPOINT,
@@ -62,7 +62,7 @@ class TestRegistry:
         assert set(PROVIDERS) == {"openai", "anthropic", "ollama", "mistral", "apertus"}
 
     def test_unknown_provider_lists_supported(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="apertus"):
+        with pytest.raises(ContractConfigurationError, match="apertus"):
             resolve_provider("closedai")
 
     def test_omitted_provider_is_generic(self) -> None:
@@ -130,7 +130,7 @@ class TestCredentials:
     ) -> None:
         monkeypatch.delenv(ENV_API_KEY, raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        with pytest.raises(TaskConfigurationError, match="OPENAI_API_KEY"):
+        with pytest.raises(ContractConfigurationError, match="OPENAI_API_KEY"):
             build_invoker(resolve_provider("openai"), PARAMETERS)
 
 
@@ -153,6 +153,6 @@ class TestResponseSchema:
         self, capture: list[dict[str, Any]]
     ) -> None:
         parameters = LanguageModelParameters(system_prompt="s", model="m1", response_schema=SCHEMA)
-        with pytest.raises(TaskConfigurationError, match="cannot be honoured"):
+        with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
             build_invoker(resolve_provider("anthropic"), parameters)
         assert capture == []

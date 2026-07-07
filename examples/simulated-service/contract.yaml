@@ -1,8 +1,8 @@
 # The fortune teller: one declaration, two questions.
-#   baseltest test task.yaml     -> does it clear its bar? (verdict)
-#   baseltest measure task.yaml  -> what does it actually do? (baseline persisted)
-format: mavai-task/1
-task: fortune-teller-is-usually-encouraging
+#   baseltest test contract.yaml     -> does it clear its bar? (verdict)
+#   baseltest measure contract.yaml  -> what does it actually do? (baseline persisted)
+format: mavai-contract/1
+contract: fortune-teller-is-usually-encouraging
 service: fortune-teller
 samples: 200
 

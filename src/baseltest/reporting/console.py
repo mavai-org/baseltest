@@ -1,4 +1,4 @@
-"""Console rendering of run results, in the task format's own vocabulary."""
+"""Console rendering of run results, in the contract format's own vocabulary."""
 
 from baseltest.engine import (
     CriterionResult,
@@ -114,7 +114,8 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     lines: list[str] = []
     if result.kind is RunKind.MEASURE:
         lines.append(
-            f"task {result.contract_id}: recorded (a measure run records; it renders no verdict)"
+            f"contract {result.contract_id}: recorded "
+            "(a measure run records; it renders no verdict)"
         )
         for criterion_result in result.criterion_results:
             if criterion_result.criterion.threshold is not None:
@@ -122,7 +123,7 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
             else:
                 lines.extend(_characterised_lines(criterion_result))
     elif result.composite is not None:
-        lines.append(f"task {result.contract_id}: {result.composite.value.upper()}")
+        lines.append(f"contract {result.contract_id}: {result.composite.value.upper()}")
         for criterion_result in result.criterion_results:
             if criterion_result.verdict is not None:
                 lines.extend(_verdict_lines(criterion_result))
@@ -130,7 +131,7 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
                 lines.extend(_characterised_lines(criterion_result))
     else:
         lines.append(
-            f"task {result.contract_id}: OBSERVATION "
+            f"contract {result.contract_id}: OBSERVATION "
             "(no threshold declared — this is a measurement, not a verdict)"
         )
         for criterion_result in result.criterion_results:
@@ -140,9 +141,9 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def render_infeasible(task_name: str, error: InfeasibleRunError) -> str:
+def render_infeasible(contract_name: str, error: InfeasibleRunError) -> str:
     """Render the constructive refusal for an infeasible verification run."""
-    lines = [f"task {task_name}: cannot run as declared"]
+    lines = [f"contract {contract_name}: cannot run as declared"]
     for criterion in error.infeasible:
         lines.append(
             f"  {error.samples} samples cannot support criterion "

@@ -1,10 +1,10 @@
 # The basket-builder: a language model given a job, its output judged as
 # structure. Canonical order: machinery (transforms), rules (criteria),
 # cases (inputs).
-#   baseltest test task.yaml     -> verdict against the 0.95 bar
-#   baseltest measure task.yaml  -> characterisation + baseline artefact
-format: mavai-task/1
-task: basket-builder-returns-valid-baskets
+#   baseltest test contract.yaml     -> verdict against the 0.95 bar
+#   baseltest measure contract.yaml  -> characterisation + baseline artefact
+format: mavai-contract/1
+contract: basket-builder-returns-valid-baskets
 service: basket-builder
 samples: 30
 intent: smoke                        # quick first try; see README to graduate

@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from baseltest.declarative import binding, check, run, transform
-from baseltest.declarative._errors import TaskConfigurationError
+from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._materialise import materialise
-from baseltest.declarative._parser import load_task, parse_task
+from baseltest.declarative._parser import load_contract, parse_contract
 from baseltest.declarative._registry import clear_registries
 from baseltest.engine import InfeasibleRunError, Verdict
 
@@ -19,15 +19,15 @@ def fresh_registries():  # type: ignore[no-untyped-def]
     clear_registries()
 
 
-def write_task(tmp_path: Path, text: str) -> Path:
-    path = tmp_path / "task.yaml"
+def write_contract(tmp_path: Path, text: str) -> Path:
+    path = tmp_path / "contract.yaml"
     path.write_text(text, encoding="utf-8")
     return path
 
 
-GREETING_TASK = """
-format: mavai-task/1
-task: greeting-service-is-polite
+GREETING_CONTRACT = """
+format: mavai-contract/1
+contract: greeting-service-is-polite
 service: greeting-service
 samples: 100
 criteria:
@@ -50,14 +50,14 @@ class TestFirstContactPath:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        result = run(write_task(tmp_path, GREETING_TASK))
+        result = run(write_contract(tmp_path, GREETING_CONTRACT))
         assert result.composite is Verdict.PASS
         out = capsys.readouterr().out
-        assert "task greeting-service-is-polite: PASS" in out
+        assert "contract greeting-service-is-polite: PASS" in out
 
     def test_unregistered_binding_refused_with_zero_invocations(self, tmp_path: Path) -> None:
-        with pytest.raises(TaskConfigurationError) as excinfo:
-            run(write_task(tmp_path, GREETING_TASK))
+        with pytest.raises(ContractConfigurationError) as excinfo:
+            run(write_contract(tmp_path, GREETING_CONTRACT))
         assert "greeting-service" in str(excinfo.value)
         assert "@binding" in str(excinfo.value)
 
@@ -68,8 +68,8 @@ class TestFirstContactPath:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace("samples: 100\n", "")
-        result = run(write_task(tmp_path, task))
+        contract = GREETING_CONTRACT.replace("samples: 100\n", "")
+        result = run(write_contract(tmp_path, contract))
         assert "derived" in capsys.readouterr().out
         from baseltest.statistics import check_feasibility
 
@@ -78,17 +78,17 @@ class TestFirstContactPath:
 
 class TestRunModes:
     def test_kind_key_withdrawn_with_pointer_to_the_verbs(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="invocation verb"):
-            parse_task(GREETING_TASK + "kind: measure\n")
+        with pytest.raises(ContractConfigurationError, match="invocation verb"):
+            parse_contract(GREETING_CONTRACT + "kind: measure\n")
 
     def test_test_mode_without_thresholds_is_refused(self, tmp_path: Path) -> None:
         @binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains")
-        with pytest.raises(TaskConfigurationError, match="nothing to test"):
-            run(write_task(tmp_path, task), mode="test")
+        contract = GREETING_CONTRACT.replace("- threshold: 0.5\n    contains", "- contains")
+        with pytest.raises(ContractConfigurationError, match="nothing to test"):
+            run(write_contract(tmp_path, contract), mode="test")
 
     def test_test_mode_skips_unthresholded_criteria_with_notice(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -97,10 +97,10 @@ class TestRunModes:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace(
+        contract = GREETING_CONTRACT.replace(
             'criteria:\n  - threshold: 0.5\n    contains: "hello"', TWO_CRITERIA
         )
-        result = run(write_task(tmp_path, task), mode="test")
+        result = run(write_contract(tmp_path, contract), mode="test")
         assert [r.name for r in result.criterion_results] == ["judged"]
         out = capsys.readouterr().out
         assert "empirical criterion watched: no baseline found" in out
@@ -111,11 +111,14 @@ class TestRunModes:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace(
+        contract = GREETING_CONTRACT.replace(
             'criteria:\n  - threshold: 0.5\n    contains: "hello"', TWO_CRITERIA
         )
         result = run(
-            write_task(tmp_path, task), mode="measure", baseline_dir=tmp_path / "b", emit=False
+            write_contract(tmp_path, contract),
+            mode="measure",
+            baseline_dir=tmp_path / "b",
+            emit=False,
         )
         assert {r.name for r in result.criterion_results} == {"judged", "watched"}
         artefacts = list((tmp_path / "b").glob("*.yaml"))
@@ -129,20 +132,20 @@ class TestRunModes:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace("- threshold: 0.5\n    contains", "- contains").replace(
-            "samples: 100\n", ""
-        )
-        with pytest.raises(TaskConfigurationError, match="feasibility anchor"):
-            run(write_task(tmp_path, task), mode="measure", emit=False)
+        contract = GREETING_CONTRACT.replace(
+            "- threshold: 0.5\n    contains", "- contains"
+        ).replace("samples: 100\n", "")
+        with pytest.raises(ContractConfigurationError, match="feasibility anchor"):
+            run(write_contract(tmp_path, contract), mode="measure", emit=False)
 
     def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
         @binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        with pytest.raises(TaskConfigurationError, match="baseline artefact"):
+        with pytest.raises(ContractConfigurationError, match="baseline artefact"):
             run(
-                write_task(tmp_path, GREETING_TASK),
+                write_contract(tmp_path, GREETING_CONTRACT),
                 mode="measure",
                 html_report=tmp_path / "r.html",
                 emit=False,
@@ -151,30 +154,32 @@ class TestRunModes:
 
 class TestValidationRefusals:
     def test_reserved_key_rejected_with_pointer(self, tmp_path: Path) -> None:
-        task = GREETING_TASK + "covariates:\n  model: x\n"
-        with pytest.raises(TaskConfigurationError) as excinfo:
-            load_task(write_task(tmp_path, task))
+        contract = GREETING_CONTRACT + "covariates:\n  model: x\n"
+        with pytest.raises(ContractConfigurationError) as excinfo:
+            load_contract(write_contract(tmp_path, contract))
         assert "reserved" in str(excinfo.value)
         assert "extension seams" in str(excinfo.value)
 
     def test_unknown_key_named(self) -> None:
-        with pytest.raises(TaskConfigurationError, match="samplez"):
-            parse_task(GREETING_TASK + "samplez: 3\n")
+        with pytest.raises(ContractConfigurationError, match="samplez"):
+            parse_contract(GREETING_CONTRACT + "samplez: 3\n")
 
     def test_criterion_level_transform_directed_to_the_views_block(self) -> None:
-        task = GREETING_TASK.replace('contains: "hello"', 'contains: "hello"\n    transform: json')
-        with pytest.raises(TaskConfigurationError, match="transforms:"):
-            parse_task(task)
+        contract = GREETING_CONTRACT.replace(
+            'contains: "hello"', 'contains: "hello"\n    transform: json'
+        )
+        with pytest.raises(ContractConfigurationError, match="transforms:"):
+            parse_contract(contract)
 
     def test_raw_view_reserved(self) -> None:
-        task = GREETING_TASK + "transforms:\n  raw: json\n"
-        with pytest.raises(TaskConfigurationError, match="reserved name"):
-            parse_task(task)
+        contract = GREETING_CONTRACT + "transforms:\n  raw: json\n"
+        with pytest.raises(ContractConfigurationError, match="reserved name"):
+            parse_contract(contract)
 
     def test_in_names_a_declared_view(self) -> None:
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: s
 samples: 10
 criteria:
@@ -184,13 +189,13 @@ criteria:
         contains: "x"
 inputs: ["a"]
 """
-        with pytest.raises(TaskConfigurationError, match="undeclared view"):
-            parse_task(task)
+        with pytest.raises(ContractConfigurationError, match="undeclared view"):
+            parse_contract(contract)
 
     def test_path_requires_a_stock_transformed_view(self) -> None:
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: s
 samples: 10
 criteria:
@@ -200,22 +205,22 @@ criteria:
         equals: "1"
 inputs: ["a"]
 """
-        with pytest.raises(TaskConfigurationError, match="stock"):
-            parse_task(task)
+        with pytest.raises(ContractConfigurationError, match="stock"):
+            parse_contract(contract)
 
     def test_parses_references_a_declared_view(self) -> None:
-        task = GREETING_TASK.replace('contains: "hello"', "parses: json")
-        with pytest.raises(TaskConfigurationError, match="declared view"):
-            parse_task(task)
+        contract = GREETING_CONTRACT.replace('contains: "hello"', "parses: json")
+        with pytest.raises(ContractConfigurationError, match="declared view"):
+            parse_contract(contract)
 
     def test_bad_jsonpath_refused_at_load(self, tmp_path: Path) -> None:
         @binding("s")
         def invoke(value: str) -> str:
             return value
 
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: s
 samples: 100
 transforms:
@@ -228,13 +233,13 @@ criteria:
         equals: "1"
 inputs: ["a"]
 """
-        with pytest.raises(TaskConfigurationError, match="JSONPath"):
-            run(write_task(tmp_path, task))
+        with pytest.raises(ContractConfigurationError, match="JSONPath"):
+            run(write_contract(tmp_path, contract))
 
     def test_expected_entries_require_single_criterion(self) -> None:
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: s
 samples: 10
 criteria:
@@ -245,19 +250,19 @@ criteria:
 inputs:
   - { input: "a", expected: { contains: "A" } }
 """
-        with pytest.raises(TaskConfigurationError, match="ambiguous"):
-            parse_task(task)
+        with pytest.raises(ContractConfigurationError, match="ambiguous"):
+            parse_contract(contract)
 
     def test_infeasible_verification_run_is_refused(self, tmp_path: Path) -> None:
         @binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        task = GREETING_TASK.replace("threshold: 0.5", "threshold: 0.99").replace(
+        contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.99").replace(
             "samples: 100", "samples: 30"
         )
         with pytest.raises(InfeasibleRunError):
-            run(write_task(tmp_path, task))
+            run(write_contract(tmp_path, contract))
 
 
 class TestViewsEndToEnd:
@@ -266,9 +271,9 @@ class TestViewsEndToEnd:
         def refund(value: str) -> str:
             return '{"refund": {"id": "RF-12345678"}, "status": "CONFIRMED"}'
 
-        task = """
-format: mavai-task/1
-task: refund-confirmation
+        contract = """
+format: mavai-contract/1
+contract: refund-confirmation
 service: refund-service
 samples: 100
 transforms:
@@ -284,7 +289,7 @@ criteria:
         equals: "CONFIRMED"
 inputs: ["order 1"]
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         assert result.composite is Verdict.PASS
 
     def test_empty_selection_fails_the_trial(self, tmp_path: Path) -> None:
@@ -292,9 +297,9 @@ inputs: ["order 1"]
         def invoke(value: str) -> str:
             return '{"other": 1}'
 
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: svc
 samples: 100
 transforms:
@@ -307,7 +312,7 @@ criteria:
         equals: "x"
 inputs: ["a"]
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any("selected nothing" in r for r in tally.failure_reasons)
@@ -317,9 +322,9 @@ inputs: ["a"]
         def invoke(value: str) -> str:
             return "not json"
 
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: svc
 samples: 100
 transforms:
@@ -329,7 +334,7 @@ criteria:
     parses: doc
 inputs: ["a"]
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any(r.startswith("transform failed") for r in tally.failure_reasons)
@@ -348,9 +353,9 @@ inputs: ["a"]
         def has_value(parsed: dict[str, str]) -> bool:
             return "value" in parsed
 
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: svc
 samples: 100
 transforms:
@@ -362,7 +367,7 @@ criteria:
         satisfies: has-value
 inputs: ["a"]
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         assert result.composite is Verdict.PASS
 
 
@@ -374,9 +379,9 @@ class TestPerInputExpectations:
             quantity = 6 if item == "egg" else 2
             return f'{{"items": [{{"name": "{item}", "quantity": {quantity}}}]}}'
 
-        task = """
-format: mavai-task/1
-task: basket-per-input
+        contract = """
+format: mavai-contract/1
+contract: basket-per-input
 service: baskets
 samples: 100
 transforms:
@@ -399,7 +404,7 @@ inputs:
   - input: "two bottles of milk"
     expected: { contains: "milk" }
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         assert result.composite is Verdict.PASS
 
     def test_wrong_expectation_fails_only_its_input_trials(self, tmp_path: Path) -> None:
@@ -407,9 +412,9 @@ inputs:
         def echo(value: str) -> str:
             return value
 
-        task = """
-format: mavai-task/1
-task: t
+        contract = """
+format: mavai-contract/1
+contract: t
 service: echo
 samples: 100
 criteria:
@@ -421,14 +426,14 @@ inputs:
   - input: "bad"
     expected: { contains: "impossible" }
 """
-        result = run(write_task(tmp_path, task), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False)
         tally = result.criterion_results[0].tally
         assert 0 < tally.successes < tally.trials  # 'good' trials pass, 'bad' fail
 
 
 class TestMaterialisation:
     def test_emits_python_for_the_same_contract(self, tmp_path: Path) -> None:
-        declaration = load_task(write_task(tmp_path, GREETING_TASK))
+        declaration = load_contract(write_contract(tmp_path, GREETING_CONTRACT))
         source = materialise(declaration)
         assert "ServiceContract(" in source
         assert "contains('hello')" in source or 'contains("hello")' in source
@@ -438,9 +443,9 @@ class TestMaterialisation:
 
 
 class TestEmpiricalJudgement:
-    TASK = """
-format: mavai-task/1
-task: ratchet
+    CONTRACT = """
+format: mavai-contract/1
+contract: ratchet
 service: svc
 samples: 200
 criteria:
@@ -458,9 +463,9 @@ inputs: ["a", "b"]
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         self._bind()
-        task = write_task(tmp_path, self.TASK)
-        run(task, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
-        result = run(task, mode="test", baseline_dir=tmp_path / "baselines")
+        contract = write_contract(tmp_path, self.CONTRACT)
+        run(contract, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        result = run(contract, mode="test", baseline_dir=tmp_path / "baselines")
         assert result.composite is Verdict.PASS
         judged = result.criterion_results[0]
         assert judged.criterion.provenance.origin == "empirical"
@@ -478,33 +483,33 @@ inputs: ["a", "b"]
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         self._bind()
-        task = write_task(tmp_path, self.TASK)
-        run(task, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
-        renamed = self.TASK.replace("name: keeps-up", "name: renamed-criterion")
-        with pytest.raises(TaskConfigurationError, match="does not record"):
+        contract = write_contract(tmp_path, self.CONTRACT)
+        run(contract, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        renamed = self.CONTRACT.replace("name: keeps-up", "name: renamed-criterion")
+        with pytest.raises(ContractConfigurationError, match="does not record"):
             run(
-                write_task(tmp_path, renamed),
+                write_contract(tmp_path, renamed),
                 mode="test",
                 baseline_dir=tmp_path / "baselines",
             )
 
     def test_empirical_only_test_without_baseline_is_refused(self, tmp_path: Path) -> None:
         self._bind()
-        with pytest.raises(TaskConfigurationError, match="nothing to test"):
+        with pytest.raises(ContractConfigurationError, match="nothing to test"):
             run(
-                write_task(tmp_path, self.TASK),
+                write_contract(tmp_path, self.CONTRACT),
                 mode="test",
                 baseline_dir=tmp_path / "nowhere",
             )
 
-    def test_mixed_task_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
+    def test_mixed_contract_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
         self._bind()
-        task = self.TASK.replace(
+        contract = self.CONTRACT.replace(
             'criteria:\n  - name: keeps-up\n    contains: "ok"',
             'criteria:\n  - name: stated-bar\n    threshold: 0.5\n    contains: "ok"\n'
             '  - name: keeps-up\n    contains: "ok"',
         )
-        path = write_task(tmp_path, task)
+        path = write_contract(tmp_path, contract)
         run(path, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
         result = run(path, mode="test", baseline_dir=tmp_path / "baselines", emit=False)
         assert result.composite is Verdict.PASS

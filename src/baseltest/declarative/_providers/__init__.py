@@ -20,7 +20,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from .._errors import TaskConfigurationError
+from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _mistral, _ollama, _openai
 from ._protocol import (
     ENV_API_KEY,
@@ -58,7 +58,7 @@ def resolve_provider(name: str | None) -> Provider:
         return GENERIC
     provider = PROVIDERS.get(name)
     if provider is None:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"unknown `provider: {name}` — supported: {', '.join(sorted(PROVIDERS))} "
             "(or omit `provider:` for a generic OpenAI-compatible endpoint)"
         )
@@ -70,7 +70,7 @@ def _api_key(provider: Provider) -> str:
     if not key and provider.key_env_fallback:
         key = os.environ.get(provider.key_env_fallback, "")
     if not key and provider.key_required:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"provider {provider.name!r} needs a credential: set {ENV_API_KEY}"
             + (f" or {provider.key_env_fallback}" if provider.key_env_fallback else "")
         )
@@ -80,7 +80,7 @@ def _api_key(provider: Provider) -> str:
 def _resolve_endpoint(provider: Provider) -> str:
     endpoint = os.environ.get(ENV_ENDPOINT) or provider.default_endpoint
     if not endpoint:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"a language-model service without a named provider needs the "
             f"{ENV_ENDPOINT} environment variable "
             "(an OpenAI-compatible chat-completions endpoint)"
@@ -93,7 +93,7 @@ def build_invoker(
 ) -> Callable[[str], str]:
     """The invocation callable: one plain request per call, no retries."""
     if parameters.response_schema is not None and not provider.supports_response_schema:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"provider {provider.name!r} has no structured-output support in this "
             "reader: a declared `response-schema:` cannot be honoured, and silently "
             "dropping it would change what is being measured. Remove the schema or "
@@ -102,7 +102,7 @@ def build_invoker(
     endpoint = _resolve_endpoint(provider)
     model = parameters.model or os.environ.get(ENV_MODEL)
     if not model:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"no model declared and {ENV_MODEL} is not set — declare `model:` in the "
             "service configuration or set the environment default"
         )

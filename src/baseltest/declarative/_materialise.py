@@ -1,16 +1,16 @@
 """Graduation: emit the equivalent contract as Python source the developer owns.
 
-The emitted module is the contract the task file instantiates — the same
+The emitted module is the contract the contract file instantiates — the same
 criteria, thresholds, views, and run plan — expressed directly against
 ``baseltest.contract`` and ``baseltest.engine``. It is one-shot scaffolding:
 after materialising, the source is the developer's; nothing round-trips.
 """
 
-from ._parser import CriterionDeclaration, FormDeclaration, TaskDeclaration
+from ._parser import ContractDeclaration, CriterionDeclaration, FormDeclaration
 
-_HEADER = '''"""Materialised from {task_file}: the contract the task file was running.
+_HEADER = '''"""Materialised from {contract_file}: the contract the contract file was running.
 
-This is now your code. The task file instantiated exactly this contract;
+This is now your code. The contract file instantiated exactly this contract;
 edit it freely -- the declarative surface is no longer involved.
 """
 
@@ -86,18 +86,18 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
 
 
 # javai-ref: JVI-CP4XG45 — do not remove (resolves in javai-orchestrator)
-def materialise(declaration: TaskDeclaration) -> str:
-    """Render the task declaration as a standalone Python module."""
-    source = declaration.source_path.name if declaration.source_path else "a task file"
-    parts = [_HEADER.format(task_file=source)]
+def materialise(declaration: ContractDeclaration) -> str:
+    """Render the contract declaration as a standalone Python module."""
+    source = declaration.source_path.name if declaration.source_path else "a contract file"
+    parts = [_HEADER.format(contract_file=source)]
     parts.append("\ndef invoke(value: str) -> str:")
     parts.append(
-        f'    """TODO: your service call — the task file used the binding '
+        f'    """TODO: your service call — the contract file used the binding '
         f'{declaration.service!r}."""'
     )
     parts.append("    raise NotImplementedError\n")
     parts.append("\ncontract = ServiceContract(")
-    parts.append(f"    contract_id={declaration.task!r},")
+    parts.append(f"    contract_id={declaration.contract!r},")
     parts.append("    invoke=invoke,")
     if declaration.transforms:
         parts.append("    views={")
