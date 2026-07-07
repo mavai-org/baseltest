@@ -202,6 +202,22 @@ def _judge(criterion: Criterion, tally: CriterionTally) -> tuple[float | None, V
     return bound, verdict
 
 
+def bar_standing(result: "CriterionResult") -> str:
+    """The recorded standing of a declared bar: ``met``, ``not met``, or
+    ``unsupportable`` when even a perfect run of this size could not have
+    supported the bar — the family's three-way experiment-time judgement."""
+    criterion = result.criterion
+    if criterion.threshold is None:
+        raise ValueError(f"criterion {criterion.name!r} declares no bar")
+    if result.verdict is Verdict.PASS:
+        return "met"
+    trials = result.tally.trials
+    best_possible = wilson_lower_bound(trials, trials, criterion.confidence)
+    if best_possible < criterion.threshold:
+        return "unsupportable"
+    return "not met"
+
+
 def execute(
     contract: ServiceContract,
     plan: RunPlan,

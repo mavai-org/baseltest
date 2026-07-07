@@ -7,7 +7,9 @@ uncertainty stated; a run without thresholds is labelled a measurement
 and uses no verdict vocabulary.
 """
 
-from .console import bar_standing, render_infeasible, render_run
+from baseltest.engine import bar_standing
+
+from .console import render_infeasible, render_run
 from .html import render_html_report
 from .verdict_xml import render_verdict_record, write_verdict_record
 

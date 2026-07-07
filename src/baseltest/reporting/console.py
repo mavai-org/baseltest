@@ -1,7 +1,13 @@
 """Console rendering of run results, in the task format's own vocabulary."""
 
-from baseltest.engine import CriterionResult, InfeasibleRunError, RunKind, RunResult, Verdict
-from baseltest.statistics import wilson_lower_bound
+from baseltest.engine import (
+    CriterionResult,
+    InfeasibleRunError,
+    RunKind,
+    RunResult,
+    Verdict,
+    bar_standing,
+)
 
 
 def _percent(confidence: float) -> str:
@@ -72,21 +78,6 @@ def _characterised_lines(
         ),
         *_failure_reason_lines(result),
     ]
-
-
-def bar_standing(result: CriterionResult) -> str:
-    """The recorded standing of a declared bar: ``met``, ``not met``, or
-    ``unsupportable`` when even a perfect run of this size could not have
-    supported the bar — the family's three-way experiment-time judgement."""
-    criterion = result.criterion
-    assert criterion.threshold is not None
-    if result.verdict is Verdict.PASS:
-        return "met"
-    trials = result.tally.trials
-    best_possible = wilson_lower_bound(trials, trials, criterion.confidence)
-    if best_possible < criterion.threshold:
-        return "unsupportable"
-    return "not met"
 
 
 def _recorded_bar_lines(result: CriterionResult) -> list[str]:
