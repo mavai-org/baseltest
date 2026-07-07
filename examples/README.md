@@ -2,7 +2,7 @@
 
 Ready-to-run declarative authoring, from zero. Each folder holds **one contract file**; what a run does is the verb you invoke it with:
 
-- `baseltest test contract.yaml` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict; persists nothing.
+- `baseltest test contract.yaml` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `verdicts/`; no baseline is persisted.
 - `baseltest measure contract.yaml` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `baselines/` — the durable record of what was observed.
 
 ## `simulated-service/` — runs offline, no setup at all
@@ -33,7 +33,7 @@ The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md):
 ```bash
 export OPENAI_API_KEY=...
 cd examples/language-model
-baseltest test contract.yaml       # test posture: verdict, nothing persisted
+baseltest test contract.yaml       # test posture: verdict (recorded in verdicts/), no baseline
 baseltest measure contract.yaml    # measure posture: characterisation + baseline artefact
 ```
 
