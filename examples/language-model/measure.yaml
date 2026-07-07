@@ -1,0 +1,21 @@
+# The same service, measured instead of judged: no threshold, no verdict.
+# The run characterises the basket-builder and persists a baseline artefact
+# into baselines/ — the durable record of what was observed, under exactly
+# which service configuration (model, system prompt, temperature, schema).
+format: mavai-task/1
+task: basket-builder-characterisation
+service: basket-builder
+kind: measure
+samples: 30
+inputs:
+  - "two bottles of milk and a loaf of bread"
+  - "add three apples"
+  - "a dozen eggs, please"
+criteria:
+  - name: response-is-a-valid-basket
+    transform: json
+    postconditions:
+      - path: "$.items[*].name"
+        matches: '\w'
+      - path: "$.items[*].quantity"
+        matches: '^[1-9][0-9]*$'

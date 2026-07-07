@@ -29,7 +29,10 @@ The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md):
 ```bash
 export OPENAI_API_KEY=...
 cd examples/language-model
-baseltest run task.yaml
+baseltest run task.yaml       # test posture: verdict, nothing persisted
+baseltest run measure.yaml    # measure posture: characterisation + baseline artefact
 ```
+
+Only the measure posture persists a baseline — a test run produces a verdict and writes nothing, by design.
 
 The task declares `intent: smoke` with 30 samples so a first try is quick and cheap; for a statistically enforced verdict, remove that line and raise `samples` (baseltest will tell you the minimum that supports the threshold — or delete `samples:` and it derives the minimum for you).

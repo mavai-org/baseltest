@@ -76,10 +76,12 @@ criteria:
     transform: json
     postconditions:
       - path: "$.items[*].name"
-        matches: "."
+        matches: '\w'                  # every item has a real name
+      - path: "$.items[*].quantity"
+        matches: '^[1-9][0-9]*$'       # every quantity is a positive integer
 ```
 
-Reading it aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON and every selected item name must be non-empty (an empty selection fails the trial too — a basket with no items is not a valid basket); require a 95% pass rate.
+Reading it aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON, every item must carry a real name, and every quantity must be a positive integer — and because a `path` check fails the trial when it selects nothing, a basket with no items fails too. Require a 95% pass rate. Note that a `path` check judges **every** value it selects: one bad quantity among five items fails that trial.
 
 ## Run it
 

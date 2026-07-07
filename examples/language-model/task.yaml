@@ -13,4 +13,6 @@ criteria:
     transform: json
     postconditions:
       - path: "$.items[*].name"
-        matches: "."
+        matches: '\w'                  # every item has a real name
+      - path: "$.items[*].quantity"
+        matches: '^[1-9][0-9]*$'       # every quantity is a positive integer
