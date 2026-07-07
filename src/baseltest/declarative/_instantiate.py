@@ -1,4 +1,4 @@
-"""Instantiation: a validated task declaration into a live service contract and plan.
+"""Instantiation: a validated contract declaration into a live service contract and plan.
 
 The run mode is supplied by the invocation (the verb), never by the file:
 ``test`` instantiates a probabilistic test over the thresholded criteria
@@ -27,13 +27,13 @@ from baseltest.contract import (
 from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples, inputs_fingerprint
 from baseltest.statistics import derive_sample_size_first
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 from ._parser import (
     FORMAT_IDENTIFIER,
     RAW_VIEW,
+    ContractDeclaration,
     CriterionDeclaration,
     FormDeclaration,
-    TaskDeclaration,
 )
 from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
 from ._services import ServiceDefinition, language_model_invoker, resolved_provenance
@@ -48,7 +48,7 @@ _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
 }
 
 
-def _build_views(declaration: TaskDeclaration) -> dict[str, Callable[[str], Any]]:
+def _build_views(declaration: ContractDeclaration) -> dict[str, Callable[[str], Any]]:
     views: dict[str, Callable[[str], Any]] = {}
     for view_name, transformation in declaration.transforms.items():
         views[view_name] = STOCK_TRANSFORM_FNS.get(transformation) or resolve_transform(
@@ -85,7 +85,9 @@ def _build_form(
     if transformation == "xml":
         expression = compile_xpath(declaration.path, where)
         return path_qualified("xpath", expression, expression, inner, view=declaration.view)
-    raise TaskConfigurationError(f"{where}: `path:` requires a view with a stock transformation")
+    raise ContractConfigurationError(
+        f"{where}: `path:` requires a view with a stock transformation"
+    )
 
 
 def _expected_postconditions(
@@ -156,7 +158,7 @@ def _resolve_service(
     defined = reference in services
     registered = has_binding(reference)
     if defined and registered:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"service {reference!r} is both registered in code (@binding) and defined "
             "in the services file — one name, one owner; rename one of them"
         )
@@ -167,7 +169,7 @@ def _resolve_service(
 
 
 def _resolve_run_size(
-    declaration: TaskDeclaration,
+    declaration: ContractDeclaration,
     samples: int | None,
     judged: Sequence[Criterion],
     views: dict[str, Any],
@@ -180,25 +182,25 @@ def _resolve_run_size(
         return declaration.samples, None
     anchors = [c for c in judged if c.threshold is not None]
     if not anchors:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             "`samples:` is required here — with no declared bar there is no "
             "feasibility anchor to derive a sample count from"
         )
     probe = ServiceContract(
-        contract_id=declaration.task, invoke=invoke, criteria=tuple(anchors), views=views
+        contract_id=declaration.contract, invoke=invoke, criteria=tuple(anchors), views=views
     )
     derived = derive_minimum_samples(probe)
     return derived, derived
 
 
 def instantiate(
-    declaration: TaskDeclaration,
+    declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
     mode: RunKind = RunKind.TEST,
     samples: int | None = None,
     baseline_dir: Path | None = None,
 ) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str], tuple[tuple[str, str], ...]]:
-    """Instantiate the contract and plan for a task declaration under a run mode.
+    """Instantiate the contract and plan for a contract declaration under a run mode.
 
     Returns the contract, the run plan, the derived sample count when the
     size was derived, the resolved service provenance, and — under ``test``
@@ -213,7 +215,7 @@ def instantiate(
     normative siblings, with provenance naming the artefact.
 
     Raises:
-        TaskConfigurationError: On any load-time refusal — before any
+        ContractConfigurationError: On any load-time refusal — before any
             invocation. In particular, a ``test`` where nothing is
             judgeable, and a threshold-less ``measure`` with no ``samples``.
     """
@@ -239,7 +241,7 @@ def instantiate(
             if baseline_dir is not None:
                 resolution = resolve_baseline(
                     baseline_dir,
-                    declaration.task,
+                    declaration.contract,
                     inputs_fingerprint(declaration.inputs),
                     {
                         "taskFormat": FORMAT_IDENTIFIER,
@@ -287,7 +289,7 @@ def instantiate(
         criteria = tuple(normative + empirical)
         if not criteria:
             detail = f" ({skipped[0][1]})" if skipped else ""
-            raise TaskConfigurationError(
+            raise ContractConfigurationError(
                 "nothing to test: no criterion declares a `threshold:` and no "
                 f"empirical criterion could be judged{detail}. Run `baseltest "
                 "measure` to establish a baseline, or declare a bar."
@@ -300,7 +302,7 @@ def instantiate(
         run_size, derived = _resolve_run_size(declaration, samples, criteria, views, invoke)
 
     contract = ServiceContract(
-        contract_id=declaration.task, invoke=invoke, criteria=criteria, views=views
+        contract_id=declaration.contract, invoke=invoke, criteria=criteria, views=views
     )
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
     plan = RunPlan(samples=run_size, inputs=declaration.inputs, kind=mode, intent=intent)

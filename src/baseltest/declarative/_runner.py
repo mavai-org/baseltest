@@ -8,9 +8,9 @@ from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
 from baseltest.reporting import render_html_report, render_run, write_verdict_record
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 from ._instantiate import instantiate
-from ._parser import FORMAT_IDENTIFIER, load_task
+from ._parser import FORMAT_IDENTIFIER, load_contract
 from ._registrations import discover_registrations
 from ._services import discover_services
 
@@ -43,14 +43,14 @@ def run(
     html_report: str | Path | None = None,
     emit: bool = True,
 ) -> RunResult:
-    """Load and execute a task file; render its output; persist when measuring.
+    """Load and execute a contract file; render its output; persist when measuring.
 
     Persistence strictly precedes rendering and any downstream assertion:
     for a measure run the baseline artefact is on disk before this
     function returns.
 
     Args:
-        path: The task file.
+        path: The contract file.
         baseline_dir: Where measure runs persist their baseline artefact.
         emit: Whether to print the rendered output (the CLI does; API
             callers may render from the returned result instead).
@@ -59,16 +59,16 @@ def run(
         The run result.
 
     Raises:
-        TaskConfigurationError: The file (or its registrations) is not
+        ContractConfigurationError: The file (or its registrations) is not
             runnable as declared — refused before any invocation.
         InfeasibleRunError: The declared sample count cannot support every
             declared threshold under verification intent.
     """
     run_mode = RunKind(mode) if isinstance(mode, str) else mode
-    task_path = Path(path)
-    declaration = load_task(task_path)
-    discover_registrations(task_path)
-    services = discover_services(task_path)
+    contract_path = Path(path)
+    declaration = load_contract(contract_path)
+    discover_registrations(contract_path)
+    services = discover_services(contract_path)
     contract, plan, derived, service_provenance, skipped = instantiate(
         declaration,
         services,
@@ -77,7 +77,7 @@ def run(
         baseline_dir=Path(baseline_dir),
     )
     if html_report is not None and run_mode is not RunKind.TEST:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             "the HTML report is the probabilistic-test summary and applies to test "
             "runs only — a measure run's product is its baseline artefact"
         )
@@ -94,7 +94,7 @@ def run(
             "taskFormat": FORMAT_IDENTIFIER,
             "runMode": run_mode.value,
             "binding": declaration.service,
-            "taskFile": task_path.name,
+            "taskFile": contract_path.name,
             **service_provenance,
         }
         record = BaselineRecord.from_run_result(result, provenance=provenance)

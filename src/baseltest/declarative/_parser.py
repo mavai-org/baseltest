@@ -1,11 +1,11 @@
-"""Parsing and validation: a task file into a checked task model.
+"""Parsing and validation: a contract file into a checked contract model.
 
 Everything here happens at load time, before any invocation: structural
 validation, reserved-key rejection with a pointer, the views block
 (``raw`` reserved), subject/``path`` legality, per-input expectation
 lists, and constructive refusals in format vocabulary.
 
-The task file is posture-free: the run mode (``test``/``measure``) is the
+The contract file is posture-free: the run mode (``test``/``measure``) is the
 invocation verb, never a key.
 """
 
@@ -17,16 +17,16 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 
-FORMAT_IDENTIFIER = "mavai-task/1"
+FORMAT_IDENTIFIER = "mavai-contract/1"
 DEFAULT_CONFIDENCE = 0.95
 RAW_VIEW = "raw"
 STOCK_TRANSFORMS = {"json", "xml", "yaml"}
 
 _TOP_LEVEL_KEYS = {
     "format",
-    "task",
+    "contract",
     "service",
     "samples",
     "transforms",
@@ -59,7 +59,7 @@ _CRITERION_KEYS = {
 _FORM_KEYS = ("equals", "one-of", "contains", "matches", "parses", "satisfies")
 _STRING_FORMS = ("equals", "one-of", "contains", "matches")
 _SEAM_POINTER = (
-    "reserved by the mavai task format for a future version — see the format's "
+    "reserved by the mavai contract format for a future version — see the format's "
     "extension seams documentation"
 )
 
@@ -86,10 +86,10 @@ class CriterionDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
-class TaskDeclaration:
-    """The whole task file, structurally validated. Posture-free by design."""
+class ContractDeclaration:
+    """The whole contract file, structurally validated. Posture-free by design."""
 
-    task: str
+    contract: str
     service: str
     samples: int | None
     transforms: dict[str, str]
@@ -101,8 +101,8 @@ class TaskDeclaration:
     source_path: Path | None = field(default=None, compare=False)
 
 
-def _fail(message: str) -> TaskConfigurationError:
-    return TaskConfigurationError(message)
+def _fail(message: str) -> ContractConfigurationError:
+    return ContractConfigurationError(message)
 
 
 def _load_yaml(text: str) -> Any:
@@ -111,7 +111,7 @@ def _load_yaml(text: str) -> Any:
     try:
         return yaml.load(io.StringIO(text))
     except YAMLError as error:
-        raise _fail(f"the task file is not well-formed YAML: {error}") from error
+        raise _fail(f"the contract file is not well-formed YAML: {error}") from error
 
 
 def _require_mapping(value: Any, what: str) -> dict[str, Any]:
@@ -128,13 +128,13 @@ def _check_top_level_keys(data: dict[str, Any]) -> None:
         if key == "kind":
             raise _fail(
                 "`kind:` was withdrawn — the run mode is the invocation verb: "
-                "`baseltest test task.yaml` or `baseltest measure task.yaml`"
+                "`baseltest test contract.yaml` or `baseltest measure contract.yaml`"
             )
         if key in _RESERVED_TOP_LEVEL:
             raise _fail(f"`{key}:` is {_SEAM_POINTER}")
         if key not in _TOP_LEVEL_KEYS:
             raise _fail(f"unknown key `{key}:` — not part of {FORMAT_IDENTIFIER}")
-    for required in ("format", "task", "service", "inputs", "criteria"):
+    for required in ("format", "contract", "service", "inputs", "criteria"):
         if required not in data:
             raise _fail(f"missing required key `{required}:`")
     if data["format"] != FORMAT_IDENTIFIER:
@@ -290,14 +290,14 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
     )
 
 
-def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
-    """Parse and structurally validate a task file's text.
+def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclaration:
+    """Parse and structurally validate a contract file's text.
 
     Raises:
-        TaskConfigurationError: On any malformation, reserved construct,
+        ContractConfigurationError: On any malformation, reserved construct,
             or contradiction — always before any invocation.
     """
-    data = _require_mapping(_load_yaml(text), "the task file")
+    data = _require_mapping(_load_yaml(text), "the contract file")
     _check_top_level_keys(data)
     intent = data.get("intent", "verification")
     if intent not in ("verification", "smoke"):
@@ -314,7 +314,7 @@ def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     )
     names = [criterion.name for criterion in criteria]
     if len(names) != len(set(names)):
-        raise _fail("criterion names must be unique within the task")
+        raise _fail("criterion names must be unique within the contract")
     if expected_pairs and len(criteria) != 1:
         raise _fail(
             "per-input `expected:` entries require exactly one criteria entry — with "
@@ -332,8 +332,8 @@ def parse_task(text: str, source_path: Path | None = None) -> TaskDeclaration:
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:
         raise _fail("`confidence:` must be a number in (0, 1)")
 
-    return TaskDeclaration(
-        task=_require_string(data, "task"),
+    return ContractDeclaration(
+        contract=_require_string(data, "contract"),
         service=_require_string(data, "service"),
         samples=samples,
         transforms=views,
@@ -353,10 +353,10 @@ def _require_string(data: dict[str, Any], key: str) -> str:
     return value
 
 
-def load_task(path: Path) -> TaskDeclaration:
-    """Read and parse a task file from disk."""
+def load_contract(path: Path) -> ContractDeclaration:
+    """Read and parse a contract file from disk."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
-        raise _fail(f"cannot read task file {path}: {error}") from error
-    return parse_task(text, source_path=path)
+        raise _fail(f"cannot read contract file {path}: {error}") from error
+    return parse_contract(text, source_path=path)

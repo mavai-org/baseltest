@@ -57,13 +57,13 @@ The schema above is written in YAML style, but only the *file* is YAML — on th
 
 Everything in `configuration:` is part of the service's identity, and baseltest records the resolved values (including the model, even when it came from the environment) in every result — so you always know exactly what was measured.
 
-## File 2: the task (`task.yaml`)
+## File 2: the contract (`contract.yaml`)
 
 This file says what you are examining: the inputs, what a good response looks like, and - optionally - the bar it must clear. It is deliberately **posture-free**: whether a run judges or measures is decided by how you invoke it, not by the file.
 
 ```yaml
-format: mavai-task/1
-task: basket-builder-returns-valid-baskets
+format: mavai-contract/1
+contract: basket-builder-returns-valid-baskets
 service: basket-builder
 samples: 100
 
@@ -96,11 +96,11 @@ The file reads top to bottom as *machinery, rules, cases*. The `transforms:` blo
 ## Run it
 
 ```bash
-baseltest test task.yaml
+baseltest test contract.yaml
 ```
 
 ```
-task basket-builder-returns-valid-baskets: PASS
+contract basket-builder-returns-valid-baskets: PASS
   criterion response-is-a-valid-basket: PASS
     98 of 100 responses met expectations
     observed rate 0.9800; we can be 95% confident the true rate is at least 0.9530 — clears your 0.95 threshold
@@ -108,9 +108,9 @@ task basket-builder-returns-valid-baskets: PASS
 
 That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a 98% observation over too few samples would honestly fail. If you declare a threshold your sample count cannot support, baseltest refuses to run and tells you the minimum that would work (or omit `samples:` entirely and baseltest derives that minimum for you). Add `--html-report report.html` for a self-contained summary page.
 
-Both verbs accept `--samples N`, overriding the file: the task file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
+Both verbs accept `--samples N`, overriding the file: the contract file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
 
-**`test` judges; `measure` records.** The same file, run as `baseltest measure task.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `baselines/`: the durable record of what was observed, under exactly which service configuration. A test run persists nothing: its product is the verdict. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+**`test` judges; `measure` records.** The same file, run as `baseltest measure contract.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `baselines/`: the durable record of what was observed, under exactly which service configuration. A test run persists nothing: its product is the verdict. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
 
 ```
 criterion spirits-stay-polite: PASS
@@ -118,14 +118,14 @@ criterion spirits-stay-polite: PASS
   — clears your 0.9654 threshold (empirical, fortune-teller-…-b44846234567.yaml)
 ```
 
-The workflow is **measure once, test forever after** — and the baseline only matches if it measured *the same thing*: same task, same inputs, same service configuration. Change the model or the system prompt and the test tells you the baseline no longer applies (naming the differing settings) instead of quietly judging against stale evidence.
+The workflow is **measure once, test forever after** — and the baseline only matches if it measured *the same thing*: same contract, same inputs, same service configuration. Change the model or the system prompt and the test tells you the baseline no longer applies (naming the differing settings) instead of quietly judging against stale evidence.
 
 ## Testing your own (non-LLM) service
 
 Anything you can call from Python can be under test. Suppose you have a payment gateway with a contractual success rate — register the invocation once:
 
 ```python
-# mavai-bindings.py — discovered beside the task file and imported
+# mavai-bindings.py — discovered beside the contract file and imported
 # automatically, exactly as mavai-services.yaml is discovered
 from baseltest.declarative import binding
 from my_app import gateway
@@ -136,8 +136,8 @@ def charge(card_token: str) -> str:
 ```
 
 ```yaml
-format: mavai-task/1
-task: payment-gateway-meets-sla
+format: mavai-contract/1
+contract: payment-gateway-meets-sla
 service: payment-gateway
 samples: 1000
 inputs: ["tok-visa-4242", "tok-mc-5100"]
@@ -167,7 +167,7 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed task file, unresolvable binding, nothing to test, or a test whose sample count cannot support its bars. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, or a test whose sample count cannot support its bars. |
 | `3` | **Unsupportable assertion.** `measure --assert` only: the sample size could never have supported a declared bar — no assertion can rest on the evidence, in either direction. Recorded and persisted all the same. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.
@@ -178,4 +178,4 @@ The [`examples/`](../examples/README.md) directory has both paths ready to run: 
 
 ## When you outgrow the files
 
-The task file is a front-end: baseltest turns it into a real service contract evaluated by the same engine a hand-written one uses. When you need more than the file can say, graduate — take direct authorship of that contract in Python (`baseltest.contract`). You keep everything; nothing migrates.
+The contract file is a front-end: baseltest turns it into a real service contract evaluated by the same engine a hand-written one uses. When you need more than the file can say, graduate — take direct authorship of that contract in Python (`baseltest.contract`). You keep everything; nothing migrates.

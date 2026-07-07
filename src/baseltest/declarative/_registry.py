@@ -1,9 +1,9 @@
-"""Registries: named bindings, checks, and transforms, resolved at task-load time."""
+"""Registries: named bindings, checks, and transforms, resolved at contract-load time."""
 
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -18,20 +18,20 @@ def _register(
     registry: dict[str, Any], kind: str, name: str, fn: Any, reserved: tuple[str, ...] = ()
 ) -> None:
     if not name:
-        raise TaskConfigurationError(f"a {kind} name must be non-empty")
+        raise ContractConfigurationError(f"a {kind} name must be non-empty")
     if name in reserved:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"{kind} name {name!r} is reserved for the format's stock {kind}s"
         )
     if name in registry:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"a {kind} named {name!r} is already registered; names must be unique"
         )
     registry[name] = fn
 
 
 def binding(name: str) -> Callable[[_F], _F]:
-    """Register the code that invokes a service, under the name task files use.
+    """Register the code that invokes a service, under the name contract files use.
 
     The decorated callable accepts one input string and returns one response
     string. An anticipated bad response is returned (for the criteria to
@@ -83,32 +83,32 @@ def has_binding(name: str) -> bool:
 
 
 def resolve_binding(name: str) -> Callable[[str], str]:
-    """Look up a binding at task-load time; unresolvable names are refused."""
+    """Look up a binding at contract-load time; unresolvable names are refused."""
     if name not in _bindings:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"service {name!r} is not a registered binding. Register the code that "
-            f"invokes your service with @binding({name!r}) before running the task."
+            f"invokes your service with @binding({name!r}) before running the contract."
         )
     return _bindings[name]
 
 
 def resolve_check(name: str) -> Callable[[Any], bool]:
-    """Look up a named check at task-load time; unresolvable names are refused."""
+    """Look up a named check at contract-load time; unresolvable names are refused."""
     if name not in _checks:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"satisfies: {name!r} is not a registered check. Register the predicate "
-            f"with @check({name!r}) before running the task."
+            f"with @check({name!r}) before running the contract."
         )
     return _checks[name]
 
 
 def resolve_transform(name: str) -> Callable[[str], Any]:
-    """Look up a named transform at task-load time; unresolvable names are refused."""
+    """Look up a named transform at contract-load time; unresolvable names are refused."""
     if name not in _transforms:
-        raise TaskConfigurationError(
+        raise ContractConfigurationError(
             f"transform: {name!r} is neither a stock transform (json, xml, yaml) nor a "
             f"registered one. Register the transformation with @transform({name!r}) "
-            "before running the task."
+            "before running the contract."
         )
     return _transforms[name]
 

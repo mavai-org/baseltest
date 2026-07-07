@@ -7,23 +7,23 @@ from pathlib import Path
 from baseltest.engine import InfeasibleRunError, RunResult, Verdict
 from baseltest.reporting import bar_standing, render_infeasible
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 from ._runner import DEFAULT_BASELINE_DIR, run
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point: ``baseltest test task.yaml`` / ``baseltest measure task.yaml``."""
+    """Entry point: ``baseltest test contract.yaml`` / ``baseltest measure contract.yaml``."""
     parser = argparse.ArgumentParser(
         prog="baseltest",
         description="Statistically honest testing for stochastic services.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for verb, description in (
-        ("test", "judge the task's thresholded criteria: a probabilistic test"),
+        ("test", "judge the contract's thresholded criteria: a probabilistic test"),
         ("measure", "record every criterion and persist the baseline artefact"),
     ):
         verb_parser = subparsers.add_parser(verb, help=description)
-        verb_parser.add_argument("task_file", type=Path, help="path to the task file")
+        verb_parser.add_argument("contract_file", type=Path, help="path to the contract file")
         verb_parser.add_argument(
             "--baseline-dir",
             type=Path,
@@ -76,19 +76,19 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "test" and not arguments.no_verdict_xml:
             verdict_dir = arguments.verdict_dir
         result = run(
-            arguments.task_file,
+            arguments.contract_file,
             mode=arguments.command,
             samples=arguments.samples,
             baseline_dir=arguments.baseline_dir,
             html_report=arguments.html_report,
             verdict_dir=verdict_dir,
         )
-    except TaskConfigurationError as refusal:
-        print(f"task {arguments.task_file}: cannot run as declared", file=sys.stderr)
+    except ContractConfigurationError as refusal:
+        print(f"contract {arguments.contract_file}: cannot run as declared", file=sys.stderr)
         print(f"  {refusal}", file=sys.stderr)
         return 2
     except InfeasibleRunError as infeasible:
-        print(render_infeasible(arguments.task_file.stem, infeasible), file=sys.stderr)
+        print(render_infeasible(arguments.contract_file.stem, infeasible), file=sys.stderr)
         return 2
     if arguments.command == "test":
         return 1 if result.composite is Verdict.FAIL else 0

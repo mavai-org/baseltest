@@ -26,7 +26,7 @@ class Provider:
     """One vendor adapter: protocol shape, defaults, and schema support.
 
     Attributes:
-        name: The `provider:` value task authors declare.
+        name: The `provider:` value contract authors declare.
         default_endpoint: Where requests go when the environment does not
             override; ``None`` means an endpoint is mandatory (generic).
         key_env_fallback: The vendor's conventional credential variable,

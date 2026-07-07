@@ -33,7 +33,7 @@ def record(provenance: dict[str, str] | None = None) -> BaselineRecord:
             ),
         },
         provenance=provenance
-        or {"taskFormat": "mavai-task/1", "binding": "refund-service", "model": "small"},
+        or {"taskFormat": "mavai-contract/1", "binding": "refund-service", "model": "small"},
     )
 
 
@@ -67,7 +67,7 @@ class TestResolution:
             tmp_path,
             "refund-confirmation",
             "a" * 64,
-            {"taskFormat": "mavai-task/1", "binding": "refund-service", "model": "small"},
+            {"taskFormat": "mavai-contract/1", "binding": "refund-service", "model": "small"},
         )
         assert resolution.matched
         assert resolution.baseline is not None
@@ -84,7 +84,7 @@ class TestResolution:
             tmp_path,
             "refund-confirmation",
             "a" * 64,
-            {"taskFormat": "mavai-task/1", "binding": "refund-service", "model": "LARGE"},
+            {"taskFormat": "mavai-contract/1", "binding": "refund-service", "model": "LARGE"},
         )
         assert not resolution.matched
         assert resolution.reason is not None
@@ -95,7 +95,7 @@ class TestResolution:
         write_baseline(
             record(
                 {
-                    "taskFormat": "mavai-task/1",
+                    "taskFormat": "mavai-contract/1",
                     "binding": "refund-service",
                     "runMode": "measure",
                     "taskFile": "old-name.yaml",
@@ -107,6 +107,6 @@ class TestResolution:
             tmp_path,
             "refund-confirmation",
             "a" * 64,
-            {"taskFormat": "mavai-task/1", "binding": "refund-service"},
+            {"taskFormat": "mavai-contract/1", "binding": "refund-service"},
         )
         assert resolution.matched

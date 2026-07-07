@@ -64,7 +64,7 @@ class BaselineRecord:
         criteria: Per-criterion characterisations, keyed by criterion name,
             in declaration order.
         provenance: Additional provenance the caller supplies (e.g. the
-            task-format identifier, the resolved binding's name). String
+            contract-format identifier, the resolved binding's name). String
             keys and values; recorded verbatim.
     """
 

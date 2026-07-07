@@ -24,7 +24,7 @@ class TestVerdictOutput:
     def test_states_rate_bound_n_and_threshold(self) -> None:
         criterion = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         text = render_run(run_result((criterion,)))
-        assert "task refund-confirmation: PASS" in text
+        assert "contract refund-confirmation: PASS" in text
         assert "300 of 300 responses" in text
         assert "observed rate 1.0000" in text
         assert "confident the true rate is at least" in text
@@ -34,7 +34,7 @@ class TestVerdictOutput:
         passing = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         failing = Criterion(name="strict", postconditions=(contains("nope"),), threshold=0.5)
         text = render_run(run_result((passing, failing)))
-        assert text.splitlines()[0] == "task refund-confirmation: FAIL"
+        assert text.splitlines()[0] == "contract refund-confirmation: FAIL"
         assert "criterion relevant: PASS" in text
         assert "criterion strict: FAIL" in text
 

@@ -1,7 +1,7 @@
 """Declarative service definitions: the mavai-services/1 companion file.
 
 A service file defines named services — including the code-free
-``language-model`` type — that task files reference by name. A definition
+``language-model`` type — that contract files reference by name. A definition
 carries exactly one complete ``configuration:`` block: every covariate
 value the service runs under, in one place, communicated to the service
 uniformly. (A ``variations:`` grid over the default configuration is the
@@ -22,7 +22,7 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
-from ._errors import TaskConfigurationError
+from ._errors import ContractConfigurationError
 from ._providers import (
     ANTHROPIC_REQUIRED_MAX_TOKENS,
     ENV_MODEL,
@@ -56,8 +56,8 @@ class ServiceDefinition:
     configuration: LanguageModelParameters
 
 
-def _fail(message: str) -> TaskConfigurationError:
-    return TaskConfigurationError(message)
+def _fail(message: str) -> ContractConfigurationError:
+    return ContractConfigurationError(message)
 
 
 def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
@@ -141,9 +141,9 @@ def parse_services(text: str) -> dict[str, ServiceDefinition]:
     return definitions
 
 
-def discover_services(task_path: Path) -> dict[str, ServiceDefinition]:
+def discover_services(contract_path: Path) -> dict[str, ServiceDefinition]:
     """Load definitions from the conventional locations, nearest first."""
-    for directory in (task_path.parent, Path.cwd()):
+    for directory in (contract_path.parent, Path.cwd()):
         candidate = directory / SERVICES_FILENAME
         if candidate.is_file():
             return parse_services(candidate.read_text(encoding="utf-8"))

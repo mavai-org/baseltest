@@ -41,8 +41,8 @@ python --version                 # verify: must print 3.11+ — if not, stop and
 pip install -e ".[declarative]"
 
 cd examples/simulated-service
-baseltest test task.yaml       # judge it against its declared bar
-baseltest measure task.yaml    # or: record everything, persist a baseline
+baseltest test contract.yaml       # judge it against its declared bar
+baseltest measure contract.yaml    # or: record everything, persist a baseline
 ```
 
 (If pip ever answers with `Package 'baseltest' requires a different Python`, that is this issue: the active `pip` still belongs to an older interpreter. `deactivate`, delete `venv/`, and recreate it with the 3.11+ interpreter as above.)
@@ -51,11 +51,11 @@ You'll see a verdict with its uncertainty stated — run the test a few times an
 
 ## Where the project is going
 
-baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic task file — inputs, expectations, a service binding, a threshold, a sample count — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
+baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold, a sample count — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
 
 ```yaml
-format: mavai-task/1
-task: greeting-service-is-polite
+format: mavai-contract/1
+contract: greeting-service-is-polite
 service: greeting-service
 samples: 100
 inputs:
@@ -69,15 +69,15 @@ criteria:
 Planned around that core:
 
 - **Honest output**: a declared threshold yields a statistical verdict with its uncertainty stated; no threshold yields a measurement explicitly labelled as an observation, never dressed up as a pass.
-- **Multiple criteria per task**: a service examined through several Bernoulli streams in one run — relevance at one bar, well-formedness at another.
+- **Multiple criteria per contract**: a service examined through several Bernoulli streams in one run — relevance at one bar, well-formedness at another.
 - **Structured-response checks**: JSON, XML, and YAML transforms with standards-pinned path expressions (RFC 9535 JSONPath, XPath 1.0).
 - **Measurement runs** that persist a baseline artefact — the empirical record future regression tests will verify against.
-- **A graduation path**: when the task file runs out of expressive power, baseltest emits the equivalent contract as Python source you take ownership of — the same object you were already running, not a migration.
+- **A graduation path**: when the contract file runs out of expressive power, baseltest emits the equivalent contract as Python source you take ownership of — the same object you were already running, not a migration.
 - **An lm-eval bridge** (separate package): mavai-grade statistics over [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) runs, with baseltest as the statistical engine underneath.
 
 ## Status
 
-Pre-release (`0.1.0.dev0`). APIs and the task-file surface are settling; nothing here is stable yet. If the approach interests you, [mavai.org](https://mavai.org) explains the methodology, and punit's user guide shows the mature end of the same ideas.
+Pre-release (`0.1.0.dev0`). APIs and the contract-file surface are settling; nothing here is stable yet. If the approach interests you, [mavai.org](https://mavai.org) explains the methodology, and punit's user guide shows the mature end of the same ideas.
 
 ## Licence
 
