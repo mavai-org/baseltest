@@ -103,7 +103,7 @@ class TestRunModes:
         result = run(write_task(tmp_path, task), mode="test")
         assert [r.name for r in result.criterion_results] == ["judged"]
         out = capsys.readouterr().out
-        assert "criterion watched declares no threshold and was not judged" in out
+        assert "empirical criterion watched requires a baseline" in out
         assert "baseltest measure" in out
 
     def test_measure_mode_records_all_and_persists(self, tmp_path: Path) -> None:

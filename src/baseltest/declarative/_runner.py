@@ -102,8 +102,8 @@ def run(
             )
         for name in skipped:
             print(
-                f"note: criterion {name} declares no threshold and was not judged "
-                "(`baseltest measure` records it)"
+                f"note: empirical criterion {name} requires a baseline — "
+                "run `baseltest measure` first"
             )
         print(render_run(result, baseline_path=baseline_path))
     return result

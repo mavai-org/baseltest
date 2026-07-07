@@ -1,6 +1,6 @@
 """Console rendering of run results, in the task format's own vocabulary."""
 
-from baseltest.engine import CriterionResult, InfeasibleRunError, RunResult, Verdict
+from baseltest.engine import CriterionResult, InfeasibleRunError, RunKind, RunResult, Verdict
 
 
 def _percent(confidence: float) -> str:
@@ -53,10 +53,12 @@ def _failure_reason_lines(result: CriterionResult, limit: int = 3) -> list[str]:
     return lines
 
 
-def _characterised_lines(result: CriterionResult) -> list[str]:
+def _characterised_lines(
+    result: CriterionResult, label: str = "no threshold declared"
+) -> list[str]:
     tally = result.tally
     return [
-        f"  criterion {result.name}: measured (no threshold declared)",
+        f"  criterion {result.name}: recorded ({label})",
         (
             f"    {tally.successes} of {tally.trials} responses met expectations "
             f"(observed rate {tally.observed_rate:.4f}, "
@@ -66,17 +68,43 @@ def _characterised_lines(result: CriterionResult) -> list[str]:
     ]
 
 
+def _recorded_bar_lines(result: CriterionResult) -> list[str]:
+    """A declared bar under measure: noted against the evidence — data, not a verdict."""
+    criterion = result.criterion
+    assert result.lower_bound is not None and criterion.threshold is not None
+    standing = "met" if result.verdict is Verdict.PASS else "not met"
+    lines = _characterised_lines(result, label="bar declared")
+    lines.insert(
+        2,
+        (
+            f"    declared bar {criterion.threshold}: the evidence records it as "
+            f"{standing} ({_percent(criterion.confidence)} lower bound "
+            f"{result.lower_bound:.4f}) — recorded, not a verdict"
+        ),
+    )
+    return lines
+
+
 # javai-ref: JVI-51ASAR0 — do not remove (resolves in javai-orchestrator)
 def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a run result in the honest-output shapes.
 
-    With at least one thresholded criterion: per-criterion verdict lines
-    plus the composite. Without any: an observation, labelled as a
-    measurement, no verdict vocabulary. When a baseline artefact was
-    persisted, its path is named.
+    Under test: per-criterion verdict lines plus the composite. Under
+    measure: pure recording — every criterion's evidence, a declared bar
+    noted as met / not met (data, never a verdict). When a baseline
+    artefact was persisted, its path is named.
     """
     lines: list[str] = []
-    if result.composite is not None:
+    if result.kind is RunKind.MEASURE:
+        lines.append(
+            f"task {result.contract_id}: recorded (a measure run records; it renders no verdict)"
+        )
+        for criterion_result in result.criterion_results:
+            if criterion_result.criterion.threshold is not None:
+                lines.extend(_recorded_bar_lines(criterion_result))
+            else:
+                lines.extend(_characterised_lines(criterion_result))
+    elif result.composite is not None:
         lines.append(f"task {result.contract_id}: {result.composite.value.upper()}")
         for criterion_result in result.criterion_results:
             if criterion_result.verdict is not None:

@@ -65,12 +65,20 @@ class TestObservationOutput:
     def test_labelled_measurement_with_rate_and_variance_no_verdict_vocabulary(self) -> None:
         measured = Criterion(name="measured", postconditions=(contains("refund"),))
         text = render_run(run_result((measured,), samples=100, kind=RunKind.MEASURE))
-        assert "OBSERVATION" in text
-        assert "this is a measurement, not a verdict" in text
+        assert "recorded" in text
+        assert "it renders no verdict" in text
         assert "observed rate" in text and "variance" in text
-        body = text.replace("OBSERVATION", "").replace("not a verdict", "")
+        body = text.replace("no verdict", "")
         for word in VERDICT_VOCABULARY:
             assert not re.search(rf"\b{word}\b", body), f"verdict vocabulary {word!r} in: {text}"
+
+    def test_measure_notes_a_declared_bar_as_data_not_verdict(self) -> None:
+        judged = Criterion(name="judged", postconditions=(contains("refund"),), threshold=0.5)
+        text = render_run(run_result((judged,), samples=300, kind=RunKind.MEASURE))
+        assert "declared bar 0.5" in text
+        assert "recorded, not a verdict" in text
+        assert "met" in text
+        assert "PASS" not in text and "FAIL" not in text
 
     def test_baseline_path_named_when_persisted(self) -> None:
         measured = Criterion(name="measured", postconditions=(contains("refund"),))
