@@ -7,8 +7,11 @@ The run mode is supplied by the invocation (the verb), never by the file:
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace as _replace
+from pathlib import Path
 from typing import Any
 
+from baseltest.baseline import resolve_baseline
 from baseltest.contract import (
     Criterion,
     Postcondition,
@@ -21,10 +24,12 @@ from baseltest.contract import (
     one_of,
     satisfies,
 )
-from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples
+from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples, inputs_fingerprint
+from baseltest.statistics import derive_sample_size_first
 
 from ._errors import TaskConfigurationError
 from ._parser import (
+    FORMAT_IDENTIFIER,
     RAW_VIEW,
     CriterionDeclaration,
     FormDeclaration,
@@ -161,23 +166,56 @@ def _resolve_service(
     return resolve_binding(reference), {}
 
 
+def _resolve_run_size(
+    declaration: TaskDeclaration,
+    samples: int | None,
+    judged: Sequence[Criterion],
+    views: dict[str, Any],
+    invoke: Callable[[str], str],
+) -> tuple[int, int | None]:
+    """The run's N: invocation override, then the file, then derivation."""
+    if samples is not None:
+        return samples, None
+    if declaration.samples is not None:
+        return declaration.samples, None
+    anchors = [c for c in judged if c.threshold is not None]
+    if not anchors:
+        raise TaskConfigurationError(
+            "`samples:` is required here — with no declared bar there is no "
+            "feasibility anchor to derive a sample count from"
+        )
+    probe = ServiceContract(
+        contract_id=declaration.task, invoke=invoke, criteria=tuple(anchors), views=views
+    )
+    derived = derive_minimum_samples(probe)
+    return derived, derived
+
+
 def instantiate(
     declaration: TaskDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
     mode: RunKind = RunKind.TEST,
-) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str], tuple[str, ...]]:
+    samples: int | None = None,
+    baseline_dir: Path | None = None,
+) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str], tuple[tuple[str, str], ...]]:
     """Instantiate the contract and plan for a task declaration under a run mode.
 
-    Returns the contract, the run plan, the derived sample count when
-    ``samples`` was omitted (``None`` when declared), the resolved service
-    provenance, and — under ``test`` — the names of criteria skipped for
-    declaring no threshold.
+    Returns the contract, the run plan, the derived sample count when the
+    size was derived, the resolved service provenance, and — under ``test``
+    — the ``(name, reason)`` pairs for empirical criteria that could not be
+    judged (no matching baseline).
+
+    Under ``test``, a criterion without a declared threshold is an
+    empirical criterion: when ``baseline_dir`` holds a matching baseline
+    (same contract, inputs fingerprint, and covariates), its bar is derived
+    from the baseline's recorded evidence at this run's own sample size —
+    the companion's sample-size-first rule — and it is judged like its
+    normative siblings, with provenance naming the artefact.
 
     Raises:
         TaskConfigurationError: On any load-time refusal — before any
-            invocation. In particular, a ``test`` over a file with no
-            thresholded criterion, and a threshold-less ``measure`` with
-            no ``samples``.
+            invocation. In particular, a ``test`` where nothing is
+            judgeable, and a threshold-less ``measure`` with no ``samples``.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
     invoke = _instrumented_invoke(resolved)
@@ -185,38 +223,85 @@ def instantiate(
     views = _build_views(declaration)
     expected = _expected_postconditions(declaration.expected_pairs, transforms)
 
-    skipped: tuple[str, ...] = ()
-    criterion_declarations: Sequence[CriterionDeclaration] = declaration.criteria
+    skipped: list[tuple[str, str]] = []
     if mode is RunKind.TEST:
-        thresholded = [c for c in declaration.criteria if c.threshold is not None]
-        if not thresholded:
-            raise TaskConfigurationError(
-                "nothing to test: no criterion declares a `threshold:`. Run "
-                "`baseltest measure` to characterise the service, or declare a bar."
-            )
-        skipped = tuple(c.name for c in declaration.criteria if c.threshold is None)
-        criterion_declarations = thresholded
+        normative = [
+            _build_criterion(entry, declaration.confidence, expected, transforms)
+            for entry in declaration.criteria
+            if entry.threshold is not None
+        ]
+        empirical_declared = [c for c in declaration.criteria if c.threshold is None]
+        run_size, derived = _resolve_run_size(declaration, samples, normative, views, invoke)
 
-    criteria = tuple(
-        _build_criterion(entry, declaration.confidence, expected, transforms)
-        for entry in criterion_declarations
-    )
+        empirical: list[Criterion] = []
+        if empirical_declared:
+            resolution = None
+            if baseline_dir is not None:
+                resolution = resolve_baseline(
+                    baseline_dir,
+                    declaration.task,
+                    inputs_fingerprint(declaration.inputs),
+                    {
+                        "taskFormat": FORMAT_IDENTIFIER,
+                        "binding": declaration.service,
+                        **service_provenance,
+                    },
+                )
+            for entry in empirical_declared:
+                if resolution is None or not resolution.matched:
+                    reason = (
+                        resolution.reason
+                        if resolution is not None and resolution.reason
+                        else "requires a baseline"
+                    )
+                    skipped.append((entry.name, f"{reason} — run `baseltest measure` first"))
+                    continue
+                stored = resolution.baseline
+                assert stored is not None
+                evidence = stored.criteria.get(entry.name)
+                if evidence is None or evidence.trials == 0:
+                    skipped.append(
+                        (
+                            entry.name,
+                            f"baseline {stored.path.name} does not record this "
+                            "criterion — re-run `baseltest measure`",
+                        )
+                    )
+                    continue
+                derivation = derive_sample_size_first(
+                    evidence.successes,
+                    evidence.trials,
+                    run_size,
+                    declaration.confidence,
+                )
+                built = _build_criterion(entry, declaration.confidence, expected, transforms)
+                empirical.append(
+                    _replace(
+                        built,
+                        threshold=derivation.min_pass_rate,
+                        provenance=ThresholdProvenance(
+                            origin="empirical", contract_ref=stored.path.name
+                        ),
+                    )
+                )
+        criteria = tuple(normative + empirical)
+        if not criteria:
+            detail = f" ({skipped[0][1]})" if skipped else ""
+            raise TaskConfigurationError(
+                "nothing to test: no criterion declares a `threshold:` and no "
+                f"empirical criterion could be judged{detail}. Run `baseltest "
+                "measure` to establish a baseline, or declare a bar."
+            )
+    else:
+        criteria = tuple(
+            _build_criterion(entry, declaration.confidence, expected, transforms)
+            for entry in declaration.criteria
+        )
+        run_size, derived = _resolve_run_size(declaration, samples, criteria, views, invoke)
+
     contract = ServiceContract(
         contract_id=declaration.task, invoke=invoke, criteria=criteria, views=views
     )
-
-    derived: int | None = None
-    samples = declaration.samples
-    if samples is None:
-        if not contract.thresholded_criteria:
-            raise TaskConfigurationError(
-                "`samples:` is required for a measure run with no thresholded "
-                "criterion — a pure characterisation has no feasibility anchor to "
-                "derive a sample count from"
-            )
-        derived = derive_minimum_samples(contract)
-        samples = derived
-
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
-    plan = RunPlan(samples=samples, inputs=declaration.inputs, kind=mode, intent=intent)
-    return contract, plan, derived, service_provenance, skipped
+    plan = RunPlan(samples=run_size, inputs=declaration.inputs, kind=mode, intent=intent)
+    return contract, plan, derived, service_provenance, tuple(skipped)

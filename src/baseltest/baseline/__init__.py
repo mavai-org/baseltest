@@ -13,10 +13,22 @@ artefact is a durable record whose consumption is a deliberately separate,
 later capability.
 """
 
+from .reader import (
+    BaselineResolution,
+    StoredBaseline,
+    StoredCriterion,
+    read_baseline,
+    resolve_baseline,
+)
 from .record import BaselineRecord, CriterionCharacterisation, NormativeJudgement
 from .writer import baseline_filename, render_baseline, write_baseline
 
 __all__ = [
+    "BaselineResolution",
+    "StoredBaseline",
+    "StoredCriterion",
+    "read_baseline",
+    "resolve_baseline",
     "BaselineRecord",
     "CriterionCharacterisation",
     "NormativeJudgement",

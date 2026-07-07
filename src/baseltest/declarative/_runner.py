@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from baseltest.baseline import BaselineRecord, write_baseline
-from baseltest.engine import RunKind, RunPlan, RunResult, execute
+from baseltest.engine import RunKind, RunResult, execute
 from baseltest.reporting import render_html_report, render_run
 
 from ._errors import TaskConfigurationError
@@ -69,13 +69,12 @@ def run(
     discover_registrations(task_path)
     services = discover_services(task_path)
     contract, plan, derived, service_provenance, skipped = instantiate(
-        declaration, services, mode=run_mode
+        declaration,
+        services,
+        mode=run_mode,
+        samples=samples,
+        baseline_dir=Path(baseline_dir),
     )
-    if samples is not None:
-        # Asymmetric sampling: the file sizes the experiment, the caller sizes
-        # this run; the bound is computed at this N, feasibility checked at it.
-        plan = RunPlan(samples=samples, inputs=plan.inputs, kind=plan.kind, intent=plan.intent)
-        derived = None
     if html_report is not None and run_mode is not RunKind.TEST:
         raise TaskConfigurationError(
             "the HTML report is the probabilistic-test summary and applies to test "
@@ -106,10 +105,7 @@ def run(
                 f"samples not declared — derived {derived} (the smallest count "
                 "supporting every declared threshold at its confidence)"
             )
-        for name in skipped:
-            print(
-                f"note: empirical criterion {name} requires a baseline — "
-                "run `baseltest measure` first"
-            )
+        for name, reason in skipped:
+            print(f"note: empirical criterion {name}: {reason}")
         print(render_run(result, baseline_path=baseline_path))
     return result

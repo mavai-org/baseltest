@@ -110,7 +110,15 @@ That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It i
 
 Both verbs accept `--samples N`, overriding the file: the task file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
 
-The verb is half the story. **`test` judges; `measure` records.** The same file, run as `baseltest measure task.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `baselines/`: the durable record of what was observed, under exactly which service configuration. A test run persists nothing: its product is the verdict. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration: once a matching baseline exists, `test` will judge it against that baseline like any other (arriving in baseltest shortly); until then `test` skips it with a one-line indicator saying it needs a baseline first.
+The verb is half the story. **`test` judges; `measure` records.** The same file, run as `baseltest measure task.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `baselines/`: the durable record of what was observed, under exactly which service configuration. A test run persists nothing: its product is the verdict. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+
+```
+criterion spirits-stay-polite: PASS
+  observed rate 1.0000; we can be 95% confident the true rate is at least 0.9867
+  — clears your 0.9654 threshold (empirical, fortune-teller-…-b44846234567.yaml)
+```
+
+That is the whole workflow in two commands: **measure once, test forever after** — and the baseline only matches if it measured *the same thing*: same task, same inputs, same service configuration. Change the model or the system prompt and the test tells you the baseline no longer applies (naming the differing settings) instead of quietly judging against stale evidence.
 
 ## Testing your own (non-LLM) service
 

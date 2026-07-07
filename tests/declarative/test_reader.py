@@ -103,7 +103,7 @@ class TestRunModes:
         result = run(write_task(tmp_path, task), mode="test")
         assert [r.name for r in result.criterion_results] == ["judged"]
         out = capsys.readouterr().out
-        assert "empirical criterion watched requires a baseline" in out
+        assert "empirical criterion watched: no baseline found" in out
         assert "baseltest measure" in out
 
     def test_measure_mode_records_all_and_persists(self, tmp_path: Path) -> None:
@@ -435,3 +435,79 @@ class TestMaterialisation:
         assert "threshold=0.5" in source
         assert "greeting-service" in source
         compile(source, "materialised.py", "exec")
+
+
+class TestEmpiricalJudgement:
+    TASK = """
+format: mavai-task/1
+task: ratchet
+service: svc
+samples: 200
+criteria:
+  - name: keeps-up
+    contains: "ok"
+inputs: ["a", "b"]
+"""
+
+    def _bind(self):  # type: ignore[no-untyped-def]
+        @binding("svc")
+        def invoke(value: str) -> str:
+            return f"ok {value}"
+
+    def test_measure_then_test_judges_empirically(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._bind()
+        task = write_task(tmp_path, self.TASK)
+        run(task, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        result = run(task, mode="test", baseline_dir=tmp_path / "baselines")
+        assert result.composite is Verdict.PASS
+        judged = result.criterion_results[0]
+        assert judged.criterion.provenance.origin == "empirical"
+        assert judged.criterion.provenance.contract_ref is not None
+        assert judged.criterion.provenance.contract_ref.endswith(".yaml")
+        out = capsys.readouterr().out
+        assert "empirical" in out and ".yaml" in out
+        # the bar is the companion's sample-size-first derivation at this N
+        from baseltest.statistics import derive_sample_size_first
+
+        expected = derive_sample_size_first(200, 200, 200, 0.95).min_pass_rate
+        assert judged.criterion.threshold == pytest.approx(expected)
+
+    def test_baseline_criterion_missing_skips_with_reason(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        self._bind()
+        task = write_task(tmp_path, self.TASK)
+        run(task, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        renamed = self.TASK.replace("name: keeps-up", "name: renamed-criterion")
+        with pytest.raises(TaskConfigurationError, match="does not record"):
+            run(
+                write_task(tmp_path, renamed),
+                mode="test",
+                baseline_dir=tmp_path / "baselines",
+            )
+
+    def test_empirical_only_test_without_baseline_is_refused(self, tmp_path: Path) -> None:
+        self._bind()
+        with pytest.raises(TaskConfigurationError, match="nothing to test"):
+            run(
+                write_task(tmp_path, self.TASK),
+                mode="test",
+                baseline_dir=tmp_path / "nowhere",
+            )
+
+    def test_mixed_task_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
+        self._bind()
+        task = self.TASK.replace(
+            'criteria:\n  - name: keeps-up\n    contains: "ok"',
+            'criteria:\n  - name: stated-bar\n    threshold: 0.5\n    contains: "ok"\n'
+            '  - name: keeps-up\n    contains: "ok"',
+        )
+        path = write_task(tmp_path, task)
+        run(path, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        result = run(path, mode="test", baseline_dir=tmp_path / "baselines", emit=False)
+        assert result.composite is Verdict.PASS
+        origins = {r.name: r.criterion.provenance.origin for r in result.criterion_results}
+        assert origins["stated-bar"] == "unspecified"
+        assert origins["keeps-up"] == "empirical"
