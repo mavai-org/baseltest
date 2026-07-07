@@ -4,7 +4,13 @@ Ready-to-run declarative authoring, from zero.
 
 ## `simulated-service/` — runs offline, no setup at all
 
-A simulated stochastic "fortune teller" (true success rate ≈ 0.9) lives in `mavai-bindings.py`, which the runner discovers and imports automatically, exactly as it discovers `mavai-services.yaml`.
+Three files, three roles:
+
+| File | Role |
+|---|---|
+| `mavai-bindings.py` | **The service itself** — the code invoked once per sample. Here it *simulates* a stochastic service (true success rate ≈ 0.9) so the example runs offline; in real use this is where your API/LLM call lives. Discovered and imported automatically, like pytest's `conftest.py`. |
+| `task.yaml` | **The test posture** — declares a threshold (0.8), so the run renders a verdict: PASS only if the evidence supports, at 95% confidence, that the *true* rate clears the bar. |
+| `measure.yaml` | **The observation posture** — same service, same criterion, *no threshold*: nothing to judge against, so the run reports what is (rate, variance), labelled as a measurement, and persists a baseline artefact into `baselines/` — the durable record of how the service behaved. |
 
 ```bash
 pip install "baseltest[declarative]"
