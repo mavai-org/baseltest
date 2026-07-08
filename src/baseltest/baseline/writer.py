@@ -1,15 +1,17 @@
 """The single writer: serialising a baseline record to the artefact schema.
 
-Schema ``baseltest-baseline-1`` (draft), emitted deterministically with no
+Schema ``baseltest-baseline-2`` (draft), emitted deterministically with no
 third-party dependency: the schema is this package's own, every emitted
 string is JSON-quoted (a JSON string is a valid YAML flow scalar), and key
-order is fixed, so identical records produce identical bytes.
+order is fixed, so identical records produce identical bytes. Version 2
+adds the ``latency:`` block — field-compatible with punit's baseline
+latency block — to a version-1 body that is otherwise unchanged.
 
 Illustrative artefact:
 
 .. code-block:: yaml
 
-    schemaVersion: "baseltest-baseline-1"
+    schemaVersion: "baseltest-baseline-2"
     contractId: "refund-confirmation"
     generatedAt: "2026-07-06T12:00:00+00:00"
     sampleCount: 300
@@ -28,14 +30,35 @@ Illustrative artefact:
           state: "met"
           stipulatedThreshold: 0.95
           confidence: 0.95
+    latency:
+      basis: "passing-samples"
+      contributingSamples: 294
+      totalSamples: 300
+      p50Ms: 240
+      p90Ms: 480
+      p95Ms: 760
+      p99Ms: 1180
+      sortedPassingLatenciesMs:
+        - 118
+        - 121
+        # ... every contributing duration, ascending
+
+The ``latency:`` block appears when at least one sample passed and carries
+only the percentiles its contributing-sample count can support (p50 needs
+1, p90 needs 10, p95 needs 20, p99 needs 100), followed by the full
+ascending vector of passing-sample durations. The vector, not the
+percentiles, is what a later test consumes to derive a latency bound at
+its own confidence — nothing derived is persisted here.
 """
 
 import json
 from pathlib import Path
 
+from baseltest.engine import LatencyBlock
+
 from .record import BaselineRecord, CriterionCharacterisation
 
-SCHEMA_VERSION = "baseltest-baseline-1"
+SCHEMA_VERSION = "baseltest-baseline-2"
 
 
 def _quote(value: str) -> str:
@@ -82,7 +105,25 @@ def render_baseline(record: BaselineRecord) -> str:
     lines.append("criteria:")
     for name, characterisation in record.criteria.items():
         lines.extend(_criterion_lines(name, characterisation))
+    if record.latency is not None:
+        lines.extend(_latency_lines(record.latency))
     return "\n".join(lines) + "\n"
+
+
+def _latency_lines(latency: LatencyBlock) -> list[str]:
+    lines = [
+        "latency:",
+        f"  basis: {_quote(latency.basis)}",
+        f"  contributingSamples: {latency.contributing_samples}",
+        f"  totalSamples: {latency.total_samples}",
+    ]
+    for key, value in latency.percentiles:
+        lines.append(f"  {key}: {value}")
+    if latency.sorted_passing_latencies_ms:
+        lines.append("  sortedPassingLatenciesMs:")
+        for duration in latency.sorted_passing_latencies_ms:
+            lines.append(f"    - {duration}")
+    return lines
 
 
 def baseline_filename(record: BaselineRecord) -> str:

@@ -115,7 +115,14 @@ def run(
                 threshold=sizing.threshold,
             )
         )
-    result = execute(contract, plan, on_sample=_tty_progress(declaration.service) if emit else None)
+    result = execute(
+        contract,
+        plan,
+        on_sample=_tty_progress(declaration.service) if emit else None,
+        # A measure run's baseline needs per-sample durations for its
+        # latency block; test runs consume no per-sample observations.
+        record_samples=run_mode is RunKind.MEASURE,
+    )
 
     if verdict_dir is not None and run_mode is RunKind.TEST:
         verdict_path = write_verdict_record(result, Path(verdict_dir))
