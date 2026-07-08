@@ -5,9 +5,11 @@ from datetime import UTC, datetime
 
 from ruamel.yaml import YAML
 
+from baseltest.engine import SampleRecord
 from baseltest.exploration import (
     CriterionStatistics,
     ExplorationRecord,
+    LatencyBlock,
     exploration_stem,
     render_exploration,
     write_exploration,
@@ -142,3 +144,101 @@ class TestWriting:
             "pass",
             "fail",
         }
+
+
+def sample(index: int = 0, passed: bool = True, ms: int = 40) -> SampleRecord:
+    return SampleRecord(
+        input_index=index,
+        postconditions=(
+            ("has content", "passed"),
+            ("valid structure", "failed" if not passed else "passed"),
+        ),
+        execution_time_ms=ms,
+        content='{"items": []}',
+        passed=passed,
+    )
+
+
+class TestLatencyBlock:
+    def test_present_with_gated_percentiles_when_samples_passed(self) -> None:
+        r = record()
+        r = ExplorationRecord(
+            **{
+                **{
+                    f: getattr(r, f)
+                    for f in (
+                        "contract_id",
+                        "generated_at",
+                        "factors",
+                        "samples_planned",
+                        "samples_executed",
+                        "successes",
+                        "failure_distribution",
+                        "criteria",
+                        "total_time_ms",
+                    )
+                },
+                "latency": LatencyBlock(
+                    contributing_samples=4, total_samples=5, percentiles=(("p50Ms", 42),)
+                ),
+                "samples": (),
+            }
+        )
+        data = parse_yaml(render_exploration(r))
+        latency = data["latency"]
+        assert latency["basis"] == "passing-samples"
+        assert latency["contributingSamples"] == 4
+        assert latency["totalSamples"] == 5
+        assert latency["p50Ms"] == 42
+        # gated out at small n: no authoritative-looking noise
+        for absent in ("p90Ms", "p95Ms", "p99Ms"):
+            assert absent not in latency
+
+    def test_absent_when_nothing_passed(self) -> None:
+        assert "latency:" not in render_exploration(record())
+
+
+class TestResultProjection:
+    def _record_with_samples(self) -> ExplorationRecord:
+        r = record()
+        return ExplorationRecord(
+            **{
+                **{
+                    f: getattr(r, f)
+                    for f in (
+                        "contract_id",
+                        "generated_at",
+                        "factors",
+                        "samples_planned",
+                        "samples_executed",
+                        "successes",
+                        "failure_distribution",
+                        "criteria",
+                        "total_time_ms",
+                        "latency",
+                    )
+                },
+                "samples": (sample(0), sample(1, passed=False, ms=55)),
+            }
+        )
+
+    def test_family_projection_shape(self) -> None:
+        data = parse_yaml(render_exploration(self._record_with_samples()))
+        projection = data["resultProjection"]
+        first = projection["sample[0]"]
+        assert first["inputIndex"] == 0
+        assert first["postconditions"]["has content"] == "passed"
+        assert first["executionTimeMs"] == 40
+        assert first["content"] == '{"items": []}'
+        second = projection["sample[1]"]
+        assert second["postconditions"]["valid structure"] == "failed"
+
+    def test_deterministic_diff_anchors_at_sample_boundaries(self) -> None:
+        text = render_exploration(self._record_with_samples())
+        # anchor = first 8 hex of SHA-256("{sampleIndex}:{inputIndex}") — the
+        # family rule, so anchors match across artefacts of one grid.
+        assert "# ────── anchor:ac72368a ──────" in text  # sha256("0:0")
+        assert "# ────── anchor:d6b5915c ──────" in text  # sha256("1:1")
+        anchor_line = next(line for line in text.splitlines() if "anchor:ac72368a" in line)
+        sample_line = text.splitlines()[text.splitlines().index(anchor_line) + 1]
+        assert sample_line.strip().startswith('"sample[0]"')

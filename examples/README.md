@@ -82,7 +82,7 @@ The services file also carries an `explorations:` grid: the same job on a differ
         provider-anthropic_model-claude-haiku-4-5-20251001.yaml
    ```
 
-   Each file carries the configuration's factors, observed pass rate, per-criterion counts, and failure reasons — descriptive statistics only, triage rather than judgement.
+   Each file carries the configuration's factors, observed pass rate, per-criterion counts and failure reasons, a gated latency summary (p50 at exploration-sized runs), and a per-sample **result projection** — which input drove each sample, which postconditions passed, how long the call took, and the model's response verbatim. Descriptive statistics only, triage rather than judgement — and when a configuration underperforms, the projection shows you *what it actually said*.
 
 5. **Promote the winner.** Fold its values into the `configuration:` block, then `baseltest measure` and `baseltest test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
 

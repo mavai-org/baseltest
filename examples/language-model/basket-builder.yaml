@@ -38,10 +38,10 @@ inputs:
         path: "$.items[*].name"
         contains: "egg"
   - input: "three cans of chopped tomatoes and a bag of basmati rice"
-    expected:
-      - in: basket
-        path: "$.items[*].quantity"
-        contains: "3"
+    expected:                          # NB: a path check judges EVERY selected
+      - in: basket                     # value — so expect on the names (each
+        path: "$.items[*].name"        # must be wordy), not the quantities
+        matches: '\w{3,}'              # (the rice's quantity 1 contains no 3)
   - "two bottles of milk and a loaf of bread"
   - "a dozen eggs, please"
   - "500g of butter, a jar of honey, and two lemons"

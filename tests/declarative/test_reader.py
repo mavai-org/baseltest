@@ -510,3 +510,27 @@ inputs: ["a", "b"]
         origins = {r.name: r.criterion.provenance.origin for r in result.criterion_results}
         assert origins["stated-bar"] == "unspecified"
         assert origins["keeps-up"] == "empirical"
+
+
+class TestPerInputAttribution:
+    def test_expected_failure_reason_names_its_input(self, tmp_path: Path) -> None:
+        @binding("echo2")
+        def echo(value: str) -> str:
+            return value
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: echo2
+intent: smoke
+criteria:
+  - name: echoes
+    threshold: 0.9
+    matches: "."
+inputs:
+  - input: "bad"
+    expected: { contains: "impossible" }
+"""
+        result = run(write_contract(tmp_path, contract), samples=2, emit=False)
+        reasons = list(result.criterion_results[0].tally.failure_reasons)
+        assert any("for input 'bad':" in reason for reason in reasons)

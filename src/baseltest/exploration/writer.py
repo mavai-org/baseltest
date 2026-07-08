@@ -39,6 +39,28 @@ Illustrative artefact:
     cost:
       totalTimeMs: 2500
       avgTimePerSampleMs: 500
+    latency:
+      basis: "passing-samples"
+      contributingSamples: 4
+      totalSamples: 5
+      p50Ms: 480
+    resultProjection:
+      # ────── anchor:ac72368a ──────
+      "sample[0]":
+        inputIndex: 0
+        postconditions:
+          "answers-as-json": "passed"
+        executionTimeMs: 480
+        content: "{\"answer\": \"...\"}"
+
+The ``latency:`` block appears when at least one sample passed and
+carries only the percentiles its contributing-sample count can support
+(p50 needs 1, p90 needs 10, p95 needs 20, p99 needs 100). The
+``resultProjection:`` block records every sample — input index,
+per-postcondition status (passed/failed/skipped), invocation duration,
+and the response verbatim — with a content-deterministic diff anchor at
+each sample boundary (first 8 hex of SHA-256 of "index:inputIndex") so
+diffs between two artefacts of one grid align sample-by-sample.
 """
 
 import hashlib
@@ -166,6 +188,32 @@ def render_exploration(record: ExplorationRecord) -> str:
             f"  avgTimePerSampleMs: {average}",
         ]
     )
+    if record.latency is not None:
+        lines.extend(
+            [
+                "latency:",
+                f"  basis: {_quote(record.latency.basis)}",
+                f"  contributingSamples: {record.latency.contributing_samples}",
+                f"  totalSamples: {record.latency.total_samples}",
+            ]
+        )
+        for key, value in record.latency.percentiles:
+            lines.append(f"  {key}: {value}")
+    if record.samples:
+        lines.append("resultProjection:")
+        for index, sample in enumerate(record.samples):
+            # Content-deterministic diff anchor: same sample position and
+            # input index → same anchor, so a diff between two artefacts of
+            # one grid aligns at sample boundaries.
+            anchor = hashlib.sha256(f"{index}:{sample.input_index}".encode()).hexdigest()[:8]
+            lines.append(f"  # ────── anchor:{anchor} ──────")
+            lines.append(f'  "sample[{index}]":')
+            lines.append(f"    inputIndex: {sample.input_index}")
+            lines.append("    postconditions:")
+            for name, status in sample.postconditions:
+                lines.append(f"      {_quote(name)}: {_quote(status)}")
+            lines.append(f"    executionTimeMs: {sample.execution_time_ms}")
+            lines.append(f"    content: {_quote(sample.content)}")
     return "\n".join(lines) + "\n"
 
 

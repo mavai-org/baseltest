@@ -208,6 +208,7 @@ def explore(
             configuration.contract,
             configuration.plan,
             on_sample=_tty_progress(record_label) if emit else None,
+            record_samples=True,  # projections are the artefact's triage payload
         )
         record = ExplorationRecord.from_run_result(result, factors=configuration.factors)
         artefact = write_exploration(record, Path(explorations_dir))

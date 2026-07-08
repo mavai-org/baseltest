@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -107,6 +108,29 @@ class CriterionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SampleRecord:
+    """One sample's full observation — the result projection's raw material.
+
+    Attributes:
+        input_index: Position of the driving input in the plan's input
+            list (the index, not the value — the developer has the list).
+        postconditions: ``(name, status)`` pairs across every criterion's
+            postconditions, in evaluation order; status is ``passed``,
+            ``failed``, or ``skipped``.
+        execution_time_ms: Wall-clock duration of the service invocation
+            only — evaluation and bookkeeping are excluded.
+        content: The service's response, verbatim.
+        passed: Whether every criterion passed this sample.
+    """
+
+    input_index: int
+    postconditions: tuple[tuple[str, str], ...]
+    execution_time_ms: int
+    content: str
+    passed: bool
+
+
+@dataclass(frozen=True, slots=True)
 class RunResult:
     """Everything a run produced; consumers render or persist, never recompute.
 
@@ -121,6 +145,9 @@ class RunResult:
         started_at: Run start, UTC.
         finished_at: Run end, UTC.
         inputs_identity: Fingerprint of the input list (order-insensitive).
+        samples: Per-sample records, present only when the run was asked
+            to record them (explorations do; tests and measures don't
+            carry per-sample payloads).
     """
 
     contract_id: str
@@ -132,6 +159,7 @@ class RunResult:
     finished_at: datetime
     inputs_identity: str
     overall_successes: int = 0
+    samples: tuple[SampleRecord, ...] = ()
 
     @property
     def thresholded_results(self) -> tuple[CriterionResult, ...]:
@@ -223,6 +251,7 @@ def execute(
     contract: ServiceContract,
     plan: RunPlan,
     on_sample: Callable[[int, int], None] | None = None,
+    record_samples: bool = False,
 ) -> RunResult:
     """Run the plan: preflight, sample, judge, compose.
 
@@ -231,21 +260,40 @@ def execute(
     responses are returned by the invocation and judged by the criteria.
     ``on_sample(completed, total)`` — when given — is called after each
     sample purely for progress display; it observes the loop and can never
-    alter it.
+    alter it. With ``record_samples``, every sample's full observation
+    (input index, per-postcondition outcomes, invocation duration,
+    response content) lands on the result — the raw material of the
+    exploration artefacts' result projections.
     """
     _preflight(contract, plan)
     started_at = datetime.now(tz=UTC)
     tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
     overall_successes = 0
+    sample_records: list[SampleRecord] = []
     for i in range(plan.samples):
-        response = contract.invoke(plan.inputs[i % len(plan.inputs)])
+        input_index = i % len(plan.inputs)
+        invoked_at = time.perf_counter()
+        response = contract.invoke(plan.inputs[input_index])
+        duration_ms = round((time.perf_counter() - invoked_at) * 1000)
         views = TrialViews(response, contract.views)  # one cache per trial, all criteria
         trial_passed = True
+        outcomes: list[tuple[str, str]] = []
         for criterion in contract.criteria:
             evaluation = evaluate_trial(criterion, views)
             tallies[criterion.name].record(evaluation)
             trial_passed = trial_passed and evaluation.passed
+            outcomes.extend(evaluation.outcomes)
         overall_successes += int(trial_passed)
+        if record_samples:
+            sample_records.append(
+                SampleRecord(
+                    input_index=input_index,
+                    postconditions=tuple(outcomes),
+                    execution_time_ms=duration_ms,
+                    content=response,
+                    passed=trial_passed,
+                )
+            )
         if on_sample is not None:
             on_sample(i + 1, plan.samples)
     finished_at = datetime.now(tz=UTC)
@@ -272,4 +320,5 @@ def execute(
         finished_at=finished_at,
         inputs_identity=inputs_fingerprint(plan.inputs),
         overall_successes=overall_successes,
+        samples=tuple(sample_records),
     )

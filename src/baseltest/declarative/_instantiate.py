@@ -116,7 +116,13 @@ def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
     def check(subject: Any) -> PostconditionResult:
         if _CURRENT_INPUT.get("value") != input_value:
             return PostconditionResult.ok()
-        return inner.evaluate(subject)
+        result = inner.evaluate(subject)
+        if result.passed:
+            return result
+        # Attribute the failure to its input: a per-input expectation's
+        # reason is only diagnosable if it says which input it judged.
+        reason = result.reason or f"postcondition {inner.name!r} not satisfied"
+        return PostconditionResult.failed(f"for input {input_value!r}: {reason}")
 
     return Postcondition(
         name=f"{inner.name} (for input {input_value!r})", check=check, view=inner.view

@@ -56,33 +56,53 @@ class TrialEvaluation:
         reason: The failure reason on a fail (a view's transformation
             failure, or the first postcondition that did not hold);
             ``None`` on a pass.
+        outcomes: Per-postcondition ``(name, status)`` pairs in
+            declaration order, with the family's three-valued status:
+            ``passed``, ``failed``, or ``skipped`` (not evaluated because
+            a view's transformation failed earlier in the trial).
     """
 
     passed: bool
     reason: str | None = None
+    outcomes: tuple[tuple[str, str], ...] = ()
 
 
 def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
     """Evaluate one response (via its view cache) against one criterion.
 
     Applies every postcondition in declaration order to its named subject;
-    the criterion passes iff all hold. A :class:`TransformError` from a
-    view's first computation yields a failed trial with a transform-failure
-    reason. Any other exception propagates as a defect.
+    the criterion passes iff all hold. Every postcondition is evaluated
+    (the per-postcondition outcomes feed result projections); the trial's
+    ``reason`` is the first failure's. A :class:`TransformError` from a
+    view's computation fails that postcondition and skips the rest — the
+    views cache would fail them all identically. Any other exception
+    propagates as a defect.
     """
-    for postcondition in criterion.postconditions:
+    outcomes: list[tuple[str, str]] = []
+    first_reason: str | None = None
+    postconditions = list(criterion.postconditions)
+    for index, postcondition in enumerate(postconditions):
         try:
             subject = views.get(postcondition.view)
         except TransformError as failure:
+            reason = f"{_TRANSFORM_REASON_PREFIX} ({postcondition.view}): {failure}"
+            outcomes.append((postcondition.name, "failed"))
+            outcomes.extend((later.name, "skipped") for later in postconditions[index + 1 :])
             return TrialEvaluation(
-                passed=False,
-                reason=f"{_TRANSFORM_REASON_PREFIX} ({postcondition.view}): {failure}",
+                passed=False, reason=first_reason or reason, outcomes=tuple(outcomes)
             )
         result = postcondition.evaluate(subject)
-        if not result.passed:
-            reason = result.reason or f"postcondition {postcondition.name!r} not satisfied"
-            return TrialEvaluation(passed=False, reason=reason)
-    return TrialEvaluation(passed=True)
+        if result.passed:
+            outcomes.append((postcondition.name, "passed"))
+        else:
+            outcomes.append((postcondition.name, "failed"))
+            if first_reason is None:
+                first_reason = (
+                    result.reason or f"postcondition {postcondition.name!r} not satisfied"
+                )
+    return TrialEvaluation(
+        passed=first_reason is None, reason=first_reason, outcomes=tuple(outcomes)
+    )
 
 
 @dataclass(slots=True)

@@ -8,7 +8,7 @@ core use is diffing two configurations' files side by side. They carry
 descriptive statistics only: no bounds, no thresholds, no verdicts.
 """
 
-from .record import CriterionStatistics, ExplorationRecord
+from .record import CriterionStatistics, ExplorationRecord, LatencyBlock
 from .writer import (
     exploration_stem,
     render_exploration,
@@ -18,6 +18,7 @@ from .writer import (
 __all__ = [
     "CriterionStatistics",
     "ExplorationRecord",
+    "LatencyBlock",
     "exploration_stem",
     "render_exploration",
     "write_exploration",

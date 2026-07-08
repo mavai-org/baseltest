@@ -1,5 +1,6 @@
 """Console rendering of run results, in the contract format's own vocabulary."""
 
+from collections import Counter
 from collections.abc import Sequence
 
 from baseltest.engine import (
@@ -199,6 +200,12 @@ def render_explorations(
             f"  configuration {label}: {successes} of {total} responses met "
             f"expectations (observed rate {rate:.4f})"
         )
+        reasons: Counter[str] = Counter()
+        for criterion_result in result.criterion_results:
+            reasons.update(criterion_result.tally.failure_reasons)
+        if reasons:
+            reason, count = reasons.most_common(1)[0]
+            lines.append(f"    most common failure: {count}× {reason}")
         lines.append(f"    artefact: {path}")
     lines.append("  compare configurations by diffing their artefacts")
     return "\n".join(lines)
