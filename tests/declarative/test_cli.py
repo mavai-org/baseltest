@@ -159,3 +159,28 @@ class TestDerivationGate:
         )
         assert line_few == line_many
         assert "exceed" not in line_many  # no remark on samples vs inputs
+
+
+class TestProgressLine:
+    def test_progress_overwrites_while_sampling_and_persists_on_completion(
+        self, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        import sys
+
+        from baseltest.declarative._runner import _tty_progress
+
+        monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+        on_sample = _tty_progress("provider-openai_model-gpt-4o-mini")
+        assert on_sample is not None
+        on_sample(1, 5)
+        on_sample(5, 5)
+        err = capsys.readouterr().err
+        # Mid-run updates overwrite in place; the completed line ends with a
+        # newline so it survives the next configuration's progress.
+        assert "sampling provider-openai_model-gpt-4o-mini: 1/5\r" in err
+        assert err.endswith("sampled provider-openai_model-gpt-4o-mini: 5/5\n")
+
+    def test_no_progress_callback_off_a_terminal(self):  # type: ignore[no-untyped-def]
+        from baseltest.declarative._runner import _tty_progress
+
+        assert _tty_progress("anything") is None  # captured stderr is not a TTY

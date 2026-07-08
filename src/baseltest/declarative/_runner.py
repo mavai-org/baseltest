@@ -33,17 +33,27 @@ DEFAULT_EXPLORATIONS_DIR = ARTEFACT_ROOT / "explorations"
 
 
 def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
-    """A transient stderr progress line — only when stderr is a terminal.
+    """A stderr progress line — only when stderr is a terminal.
 
-    stdout stays clean for the run's actual output; non-interactive runs
-    (pipes, CI) see nothing.
+    The line overwrites itself while its run is sampling, then persists on
+    completion: in a multi-configuration exploration each finished
+    configuration leaves its line behind as a progress record instead of
+    being erased by the next one. stdout stays clean for the run's actual
+    output; non-interactive runs (pipes, CI) see nothing.
     """
     if not sys.stderr.isatty():
         return None
 
     def on_sample(completed: int, total: int) -> None:
-        end = "\r" if completed < total else "\r\033[K"
-        print(f"  sampling {label}: {completed}/{total}", end=end, file=sys.stderr, flush=True)
+        if completed < total:
+            print(
+                f"  sampling {label}: {completed}/{total}",
+                end="\r",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"\r\033[K  sampled {label}: {total}/{total}", file=sys.stderr)
 
     return on_sample
 
