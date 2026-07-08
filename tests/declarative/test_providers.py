@@ -11,6 +11,7 @@ from baseltest.declarative._providers import (
     ENV_API_KEY,
     ENV_ENDPOINT,
     PROVIDERS,
+    ProviderResponseError,
     build_invoker,
     resolve_provider,
 )
@@ -165,3 +166,30 @@ class TestResponseSchema:
         with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
             build_invoker(resolve_provider("apertus"), parameters)
         assert capture == []
+
+
+class TestErrorResponses:
+    def test_http_error_is_a_diagnosable_defect(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An error response aborts the run (a defect, never a sample) — and
+        # the abort carries the provider's own explanation, not a bare 400.
+        import urllib.error
+
+        def failing_urlopen(request: Any) -> Any:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                400,
+                "Bad Request",
+                None,  # type: ignore[arg-type]
+                io.BytesIO(b'{"error": {"message": "schema: additionalProperties required"}}'),
+            )
+
+        monkeypatch.setenv(ENV_API_KEY, "family-key")
+        monkeypatch.delenv(ENV_ENDPOINT, raising=False)
+        monkeypatch.setattr("urllib.request.urlopen", failing_urlopen)
+        invoke = build_invoker(resolve_provider("anthropic"), PARAMETERS)
+        with pytest.raises(ProviderResponseError) as defect:
+            invoke("hello")
+        message = str(defect.value)
+        assert "'anthropic'" in message and "400" in message
+        assert "additionalProperties required" in message  # the provider's words survive
+        assert "defect" in message

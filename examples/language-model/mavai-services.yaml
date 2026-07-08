@@ -19,13 +19,17 @@ services:
     configuration:                 # the baseline — what `test` and `measure` run
       provider: openai
       model: gpt-4o-mini
-      response-schema:
-        type: object
+      response-schema:                # structured-output rules are strict:
+        type: object                  # every object needs required: and
+        additionalProperties: false   # additionalProperties: false, or the
+        required: [items]             # provider rejects the request
         properties:
           items:
             type: array
             items:
               type: object
+              additionalProperties: false
+              required: [name, quantity]
               properties:
                 name: {type: string}
                 quantity: {type: integer}

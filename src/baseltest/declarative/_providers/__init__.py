@@ -16,6 +16,7 @@ responses are defects.
 
 import json
 import os
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING
@@ -47,9 +48,31 @@ __all__ = [
     "ENV_MODEL",
     "PROVIDERS",
     "Provider",
+    "ProviderResponseError",
     "build_invoker",
     "resolve_provider",
 ]
+
+
+class ProviderResponseError(Exception):
+    """The provider returned an error response — a defect, never a sample.
+
+    Per the family rule, an error response or transport failure aborts the
+    run: the service was misconfigured or unreachable, not stochastic. The
+    abort must be *investigable*, so this error carries the provider, the
+    status, and the response body — which names the actual problem (a
+    rejected schema, an unknown model id, an expired credential) — instead
+    of a bare "HTTP Error 400".
+    """
+
+    def __init__(self, provider: str, status: int, detail: str) -> None:
+        self.provider = provider
+        self.status = status
+        self.detail = detail
+        super().__init__(
+            f"provider {provider!r} returned HTTP {status} — a defect, not a "
+            f"sample; the run is aborted. The provider said: {detail or '(empty body)'}"
+        )
 
 
 def resolve_provider(name: str | None) -> Provider:
@@ -115,8 +138,15 @@ def build_invoker(
             headers=headers,
             method="POST",
         )
-        with urllib.request.urlopen(request) as response:  # noqa: S310
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(request) as response:  # noqa: S310
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            try:
+                detail = error.read().decode("utf-8", "replace")[:2000]
+            except OSError:
+                detail = ""
+            raise ProviderResponseError(provider.name, error.code, detail) from None
         content = provider.extract(payload)
         if not isinstance(content, str):
             raise ValueError("the provider response carried no text content")
