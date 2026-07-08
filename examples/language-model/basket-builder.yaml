@@ -1,0 +1,49 @@
+# The basket-builder: a language model given a job, its output judged as
+# structure. Canonical order: machinery (transforms), rules (criteria),
+# cases (inputs). The file carries the claim; the invocation sizes the run.
+#   baseltest test basket-builder.yaml                  -> verdict (n = 5 under intent: smoke;
+#                                                          size it with --samples)
+#   baseltest measure basket-builder.yaml --samples 200 -> characterisation + baseline artefact
+#   baseltest explore basket-builder.yaml               -> one descriptive artefact per configuration
+format: mavai-contract/1
+contract: basket-builder-returns-valid-baskets
+service: basket-builder
+intent: smoke                        # quick first try; see README to graduate
+
+transforms:
+  basket: json                         # parse each response; the view is 'basket'
+
+criteria:
+  - name: response-is-a-valid-basket
+    threshold: 0.8                     # a modest bar for a quick first try;
+                                       # raise it to graduate (see README)
+    postconditions:
+      - in: basket
+        path: "$.items[*].name"
+        matches: '\w'                  # every item has a real name
+      - in: basket
+        path: "$.items[*].quantity"
+        matches: '^[1-9][0-9]*$'       # every quantity is a positive integer
+
+inputs:
+  # One criteria collection judges ONE class of inputs: these are all
+  # ordinary shopping instructions, one behavioural population, one
+  # Bernoulli stream. Off-domain or adversarial inputs ("what is the
+  # capital of France?") belong to a different population with its own
+  # criteria — the format reserves a facets: section for exactly that
+  # partition; until it lands, keep each contract file to one input class.
+  - input: "place 6 eggs in the basket"
+    expected:                          # input-specific expectations
+      - in: basket
+        path: "$.items[*].name"
+        contains: "egg"
+  - input: "three cans of chopped tomatoes and a bag of basmati rice"
+    expected:                          # NB: a path check judges EVERY selected
+      - in: basket                     # value — so expect on the names (each
+        path: "$.items[*].name"        # must be wordy), not the quantities
+        matches: '\w{3,}'              # (the rice's quantity 1 contains no 3)
+  - "two bottles of milk and a loaf of bread"
+  - "a dozen eggs, please"
+  - "500g of butter, a jar of honey, and two lemons"
+  - "add one bar of dark chocolate"
+  - "I need coffee beans and oat milk for the office - enough for a week"

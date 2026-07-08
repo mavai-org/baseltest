@@ -12,7 +12,9 @@ decorators and one entry point:
 - :func:`check` registers a named predicate for the ``satisfies:`` form.
 - :func:`transform` registers a named transformation for the ``transform:``
   key.
-- :func:`run` loads and executes a contract file.
+- :func:`run` loads and executes a contract file (test or measure).
+- :func:`explore` runs a contract over every configuration in its
+  service's grid, one descriptive artefact per configuration.
 
 Everything else in this package is private implementation; import nothing
 from its underscore modules. Graduating out of the declarative surface
@@ -21,6 +23,6 @@ point nothing here is needed any more.
 """
 
 from ._registry import binding, check, transform
-from ._runner import run
+from ._runner import explore, run
 
-__all__ = ["binding", "check", "run", "transform"]
+__all__ = ["binding", "check", "explore", "run", "transform"]

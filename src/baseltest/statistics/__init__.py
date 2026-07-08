@@ -17,6 +17,7 @@ tolerance, and nothing in this package has side effects.
 """
 
 from .feasibility import FeasibilityCheck, check_feasibility
+from .latency import latency_max, latency_mean, latency_percentile
 from .power import achieved_power, required_sample_size
 from .summary import MultiRunSummary, RunOutcome, summarize_runs
 from .threshold import (
@@ -56,6 +57,9 @@ __all__ = [
     "WilsonInterval",
     "achieved_power",
     "check_feasibility",
+    "latency_max",
+    "latency_mean",
+    "latency_percentile",
     "derive_confidence_first",
     "derive_sample_size_first",
     "derive_threshold_first",

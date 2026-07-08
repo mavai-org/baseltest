@@ -14,6 +14,9 @@ from baseltest.statistics import (
     derive_sample_size_first,
     derive_threshold_first,
     evaluate_compliance,
+    latency_max,
+    latency_mean,
+    latency_percentile,
     required_sample_size,
     wilson_interval,
     wilson_lower_bound,
@@ -168,3 +171,38 @@ def test_compliance_verdict_matches_oracle(case: dict[str, Any]) -> None:
     assert result.false_positive_probability == pytest.approx(
         expected["false_positive_probability"], abs=_VERDICT_TOLERANCE
     )
+
+
+_LATENCY_TOLERANCE, _LATENCY_CASES = _load("latency_percentile.json")
+
+
+def _latencies(case: dict[str, Any]) -> list[float]:
+    # The oracle's serialiser unboxes single-element vectors to scalars.
+    value = case["inputs"]["latencies"]
+    return value if isinstance(value, list) else [value]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [c for c in _LATENCY_CASES if "value" in c["expected"]],
+    ids=lambda c: c["name"],
+)
+def test_latency_percentile_matches_oracle(case: dict[str, Any]) -> None:
+    result = latency_percentile(
+        latencies=_latencies(case),
+        percentile=case["inputs"]["percentile"],
+    )
+    assert result == pytest.approx(case["expected"]["value"], abs=_LATENCY_TOLERANCE)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [c for c in _LATENCY_CASES if "mean" in c["expected"]],
+    ids=lambda c: c["name"],
+)
+def test_latency_summary_matches_oracle(case: dict[str, Any]) -> None:
+    latencies = _latencies(case)
+    assert latency_mean(latencies) == pytest.approx(
+        case["expected"]["mean"], abs=_LATENCY_TOLERANCE
+    )
+    assert latency_max(latencies) == pytest.approx(case["expected"]["max"], abs=_LATENCY_TOLERANCE)

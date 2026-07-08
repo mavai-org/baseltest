@@ -13,7 +13,6 @@ CONTRACT = """
 format: mavai-contract/1
 contract: conventioned
 service: convention-service
-samples: 50
 inputs: ["a"]
 criteria:
   - threshold: 0.5

@@ -1,24 +1,44 @@
 # The basket-builder from the getting-started guide: a language model
-# given a job, with a response schema guiding its output shape.
-# Set the credential for your provider first, e.g.:  export OPENAI_API_KEY=...
+# given a job. Credentials come from the environment:
+#   export OPENAI_API_KEY=...      # the baseline
+#   export ANTHROPIC_API_KEY=...   # the claude exploration entry
+#   export PUBLICAI_API_KEY=...    # only if you uncomment the apertus entry
+#
+# The response-schema is part of the service's identity; openai and
+# anthropic both honour it through their structured-output mechanisms.
+# Providers differ, though: apertus's hosted endpoint has none, so if you
+# uncomment that entry, `explore` runs its configuration WITHOUT the
+# schema and says so in a console note (`measure` and `test` would refuse
+# instead — there the schema defines the measured population). The system
+# prompt still states the output shape, so a cross-provider comparison
+# stays fair either way.
 format: mavai-services/1
 services:
   basket-builder:
     type: language-model
-    configuration:
+    configuration:                 # the baseline — what `test` and `measure` run
       provider: openai
       model: gpt-4o-mini
-      system-prompt: >
-        You translate shopping instructions into a JSON basket.
-      temperature: 0.2
-      response-schema:
-        type: object
+      response-schema:                # structured-output rules are strict:
+        type: object                  # every object needs required: and
+        additionalProperties: false   # additionalProperties: false, or the
+        required: [items]             # provider rejects the request
         properties:
           items:
             type: array
             items:
               type: object
+              additionalProperties: false
+              required: [name, quantity]
               properties:
-                name: { type: string }
-                quantity: { type: integer }
-        required: [items]
+                name: {type: string}
+                quantity: {type: integer}
+      system-prompt: >
+        You translate shopping instructions into a JSON basket.
+        Respond with only a JSON object.
+      temperature: 0.2
+    explorations:                  # `baseltest explore` runs the baseline plus these
+      - provider: anthropic        # same job, same temperature, different model
+        model: claude-haiku-4-5-20251001
+#      - provider: apertus          # optional third model: the fully open Swiss
+#        model: swiss-ai/Apertus-70B-Instruct-2509   # model, served by publicai.co

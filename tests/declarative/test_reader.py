@@ -29,7 +29,6 @@ GREETING_CONTRACT = """
 format: mavai-contract/1
 contract: greeting-service-is-polite
 service: greeting-service
-samples: 100
 criteria:
   - threshold: 0.5
     contains: "hello"
@@ -61,19 +60,25 @@ class TestFirstContactPath:
         assert "greeting-service" in str(excinfo.value)
         assert "@binding" in str(excinfo.value)
 
-    def test_derived_samples_stated(
+    def test_derived_samples_stated_in_the_run_plan_line(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         @binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        contract = GREETING_CONTRACT.replace("samples: 100\n", "")
-        result = run(write_contract(tmp_path, contract))
-        assert "derived" in capsys.readouterr().out
+        result = run(write_contract(tmp_path, GREETING_CONTRACT))
+        out = capsys.readouterr().out
+        assert "derived" in out and f"n = {result.plan.samples}" in out
         from baseltest.statistics import check_feasibility
 
         assert result.plan.samples == check_feasibility(1, 0.5, 0.95).minimum_samples
+
+    def test_a_withdrawn_sizing_key_is_refused_naming_the_flag(self) -> None:
+        with pytest.raises(ContractConfigurationError, match="--samples"):
+            parse_contract(GREETING_CONTRACT + "samples: 100\n")
+        with pytest.raises(ContractConfigurationError, match="--samples-per-config"):
+            parse_contract(GREETING_CONTRACT + "samples-per-config: 3\n")
 
 
 class TestRunModes:
@@ -117,6 +122,7 @@ class TestRunModes:
         result = run(
             write_contract(tmp_path, contract),
             mode="measure",
+            samples=30,
             baseline_dir=tmp_path / "b",
             emit=False,
         )
@@ -127,16 +133,16 @@ class TestRunModes:
         assert '"runMode": "measure"' in content
         assert '"watched"' in content
 
-    def test_measure_without_thresholds_requires_samples(self, tmp_path: Path) -> None:
+    def test_measure_requires_an_explicit_sample_count(self, tmp_path: Path) -> None:
+        # The old file-side rule, relocated: a measurement's budget is an
+        # experimental-design decision, so it must be typed.
         @binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        contract = GREETING_CONTRACT.replace(
-            "- threshold: 0.5\n    contains", "- contains"
-        ).replace("samples: 100\n", "")
-        with pytest.raises(ContractConfigurationError, match="feasibility anchor"):
-            run(write_contract(tmp_path, contract), mode="measure", emit=False)
+        with pytest.raises(ContractConfigurationError, match="--samples") as refusal:
+            run(write_contract(tmp_path, GREETING_CONTRACT), mode="measure", emit=False)
+        assert "baseline-grade" in str(refusal.value)  # 1,000 recommended, visibly
 
     def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
         @binding("greeting-service")
@@ -147,6 +153,7 @@ class TestRunModes:
             run(
                 write_contract(tmp_path, GREETING_CONTRACT),
                 mode="measure",
+                samples=10,
                 html_report=tmp_path / "r.html",
                 emit=False,
             )
@@ -181,7 +188,6 @@ class TestValidationRefusals:
 format: mavai-contract/1
 contract: t
 service: s
-samples: 10
 criteria:
   - threshold: 0.5
     postconditions:
@@ -197,7 +203,6 @@ inputs: ["a"]
 format: mavai-contract/1
 contract: t
 service: s
-samples: 10
 criteria:
   - threshold: 0.5
     postconditions:
@@ -222,7 +227,6 @@ inputs: ["a"]
 format: mavai-contract/1
 contract: t
 service: s
-samples: 100
 transforms:
   doc: json
 criteria:
@@ -241,7 +245,6 @@ inputs: ["a"]
 format: mavai-contract/1
 contract: t
 service: s
-samples: 10
 criteria:
   - threshold: 0.5
     contains: "x"
@@ -258,11 +261,9 @@ inputs:
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.99").replace(
-            "samples: 100", "samples: 30"
-        )
+        contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.99")
         with pytest.raises(InfeasibleRunError):
-            run(write_contract(tmp_path, contract))
+            run(write_contract(tmp_path, contract), samples=30)
 
 
 class TestViewsEndToEnd:
@@ -275,7 +276,6 @@ class TestViewsEndToEnd:
 format: mavai-contract/1
 contract: refund-confirmation
 service: refund-service
-samples: 100
 transforms:
   doc: json
 criteria:
@@ -301,7 +301,6 @@ inputs: ["order 1"]
 format: mavai-contract/1
 contract: t
 service: svc
-samples: 100
 transforms:
   doc: json
 criteria:
@@ -326,7 +325,6 @@ inputs: ["a"]
 format: mavai-contract/1
 contract: t
 service: svc
-samples: 100
 transforms:
   doc: json
 criteria:
@@ -357,7 +355,6 @@ inputs: ["a"]
 format: mavai-contract/1
 contract: t
 service: svc
-samples: 100
 transforms:
   kv: key-value
 criteria:
@@ -383,7 +380,6 @@ class TestPerInputExpectations:
 format: mavai-contract/1
 contract: basket-per-input
 service: baskets
-samples: 100
 transforms:
   basket: json
 criteria:
@@ -416,7 +412,6 @@ inputs:
 format: mavai-contract/1
 contract: t
 service: echo
-samples: 100
 criteria:
   - threshold: 0.9
     matches: "."
@@ -447,7 +442,6 @@ class TestEmpiricalJudgement:
 format: mavai-contract/1
 contract: ratchet
 service: svc
-samples: 200
 criteria:
   - name: keeps-up
     contains: "ok"
@@ -464,8 +458,8 @@ inputs: ["a", "b"]
     ) -> None:
         self._bind()
         contract = write_contract(tmp_path, self.CONTRACT)
-        run(contract, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
-        result = run(contract, mode="test", baseline_dir=tmp_path / "baselines")
+        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
+        result = run(contract, mode="test", samples=200, baseline_dir=tmp_path / "baselines")
         assert result.composite is Verdict.PASS
         judged = result.criterion_results[0]
         assert judged.criterion.provenance.origin == "empirical"
@@ -484,7 +478,7 @@ inputs: ["a", "b"]
     ) -> None:
         self._bind()
         contract = write_contract(tmp_path, self.CONTRACT)
-        run(contract, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
         renamed = self.CONTRACT.replace("name: keeps-up", "name: renamed-criterion")
         with pytest.raises(ContractConfigurationError, match="does not record"):
             run(
@@ -510,9 +504,33 @@ inputs: ["a", "b"]
             '  - name: keeps-up\n    contains: "ok"',
         )
         path = write_contract(tmp_path, contract)
-        run(path, mode="measure", baseline_dir=tmp_path / "baselines", emit=False)
+        run(path, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
         result = run(path, mode="test", baseline_dir=tmp_path / "baselines", emit=False)
         assert result.composite is Verdict.PASS
         origins = {r.name: r.criterion.provenance.origin for r in result.criterion_results}
         assert origins["stated-bar"] == "unspecified"
         assert origins["keeps-up"] == "empirical"
+
+
+class TestPerInputAttribution:
+    def test_expected_failure_reason_names_its_input(self, tmp_path: Path) -> None:
+        @binding("echo2")
+        def echo(value: str) -> str:
+            return value
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: echo2
+intent: smoke
+criteria:
+  - name: echoes
+    threshold: 0.9
+    matches: "."
+inputs:
+  - input: "bad"
+    expected: { contains: "impossible" }
+"""
+        result = run(write_contract(tmp_path, contract), samples=2, emit=False)
+        reasons = list(result.criterion_results[0].tally.failure_reasons)
+        assert any("for input 'bad':" in reason for reason in reasons)

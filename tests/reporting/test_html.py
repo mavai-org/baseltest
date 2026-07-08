@@ -73,7 +73,6 @@ class TestHtmlReport:
 format: mavai-contract/1
 contract: report-me
 service: svc
-samples: 50
 inputs: ["a"]
 criteria:
   - threshold: 0.5

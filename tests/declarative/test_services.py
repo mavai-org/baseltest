@@ -33,7 +33,6 @@ CONTRACT = """
 format: mavai-contract/1
 contract: greeting-is-polite
 service: greeter
-samples: 100
 inputs: ["Alice", "Bob"]
 criteria:
   - threshold: 0.5
@@ -95,9 +94,10 @@ class TestParsing:
         with pytest.raises(ContractConfigurationError, match="inside the `configuration:` block"):
             parse_services(text)
 
-    def test_variations_reserved(self) -> None:
+    def test_withdrawn_variations_key_fails_the_ordinary_unknown_key_check(self) -> None:
+        # The pre-release rename ruling: no rename pointer, just an unknown key.
         text = SERVICES + "    variations:\n      temperature: [0.0, 0.7]\n"
-        with pytest.raises(ContractConfigurationError, match="reserved"):
+        with pytest.raises(ContractConfigurationError, match="unknown key `variations:`"):
             parse_services(text)
 
     def test_unknown_type_refused(self) -> None:
@@ -160,6 +160,7 @@ class TestProvenance:
         run(
             write_files(tmp_path, contract=contract),
             mode="measure",
+            samples=20,
             baseline_dir=tmp_path / "b",
             emit=False,
         )
