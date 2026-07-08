@@ -49,18 +49,18 @@ The contract declares `intent: smoke` with a 0.8 bar, so a first `test` runs at 
 
 ### Compare two models with one explore run
 
-The services file also carries an `explorations:` grid: two temperature variants over the baseline, plus the same job on a different model — [Apertus](https://huggingface.co/swiss-ai/Apertus-70B-Instruct-2509), the fully open Swiss model, served by the [Public AI inference utility](https://publicai.co). `test` and `measure` never read the grid (they run the baseline `configuration:`); `explore` runs every point, a few samples each, and writes one descriptive YAML per configuration. Step by step:
+The services file also carries an `explorations:` grid: the same job on a different model — GPT-4o-mini as the baseline, Claude Haiku 4.5 as the exploration entry (and a commented-out third entry for [Apertus](https://huggingface.co/swiss-ai/Apertus-70B-Instruct-2509), the fully open Swiss model served by [Public AI](https://publicai.co)). `test` and `measure` never read the grid (they run the baseline `configuration:`); `explore` runs every point, a few samples each, and writes one descriptive YAML per configuration. Step by step:
 
 1. **Set both credentials** (each provider uses its own conventional variable):
 
    ```bash
-   export OPENAI_API_KEY=...      # the baseline and temperature entries
-   export PUBLICAI_API_KEY=...    # the apertus entry — get one at publicai.co
+   export OPENAI_API_KEY=...      # the baseline
+   export ANTHROPIC_API_KEY=...   # the claude exploration entry
    ```
 
-   No Public AI key? Delete the apertus entry from `mavai-services.yaml` and the sweep is temperature-only — the steps below work the same.
+   Only one key? Delete the other's entry from `mavai-services.yaml` — a one-point grid explores fine; the steps below work the same.
 
-2. **Run the exploration** (4 configurations × 5 samples each — the default; `--samples-per-config` to change it. Quick and cheap by design: an exploration renders no verdict, so no sample count is ever "too small"):
+2. **Run the exploration** (2 configurations × 5 samples each — the default; `--samples-per-config` to change it. Quick and cheap by design: an exploration renders no verdict, so no sample count is ever "too small"):
 
    ```bash
    baseltest explore basket-builder.yaml
@@ -70,22 +70,22 @@ The services file also carries an `explorations:` grid: two temperature variants
 
    ```bash
    ls _baseltest/explorations/basket-builder-returns-valid-baskets/
-   # provider-apertus_model-swiss-ai_Apertus-70B-Ins-20d9_temperature-0.2.yaml
-   # provider-openai_model-gpt-4o-mini_temperature-0.0.yaml
-   # provider-openai_model-gpt-4o-mini_temperature-0.2.yaml
-   # provider-openai_model-gpt-4o-mini_temperature-0.7.yaml
+   # provider-anthropic_model-claude-haiku-4-5-20251001.yaml
+   # provider-openai_model-gpt-4o-mini.yaml
    ```
 
-4. **Diff the two models** at the same temperature — the files are built for exactly this: the lines that differ are the factor values and the statistics, nothing else:
+4. **Diff the two models** — the files are built for exactly this: the lines that differ are the factor values and the statistics, nothing else:
 
    ```bash
    cd _baseltest/explorations/basket-builder-returns-valid-baskets
-   diff provider-openai_model-gpt-4o-mini_temperature-0.2.yaml \
-        provider-apertus_model-swiss-ai_Apertus-70B-Ins-20d9_temperature-0.2.yaml
+   diff provider-openai_model-gpt-4o-mini.yaml \
+        provider-anthropic_model-claude-haiku-4-5-20251001.yaml
    ```
 
    Each file carries the configuration's factors, observed pass rate, per-criterion counts, and failure reasons — descriptive statistics only, triage rather than judgement.
 
 5. **Promote the winner.** Fold its values into the `configuration:` block, then `baseltest measure` and `baseltest test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
+
+Want a third model in the comparison? Uncomment the apertus entry and `export PUBLICAI_API_KEY=...`. Apertus's hosted endpoint has no structured-output support, so `explore` runs that configuration *without* the declared `response-schema:` and says so in a console note — the system prompt still states the output shape, which keeps the comparison fair.
 
 One design note the grid makes visible: the guide's version of this service declares a `response-schema:`. Providers differ in structured-output support (openai and anthropic honour a schema; apertus's hosted endpoint does not), and an exploration handles the mix honestly: a schema-less provider in the grid is invoked *without* the schema, announced by a console note — never silently, and never by abandoning the run. Under `measure` and `test` the same situation stays a hard refusal, because there the schema is part of the measured population's identity. When you explore across providers, carry the output shape in the system prompt — as this example does — so every model gets the same instructions and the comparison stays fair.
