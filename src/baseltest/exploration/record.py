@@ -11,51 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from baseltest.engine import RunResult, SampleRecord
-from baseltest.statistics import latency_percentile
-
-# The family's per-percentile minimum-contributing-samples rule: percentile
-# p needs at least 1 / (1 - p) contributing samples; below the minimum the
-# percentile is omitted from the artefact entirely rather than carrying a
-# number that looks authoritative but is noise.
-_PERCENTILES: tuple[tuple[str, float, int], ...] = (
-    ("p50Ms", 0.50, 1),
-    ("p90Ms", 0.90, 10),
-    ("p95Ms", 0.95, 20),
-    ("p99Ms", 0.99, 100),
-)
-
-
-@dataclass(frozen=True, slots=True)
-class LatencyBlock:
-    """The gated aggregate-latency summary over one configuration's samples.
-
-    Only samples that passed contribute durations — timing of incorrect
-    behaviour does not characterise the latency of the correct path. The
-    population-indicator triple (basis, contributing, total) lets a reader
-    verify which percentiles can be present.
-    """
-
-    contributing_samples: int
-    total_samples: int
-    percentiles: tuple[tuple[str, int], ...]
-    basis: str = "passing-samples"
-
-
-def _latency_block(samples: tuple[SampleRecord, ...]) -> LatencyBlock | None:
-    contributing = [s.execution_time_ms for s in samples if s.passed]
-    if not contributing:
-        return None  # no percentile distribution over an empty population
-    percentiles = tuple(
-        (key, round(latency_percentile(contributing, level)))
-        for key, level, minimum in _PERCENTILES
-        if len(contributing) >= minimum
-    )
-    return LatencyBlock(
-        contributing_samples=len(contributing),
-        total_samples=len(samples),
-        percentiles=percentiles,
-    )
+from baseltest.engine import LatencyBlock, RunResult, SampleRecord, latency_block
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +91,6 @@ class ExplorationRecord:
             failure_distribution=dict(distribution),
             criteria=criteria,
             total_time_ms=round(elapsed * 1000),
-            latency=_latency_block(result.samples),
+            latency=latency_block(result.samples),
             samples=result.samples,
         )

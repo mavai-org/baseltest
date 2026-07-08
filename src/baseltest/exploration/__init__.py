@@ -8,7 +8,9 @@ core use is diffing two configurations' files side by side. They carry
 descriptive statistics only: no bounds, no thresholds, no verdicts.
 """
 
-from .record import CriterionStatistics, ExplorationRecord, LatencyBlock
+from baseltest.engine import LatencyBlock
+
+from .record import CriterionStatistics, ExplorationRecord
 from .writer import (
     exploration_stem,
     render_exploration,

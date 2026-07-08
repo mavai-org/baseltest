@@ -179,7 +179,10 @@ class TestLatencyBlock:
                     )
                 },
                 "latency": LatencyBlock(
-                    contributing_samples=4, total_samples=5, percentiles=(("p50Ms", 42),)
+                    contributing_samples=4,
+                    total_samples=5,
+                    percentiles=(("p50Ms", 42),),
+                    sorted_passing_latencies_ms=(38, 40, 42, 55),
                 ),
                 "samples": (),
             }
@@ -193,6 +196,7 @@ class TestLatencyBlock:
         # gated out at small n: no authoritative-looking noise
         for absent in ("p90Ms", "p95Ms", "p99Ms"):
             assert absent not in latency
+        assert latency["sortedPassingLatenciesMs"] == [38, 40, 42, 55]
 
     def test_absent_when_nothing_passed(self) -> None:
         assert "latency:" not in render_exploration(record())

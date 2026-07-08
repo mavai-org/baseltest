@@ -44,6 +44,11 @@ Illustrative artefact:
       contributingSamples: 4
       totalSamples: 5
       p50Ms: 480
+      sortedPassingLatenciesMs:
+        - 430
+        - 460
+        - 480
+        - 510
     resultProjection:
       # ────── anchor:ac72368a ──────
       "sample[0]":
@@ -55,7 +60,8 @@ Illustrative artefact:
 
 The ``latency:`` block appears when at least one sample passed and
 carries only the percentiles its contributing-sample count can support
-(p50 needs 1, p90 needs 10, p95 needs 20, p99 needs 100). The
+(p50 needs 1, p90 needs 10, p95 needs 20, p99 needs 100), followed by
+the full ascending vector of passing-sample durations. The
 ``resultProjection:`` block records every sample — input index,
 per-postcondition status (passed/failed/skipped), invocation duration,
 and the response verbatim — with a content-deterministic diff anchor at
@@ -199,6 +205,10 @@ def render_exploration(record: ExplorationRecord) -> str:
         )
         for key, value in record.latency.percentiles:
             lines.append(f"  {key}: {value}")
+        if record.latency.sorted_passing_latencies_ms:
+            lines.append("  sortedPassingLatenciesMs:")
+            for duration in record.latency.sorted_passing_latencies_ms:
+                lines.append(f"    - {duration}")
     if record.samples:
         lines.append("resultProjection:")
         for index, sample in enumerate(record.samples):
