@@ -9,7 +9,7 @@ and uses no verdict vocabulary.
 
 from baseltest.engine import bar_standing
 
-from .console import render_explorations, render_infeasible, render_run
+from .console import render_explorations, render_infeasible, render_run, render_run_plan
 from .html import render_html_report
 from .verdict_xml import render_verdict_record, write_verdict_record
 
@@ -19,6 +19,7 @@ __all__ = [
     "render_html_report",
     "render_infeasible",
     "render_run",
+    "render_run_plan",
     "render_verdict_record",
     "write_verdict_record",
 ]

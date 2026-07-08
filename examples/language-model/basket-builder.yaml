@@ -1,14 +1,13 @@
 # The basket-builder: a language model given a job, its output judged as
 # structure. Canonical order: machinery (transforms), rules (criteria),
-# cases (inputs).
-#   baseltest test basket-builder.yaml     -> verdict against the 0.95 bar
-#   baseltest measure basket-builder.yaml  -> characterisation + baseline artefact
-#   baseltest explore basket-builder.yaml  -> one descriptive artefact per configuration
+# cases (inputs). The file carries the claim; the invocation sizes the run.
+#   baseltest test basket-builder.yaml                  -> verdict (n = 5 under intent: smoke;
+#                                                          size it with --samples)
+#   baseltest measure basket-builder.yaml --samples 200 -> characterisation + baseline artefact
+#   baseltest explore basket-builder.yaml               -> one descriptive artefact per configuration
 format: mavai-contract/1
 contract: basket-builder-returns-valid-baskets
 service: basket-builder
-samples: 30
-samples-per-config: 3                # explore only: a few samples per grid point
 intent: smoke                        # quick first try; see README to graduate
 
 transforms:
@@ -16,8 +15,8 @@ transforms:
 
 criteria:
   - name: response-is-a-valid-basket
-    threshold: 0.8                     # a bar 30 samples can support; raise it
-                                       # together with samples: for a real test
+    threshold: 0.8                     # a modest bar for a quick first try;
+                                       # raise it to graduate (see README)
     postconditions:
       - in: basket
         path: "$.items[*].name"

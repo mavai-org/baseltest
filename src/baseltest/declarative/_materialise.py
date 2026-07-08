@@ -115,7 +115,7 @@ def materialise(declaration: ContractDeclaration) -> str:
     parts.append(")\n")
     parts.append("\nif __name__ == '__main__':")
     parts.append("    result = execute(contract, RunPlan(")
-    parts.append(f"        samples={declaration.samples or 'None  # was derived'},")
+    parts.append("        samples=100,  # TODO: size the run -- the budget is yours here too")
     parts.append(f"        inputs={tuple(declaration.inputs)!r},")
     parts.append("    ))")
     parts.append("    print(render_run(result))")

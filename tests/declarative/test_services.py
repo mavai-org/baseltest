@@ -33,7 +33,6 @@ CONTRACT = """
 format: mavai-contract/1
 contract: greeting-is-polite
 service: greeter
-samples: 100
 inputs: ["Alice", "Bob"]
 criteria:
   - threshold: 0.5
@@ -161,6 +160,7 @@ class TestProvenance:
         run(
             write_files(tmp_path, contract=contract),
             mode="measure",
+            samples=20,
             baseline_dir=tmp_path / "b",
             emit=False,
         )

@@ -34,8 +34,6 @@ CONTRACT = """
 format: mavai-contract/1
 contract: support-agent-tuning
 service: support-agent
-samples: 30
-samples-per-config: 3
 inputs: ["Where is my order?", "Do you ship abroad?"]
 criteria:
   - name: says-hello
@@ -146,7 +144,9 @@ class TestExploreRuns:
     def test_one_artefact_per_configuration_baseline_included(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        explored = explore(write_files(tmp_path), explorations_dir=tmp_path / "x", emit=False)
+        explored = explore(
+            write_files(tmp_path), samples_per_config=3, explorations_dir=tmp_path / "x", emit=False
+        )
         assert len(explored) == 4
         files = sorted(p.name for p in (tmp_path / "x" / "support-agent-tuning").glob("*.yaml"))
         assert files == [
@@ -162,7 +162,9 @@ class TestExploreRuns:
     def test_artefacts_are_descriptive_only(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        explored = explore(write_files(tmp_path), explorations_dir=tmp_path / "x", emit=False)
+        explored = explore(
+            write_files(tmp_path), samples_per_config=3, explorations_dir=tmp_path / "x", emit=False
+        )
         for entry in explored:
             text = entry.path.read_text(encoding="utf-8")
             assert '"punit-spec-1"' in text
@@ -185,8 +187,9 @@ class TestExploreRuns:
     def test_a_single_sample_is_not_complained_about(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        contract = CONTRACT.replace("samples-per-config: 3", "samples-per-config: 1")
-        explored = explore(write_files(tmp_path, contract), explorations_dir=tmp_path / "x")
+        explored = explore(
+            write_files(tmp_path), samples_per_config=1, explorations_dir=tmp_path / "x"
+        )
         assert all(e.result.plan.samples == 1 for e in explored)
 
     def test_thresholds_are_not_consulted(
@@ -196,15 +199,28 @@ class TestExploreRuns:
         # an exploration proceeds — feasibility protects verdicts only.
         contract = CONTRACT.replace("threshold: 0.5", "threshold: 0.999")
         explored = explore(
-            write_files(tmp_path, contract), explorations_dir=tmp_path / "x", emit=False
+            write_files(tmp_path, contract),
+            samples_per_config=3,
+            explorations_dir=tmp_path / "x",
+            emit=False,
         )
         assert all(r.verdict is None for e in explored for r in e.result.criterion_results)
 
-    def test_missing_samples_per_config_is_a_constructive_refusal(
+    def test_no_flag_runs_the_small_default_per_configuration(
+        self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any
+    ) -> None:
+        explored = explore(write_files(tmp_path), explorations_dir=tmp_path / "x")
+        assert all(e.result.plan.samples == 5 for e in explored)
+        assert (
+            "n = 5 per configuration (default; use --samples-per-config to size the run)"
+            in capsys.readouterr().out
+        )
+
+    def test_withdrawn_file_key_is_refused_naming_the_flag(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        contract = CONTRACT.replace("samples-per-config: 3\n", "")
-        with pytest.raises(ContractConfigurationError, match="samples-per-config"):
+        contract = CONTRACT.replace("inputs:", "samples-per-config: 3\ninputs:")
+        with pytest.raises(ContractConfigurationError, match="--samples-per-config"):
             explore(write_files(tmp_path, contract), emit=False)
 
     def test_code_registered_binding_is_refused_with_a_pointer(
@@ -223,12 +239,25 @@ class TestExploreRuns:
         with pytest.raises(ContractConfigurationError, match="declared service"):
             explore(contract, emit=False)
 
-    def test_cli_refusal_exits_2(
+    def test_cli_samples_per_config_flag_sizes_the_run(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any
     ) -> None:
-        contract = CONTRACT.replace("samples-per-config: 3\n", "")
-        assert main(["explore", str(write_files(tmp_path, contract))]) == 2
-        assert "samples-per-config" in capsys.readouterr().err
+        assert (
+            main(
+                [
+                    "explore",
+                    str(write_files(tmp_path)),
+                    "--samples-per-config",
+                    "2",
+                    "--explorations-dir",
+                    str(tmp_path / "x"),
+                ]
+            )
+            == 0
+        )
+        out = capsys.readouterr().out
+        assert "n = 2 per configuration (set via --samples-per-config)" in out
+        assert len(llm_environment) == 8  # 4 configurations x 2 samples
 
     def test_default_artefact_root(
         self,
@@ -247,17 +276,21 @@ class TestOtherVerbsIgnoreTheGrid:
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any
     ) -> None:
         contract = write_files(tmp_path)
-        run(contract, mode="measure", baseline_dir=tmp_path / "b", emit=False)
+        run(contract, mode="measure", samples=40, baseline_dir=tmp_path / "b", emit=False)
         assert {p["temperature"] for p in llm_environment} == {0.2}  # baseline only
 
     def test_behaviour_is_identical_with_and_without_the_section(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
         with_grid = write_files(tmp_path)
-        result_a = run(with_grid, mode="measure", baseline_dir=tmp_path / "a", emit=False)
+        result_a = run(
+            with_grid, mode="measure", samples=40, baseline_dir=tmp_path / "a", emit=False
+        )
         without = SERVICES[: SERVICES.index("    explorations:")]
         (tmp_path / "mavai-services.yaml").write_text(without, encoding="utf-8")
-        result_b = run(with_grid, mode="measure", baseline_dir=tmp_path / "b", emit=False)
+        result_b = run(
+            with_grid, mode="measure", samples=40, baseline_dir=tmp_path / "b", emit=False
+        )
         text_a = next((tmp_path / "a").glob("*.yaml")).read_text(encoding="utf-8")
         text_b = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
 
@@ -273,8 +306,6 @@ EMPIRICAL_CONTRACT = """
 format: mavai-contract/1
 contract: support-agent-tuning
 service: support-agent
-samples: 40
-samples-per-config: 3
 inputs: ["Where is my order?", "Do you ship abroad?"]
 criteria:
   - name: says-hello
@@ -287,7 +318,7 @@ class TestFingerprintLaw:
 
     def _measure_then_test(self, tmp_path: Path, services_after: str) -> Any:
         contract = write_files(tmp_path, EMPIRICAL_CONTRACT)
-        run(contract, mode="measure", baseline_dir=tmp_path / "b", emit=False)
+        run(contract, mode="measure", samples=40, baseline_dir=tmp_path / "b", emit=False)
         (tmp_path / "mavai-services.yaml").write_text(services_after, encoding="utf-8")
         return run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
 
@@ -317,7 +348,7 @@ class TestFingerprintLaw:
             "      - temperature: 0.7\n", "      - temperature: 0.2\n"
         )
         contract = write_files(tmp_path, EMPIRICAL_CONTRACT)
-        run(contract, mode="measure", baseline_dir=tmp_path / "b", emit=False)
+        run(contract, mode="measure", samples=40, baseline_dir=tmp_path / "b", emit=False)
         (tmp_path / "mavai-services.yaml").write_text(promoted, encoding="utf-8")
         # The recorded baseline no longer matches the resolved covariates:
         # the test refuses until a fresh measure run is made, naming the drift.
@@ -336,7 +367,7 @@ class TestFingerprintLaw:
             "      - model: other-model\n        temperature: 0.7\n", ""
         )
         contract = write_files(tmp_path, EMPIRICAL_CONTRACT, services=no_model)
-        run(contract, mode="measure", baseline_dir=tmp_path / "b", emit=False)
+        run(contract, mode="measure", samples=40, baseline_dir=tmp_path / "b", emit=False)
         monkeypatch.setenv(ENV_MODEL, "a-different-default")
         # Same file, different environment default: a different population,
         # and the fingerprint says so.

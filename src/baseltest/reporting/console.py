@@ -143,6 +143,35 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def render_run_plan(
+    samples: int,
+    provenance: str,
+    demanded_by: str | None = None,
+    threshold: float | None = None,
+    per_configuration: bool = False,
+) -> str:
+    """The run-plan line: every run states its N and where the value came from.
+
+    Printed before the first invocation, informative in tone, one of three
+    provenance forms — ``derived`` (the thresholds set the minimum),
+    ``explicit`` (a flag sized the run), or ``default`` (the verb's fixed
+    default, with the flag named for when the developer wants to size it).
+    """
+    unit = " per configuration" if per_configuration else ""
+    flag = "--samples-per-config" if per_configuration else "--samples"
+    if provenance == "derived":
+        detail = f"derived: threshold {threshold} requires at least {samples} samples"
+        if demanded_by is not None:
+            detail = (
+                f"derived: criterion {demanded_by}'s threshold {threshold} "
+                f"requires at least {samples} samples"
+            )
+        return f"n = {samples}{unit} ({detail})"
+    if provenance == "explicit":
+        return f"n = {samples}{unit} (set via {flag})"
+    return f"n = {samples}{unit} (default; use {flag} to size the run)"
+
+
 def render_explorations(
     contract_id: str,
     samples_per_config: int,

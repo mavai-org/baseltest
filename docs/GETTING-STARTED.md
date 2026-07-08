@@ -67,7 +67,6 @@ A note on the two filenames: `mavai-services.yaml` (like `mavai-bindings.py`) is
 format: mavai-contract/1
 contract: basket-builder-returns-valid-baskets
 service: basket-builder
-samples: 100
 
 transforms:
   basket: json                         # parse each response as JSON; the result is 'basket'
@@ -93,7 +92,7 @@ inputs:
   - "add three apples"
 ```
 
-The file reads top to bottom as *machinery, rules, cases*. The `transforms:` block declares a **view**: a named transformation of the response, computed at most once per response and shared by every check that names it via `in:`. A check without `in:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). Reading the whole file aloud: invoke `basket-builder` 100 times, cycling through the three instructions; each response must parse as JSON, every item must carry a real name, every quantity must be a positive integer — and the egg order must actually contain eggs. Because a `path` check fails the trial when it selects nothing, a basket with no items fails too; and a `path` check judges **every** value it selects: one bad quantity among five items fails that trial.
+The file reads top to bottom as *machinery, rules, cases*. The `transforms:` block declares a **view**: a named transformation of the response, computed at most once per response and shared by every check that names it via `in:`. A check without `in:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). Reading the whole file aloud: invoke `basket-builder` repeatedly, cycling through the three instructions; each response must parse as JSON, every item must carry a real name, every quantity must be a positive integer — and the egg order must actually contain eggs. Because a `path` check fails the trial when it selects nothing, a basket with no items fails too; and a `path` check judges **every** value it selects: one bad quantity among five items fails that trial.
 
 ## Run it
 
@@ -102,17 +101,20 @@ baseltest test basket-builder.yaml
 ```
 
 ```
+n = 52 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 52 samples)
 contract basket-builder-returns-valid-baskets: PASS
   criterion response-is-a-valid-basket: PASS
-    98 of 100 responses met expectations
-    observed rate 0.9800; we can be 95% confident the true rate is at least 0.9530 — clears your 0.95 threshold
+    52 of 52 responses met expectations
+    observed rate 1.0000; we can be 95% confident the true rate is at least 0.9505 — clears your 0.95 threshold
 ```
 
-That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a 98% observation over too few samples would honestly fail. If you declare a threshold your sample count cannot support, baseltest refuses to run and tells you the minimum that would work (or omit `samples:` entirely and baseltest derives that minimum for you). Add `--html-report report.html` for a self-contained summary page.
+That last line is the point of baseltest: the verdict is not "100% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a high observed rate over too few samples would honestly fail. Notice what the derived minimum means: at n = 52, only a perfect run can clear a 0.95 bar. A larger `--samples` buys slack — at n = 100, two failures still pass (the lower bound of 98/100 is 0.9530). Add `--html-report report.html` for a self-contained summary page.
 
-Both verbs accept `--samples N`, overriding the file: the contract file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
+The first line is the **run-plan line**: every run opens by stating its n and where the value came from, so no sample ever runs on a number you can't see. The contract file carries the **claim** (criteria, thresholds, intent); the invocation carries the **budget**. With no flag, a test runs at the *derived minimum* — the smallest n that can support every declared bar at its confidence, computed from the thresholds themselves. One guard applies to that derivation: if the minimum exceeds **100 samples** (roughly, any bar above 0.96), the run is refused before a single invocation, naming the number to type — `--samples N` runs it deliberately at any size, and `intent: smoke` gives a cheap pass that renders no statistical verdict. The gate binds only the number nobody typed: an explicit flag of any size sails through (and is still feasibility-checked, so a flag too small for the bar is refused too).
 
-**`test` judges; `measure` records.** The same file, run as `baseltest measure basket-builder.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+`--samples N` works on `test` and `measure` alike, and the confidence bound is honestly computed at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
+
+**`test` judges; `measure` records.** The same file, run as `baseltest measure basket-builder.yaml --samples 1000`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. `measure` is the one verb with no default n — a measurement's budget is an experimental-design decision, so it must be typed: `--samples 1000` is a solid baseline-grade count, and a smaller deliberate budget is legitimate (an empirical bar derived from a smaller baseline simply widens honestly). A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
 
 ```
 criterion spirits-stay-polite: PASS
@@ -141,7 +143,6 @@ def charge(card_token: str) -> str:
 format: mavai-contract/1
 contract: payment-gateway-meets-sla
 service: payment-gateway
-samples: 1000
 inputs: ["tok-visa-4242", "tok-mc-5100"]
 criteria:
   - name: transaction-succeeds
@@ -155,7 +156,7 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 ## Measuring without judging
 
-A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact. Declare `samples:` explicitly in that case (with no bar there is no feasibility arithmetic to derive one from).
+A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.
 
 ## Exploring configurations
 
@@ -177,7 +178,7 @@ services:
         temperature: 0.7
 ```
 
-Add `samples-per-config:` to the contract file (it is required for explore — the count is a pure cost decision of yours, and small counts are the point: 1–10 is typical, and baseltest never complains about a low one) and run:
+The per-configuration count is a pure cost decision of yours, and small counts are the point: the default is 5, `--samples-per-config` sizes it, and baseltest never complains about a low one. Run:
 
 ```bash
 baseltest explore basket-builder.yaml
@@ -203,7 +204,7 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars, or an explore without `samples-per-config:` or over a code-registered binding. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars, a silently derived n above the 100-sample gate, a measure without `--samples`, or an explore over a code-registered binding. |
 | `3` | **Unsupportable assertion.** `measure --assert` only: the sample size could never have supported a declared bar — no assertion can rest on the evidence, in either direction. Recorded and persisted all the same. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.

@@ -12,6 +12,7 @@ from baseltest.reporting import (
     render_explorations,
     render_html_report,
     render_run,
+    render_run_plan,
     write_verdict_record,
 )
 
@@ -83,7 +84,7 @@ def run(
     declaration = load_contract(contract_path)
     discover_registrations(contract_path)
     services = discover_services(contract_path)
-    contract, plan, derived, service_provenance, skipped = instantiate(
+    contract, plan, sizing, service_provenance, skipped = instantiate(
         declaration,
         services,
         mode=run_mode,
@@ -94,6 +95,15 @@ def run(
         raise ContractConfigurationError(
             "the HTML report is the probabilistic-test summary and applies to test "
             "runs only — a measure run's product is its baseline artefact"
+        )
+    if emit:
+        print(
+            render_run_plan(
+                sizing.samples,
+                sizing.provenance,
+                demanded_by=sizing.demanded_by,
+                threshold=sizing.threshold,
+            )
         )
     result = execute(contract, plan, on_sample=_tty_progress(declaration.service) if emit else None)
 
@@ -120,11 +130,6 @@ def run(
         report_path.write_text(render_html_report(result), encoding="utf-8")
 
     if emit:
-        if derived is not None:
-            print(
-                f"samples not declared — derived {derived} (the smallest count "
-                "supporting every declared threshold at its confidence)"
-            )
         for name, reason in skipped:
             print(f"note: empirical criterion {name}: {reason}")
         print(render_run(result, baseline_path=baseline_path))
@@ -144,19 +149,23 @@ class ConfigurationExploration:
 def explore(
     path: str | Path,
     *,
+    samples_per_config: int | None = None,
     explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
     emit: bool = True,
 ) -> tuple[ConfigurationExploration, ...]:
     """Run the contract's inputs and criteria over every configuration in the grid.
 
     Per configuration this is a measure run in miniature — the same
-    sampling loop, ``samples-per-config`` samples — with a descriptive
-    posture: no thresholds are consulted, no verdict is rendered, and one
+    sampling loop, ``samples_per_config`` samples (default: a deliberately
+    small count; triage is small by design) — with a descriptive posture:
+    no thresholds are consulted, no verdict is rendered, and one
     exploration artefact per configuration is persisted. The core use is
     diffing two configurations' artefacts.
 
     Args:
         path: The contract file.
+        samples_per_config: Samples per grid point; omitted, the small
+            default applies.
         explorations_dir: The artefact directory; one subdirectory per
             contract, one file per configuration.
         emit: Whether to print the rendered summary.
@@ -167,14 +176,17 @@ def explore(
     Raises:
         ContractConfigurationError: The file (or its registrations) is not
             runnable as declared — refused before any invocation; in
-            particular a missing ``samples-per-config:`` or a service that
-            resolves to a code-registered binding.
+            particular a service that resolves to a code-registered binding.
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
     discover_registrations(contract_path)
     services = discover_services(contract_path)
-    configurations = instantiate_explore(declaration, services)
+    configurations, sizing = instantiate_explore(
+        declaration, services, samples_per_config=samples_per_config
+    )
+    if emit:
+        print(render_run_plan(sizing.samples, sizing.provenance, per_configuration=True))
 
     explored: list[ConfigurationExploration] = []
     for configuration in configurations:
@@ -194,11 +206,10 @@ def explore(
         )
 
     if emit:
-        assert declaration.samples_per_config is not None
         print(
             render_explorations(
                 declaration.contract,
-                declaration.samples_per_config,
+                sizing.samples,
                 [(e.path.stem, e.result, e.path.as_posix()) for e in explored],
             )
         )

@@ -84,6 +84,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     explore_parser.add_argument("contract_file", type=Path, help="path to the contract file")
     explore_parser.add_argument(
+        "--samples-per-config",
+        type=int,
+        default=None,
+        help=(
+            "samples per grid configuration (default: 5 — an exploration is "
+            "triage, and small counts are the point; no count is ever refused "
+            "as too small)"
+        ),
+    )
+    explore_parser.add_argument(
         "--explorations-dir",
         type=Path,
         default=DEFAULT_EXPLORATIONS_DIR,
@@ -93,7 +103,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if arguments.command == "explore":
-            explore(arguments.contract_file, explorations_dir=arguments.explorations_dir)
+            explore(
+                arguments.contract_file,
+                samples_per_config=arguments.samples_per_config,
+                explorations_dir=arguments.explorations_dir,
+            )
             return 0
         verdict_dir = None
         if arguments.command == "test" and not arguments.no_verdict_xml:

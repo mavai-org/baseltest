@@ -3,29 +3,30 @@
 Ready-to-run declarative authoring, from zero. Each folder holds **one contract file, named for what it tests** — the name is yours, and you keep as many contract files as you have things to test. (The `mavai-*` files beside it are the opposite: fixed, namespaced names the reader discovers automatically — `mavai-services.yaml` for service definitions, `mavai-bindings.py` for code registrations.) What a run does is the verb you invoke it with:
 
 - `baseltest test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
-- `baseltest measure <contract-file>` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed.
-- `baseltest explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples, and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
+- `baseltest measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
+- `baseltest explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
 
-Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate.
+Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
 
 ## `simulated-service/` — runs offline, no setup at all
 
 Two files, two roles:
 
-| File | Role |
-|---|---|
-| `mavai-bindings.py` | **The service itself** — the code invoked once per sample. Here it *simulates* a stochastic service (true success rate ≈ 0.9) so the example runs offline; in real use this is where your API/LLM call lives. Discovered and imported automatically, like pytest's `conftest.py`. |
-| `fortune-teller.yaml` | **The declaration** — the service, the criteria (one with a bar, one without), the inputs. Posture-free: the verb decides what happens. Freely named, unlike its discovered `mavai-*` neighbour. |
+| File                  | Role                                                                                                                                                                                                                                                                              |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `mavai-bindings.py`   | **The service itself** — the code invoked once per sample. Here it *simulates* a stochastic service (true success rate ≈ 0.9) so the example runs offline; in real use this is where your API/LLM call lives. Discovered and imported automatically, like pytest's `conftest.py`. |
+| `fortune-teller.yaml` | **The declaration** — the service, the criteria (one with a bar, one without), the inputs. Posture-free: the verb decides what happens. Freely named, unlike its discovered `mavai-*` neighbour.                                                                                  |
 
 ```bash
 pip install "baseltest[declarative]"
 cd examples/simulated-service
 
-baseltest test fortune-teller.yaml       # verdict against the 0.8 threshold
-baseltest measure fortune-teller.yaml    # everything recorded, baseline persisted
+baseltest test fortune-teller.yaml                  # verdict against the 0.8 threshold,
+                                                    #   at the bar's derived minimum
+baseltest measure fortune-teller.yaml --samples 200 # everything recorded, baseline persisted
 ```
 
-Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence, not a comparison of one lucky sample.
+Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence, not a comparison of one lucky sample. And notice what the derived minimum implies: at n = 11, only a *perfect* run clears the 0.8 bar, so this ≈0.9-rate service fails honestly much of the time. That is the operating characteristic of the smallest feasible run — give it slack with `--samples 100` and watch the same service pass dependably. The n is visible on every run precisely so this trade-off is yours to see and make.
 
 Then run them **in order** — `measure` first, `test` second — and watch the ratchet: the bar-less `spirits-stay-polite` criterion is skipped by the first test (*requires a baseline*), but after a measure run the next test judges it **against the baseline** — no worse than measured, the artefact named on the verdict line.
 
@@ -36,12 +37,15 @@ The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md):
 ```bash
 export OPENAI_API_KEY=...
 cd examples/language-model
-baseltest test basket-builder.yaml       # test posture: verdict (recorded in _baseltest/verdicts/), no baseline
-baseltest measure basket-builder.yaml    # measure posture: characterisation + baseline artefact
-baseltest explore basket-builder.yaml    # explore posture: one descriptive artefact per configuration
+baseltest test basket-builder.yaml                  # test posture: verdict (recorded in
+                                                    #   _baseltest/verdicts/), no baseline
+baseltest measure basket-builder.yaml --samples 200 # measure posture: characterisation
+                                                    #   + baseline artefact
+baseltest explore basket-builder.yaml               # explore posture: one descriptive
+                                                    #   artefact per configuration
 ```
 
-The contract declares `intent: smoke` with 30 samples and a 0.8 bar so a first try is quick, cheap, and *honestly passable* — 30 samples can never support a 0.95 claim, however well the model does, and baseltest refuses to pretend otherwise. To graduate to a production bar: raise `threshold`, remove `intent: smoke`, and either raise `samples` or delete it and let baseltest derive the minimum the bar needs.
+The contract declares `intent: smoke` with a 0.8 bar, so a first `test` runs at the small smoke default (n = 5) — quick, cheap, and honest about what five samples can and cannot show. To graduate to a production bar: raise `threshold`, remove `intent: smoke`, and let the derived minimum size the run — or size it yourself with `--samples`. A high bar's derived minimum above 100 samples is refused rather than run silently (the message names the number to type): a materially expensive run should carry its cost visibly in the command line.
 
 ### Compare two models with one explore run
 
@@ -56,7 +60,7 @@ The services file also carries an `explorations:` grid: two temperature variants
 
    No Public AI key? Delete the apertus entry from `mavai-services.yaml` and the sweep is temperature-only — the steps below work the same.
 
-2. **Run the exploration** (4 configurations × 3 samples — quick and cheap by design; an exploration renders no verdict, so no sample count is ever "too small"):
+2. **Run the exploration** (4 configurations × 5 samples each — the default; `--samples-per-config` to change it. Quick and cheap by design: an exploration renders no verdict, so no sample count is ever "too small"):
 
    ```bash
    baseltest explore basket-builder.yaml

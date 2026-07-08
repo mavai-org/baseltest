@@ -42,7 +42,7 @@ pip install -e ".[declarative]"
 
 cd examples/simulated-service
 baseltest test fortune-teller.yaml      # judge it against its declared bar
-baseltest measure fortune-teller.yaml   # or: record everything, persist a baseline
+baseltest measure fortune-teller.yaml --samples 200   # or: record everything, persist a baseline
 ```
 
 (If pip ever answers with `Package 'baseltest' requires a different Python`, that is this issue: the active `pip` still belongs to an older interpreter. `deactivate`, delete `venv/`, and recreate it with the 3.11+ interpreter as above.)
@@ -51,13 +51,12 @@ You'll see a verdict with its uncertainty stated — run the test a few times an
 
 ## Where the project is going
 
-baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold, a sample count — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
+baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
 
 ```yaml
 format: mavai-contract/1
 contract: greeting-service-is-polite
 service: greeting-service
-samples: 100
 inputs:
   - "Alice"
   - "Bob"

@@ -28,8 +28,6 @@ _TOP_LEVEL_KEYS = {
     "format",
     "contract",
     "service",
-    "samples",
-    "samples-per-config",
     "transforms",
     "inputs",
     "criteria",
@@ -43,6 +41,20 @@ _RESERVED_TOP_LEVEL = {
     "covariates",
     "latency",
     "budget",
+}
+# Sample sizing is an invocation concern, withdrawn from the format: the
+# contract carries the claim, the invocation carries the budget.
+_WITHDRAWN_SIZING_KEYS = {
+    "samples": (
+        "`samples:` is not a contract key — the contract carries the claim, "
+        "the invocation carries the budget. Size the run with `--samples N` "
+        "(a test without it runs at the derived minimum; a measure requires it)"
+    ),
+    "samples-per-config": (
+        "`samples-per-config:` is not a contract key — the contract carries "
+        "the claim, the invocation carries the budget. Size the exploration "
+        "with `--samples-per-config N` (default: 5 samples per configuration)"
+    ),
 }
 _CRITERION_KEYS = {
     "name",
@@ -92,8 +104,6 @@ class ContractDeclaration:
 
     contract: str
     service: str
-    samples: int | None
-    samples_per_config: int | None
     transforms: dict[str, str]
     inputs: tuple[str, ...]
     expected_pairs: tuple[tuple[str, tuple[FormDeclaration, ...]], ...]
@@ -132,6 +142,8 @@ def _check_top_level_keys(data: dict[str, Any]) -> None:
                 "`kind:` was withdrawn — the run mode is the invocation verb: "
                 "`baseltest test contract.yaml` or `baseltest measure contract.yaml`"
             )
+        if key in _WITHDRAWN_SIZING_KEYS:
+            raise _fail(_WITHDRAWN_SIZING_KEYS[key])
         if key in _RESERVED_TOP_LEVEL:
             raise _fail(f"`{key}:` is {_SEAM_POINTER}")
         if key not in _TOP_LEVEL_KEYS:
@@ -326,16 +338,6 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
     if not any(c.forms for c in criteria) and not expected_pairs:
         raise _fail("every criterion declares at least one postcondition form")
 
-    samples = data.get("samples")
-    if samples is not None and (not isinstance(samples, int) or samples <= 0):
-        raise _fail("`samples:` must be a positive integer")
-
-    samples_per_config = data.get("samples-per-config")
-    if samples_per_config is not None and (
-        not isinstance(samples_per_config, int) or samples_per_config <= 0
-    ):
-        raise _fail("`samples-per-config:` must be a positive integer")
-
     confidence = data.get("confidence", DEFAULT_CONFIDENCE)
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:
         raise _fail("`confidence:` must be a number in (0, 1)")
@@ -343,8 +345,6 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
     return ContractDeclaration(
         contract=_require_string(data, "contract"),
         service=_require_string(data, "service"),
-        samples=samples,
-        samples_per_config=samples_per_config,
         transforms=views,
         inputs=inputs,
         expected_pairs=expected_pairs,

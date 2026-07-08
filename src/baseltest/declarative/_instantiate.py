@@ -25,8 +25,8 @@ from baseltest.contract import (
     one_of,
     satisfies,
 )
-from baseltest.engine import Intent, RunKind, RunPlan, derive_minimum_samples, inputs_fingerprint
-from baseltest.statistics import derive_sample_size_first
+from baseltest.engine import Intent, RunKind, RunPlan, inputs_fingerprint
+from baseltest.statistics import check_feasibility, derive_sample_size_first
 
 from ._errors import ContractConfigurationError
 from ._parser import (
@@ -175,29 +175,80 @@ def _resolve_service(
     return resolve_binding(reference), {}
 
 
+# Sample sizing is decided at invocation, never in the file: the contract
+# carries the claim, the invocation carries the budget.
+DEFAULT_SAMPLES = 5
+SILENT_DERIVATION_LIMIT = 100
+RECOMMENDED_BASELINE_SAMPLES = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class RunSizing:
+    """A run's N and where the value came from — the run-plan line's data.
+
+    Attributes:
+        samples: The run's N (per configuration, for an explore run).
+        provenance: ``"explicit"`` (a flag or API argument), ``"derived"``
+            (the minimum the declared thresholds require), or
+            ``"default"`` (the verb's fixed default).
+        demanded_by: For a derived N, the criterion whose threshold set it.
+        threshold: For a derived N, that criterion's threshold.
+    """
+
+    samples: int
+    provenance: str
+    demanded_by: str | None = None
+    threshold: float | None = None
+
+
 def _resolve_run_size(
-    declaration: ContractDeclaration,
+    mode: RunKind,
+    intent: str,
     samples: int | None,
     judged: Sequence[Criterion],
-    views: dict[str, Any],
-    invoke: Callable[[str], str],
-) -> tuple[int, int | None]:
-    """The run's N: invocation override, then the file, then derivation."""
+) -> RunSizing:
+    """The run's N: an explicit flag, or the verb's own sizing story.
+
+    A test under validation intent derives its N from the claim — the
+    largest per-criterion feasibility minimum — refusing a silently
+    derived N above the limit (the gate binds the number nobody typed;
+    an explicit flag of any size sails through). A smoke test gets the
+    small fixed default. A measure gets no default at all: its budget is
+    an experimental-design decision and must be typed.
+    """
     if samples is not None:
-        return samples, None
-    if declaration.samples is not None:
-        return declaration.samples, None
-    anchors = [c for c in judged if c.threshold is not None]
-    if not anchors:
+        return RunSizing(samples=samples, provenance="explicit")
+    if mode is RunKind.MEASURE:
         raise ContractConfigurationError(
-            "`samples:` is required here — with no declared bar there is no "
-            "feasibility anchor to derive a sample count from"
+            "a measure run's sample count is yours to choose — run with "
+            f"`--samples N` ({RECOMMENDED_BASELINE_SAMPLES} is a solid "
+            "baseline-grade count; a smaller deliberate budget is legitimate, "
+            "and an empirical bar derived from a smaller baseline simply "
+            "widens honestly)"
         )
-    probe = ServiceContract(
-        contract_id=declaration.contract, invoke=invoke, criteria=tuple(anchors), views=views
-    )
-    derived = derive_minimum_samples(probe)
-    return derived, derived
+    anchors = [
+        (check_feasibility(1, c.threshold, c.confidence).minimum_samples, c)
+        for c in judged
+        if c.threshold is not None
+    ]
+    if intent == "verification" and anchors:
+        minimum, criterion = max(anchors, key=lambda pair: pair[0])
+        if minimum > SILENT_DERIVATION_LIMIT:
+            raise ContractConfigurationError(
+                f"criterion {criterion.name} (threshold {criterion.threshold}) "
+                f"needs at least {minimum} samples — more than the "
+                f"{SILENT_DERIVATION_LIMIT} this framework will derive silently. "
+                f"Run it deliberately with `--samples {minimum}`, or declare "
+                "`intent: smoke` for a cheap pass that renders no statistical "
+                "verdict"
+            )
+        return RunSizing(
+            samples=minimum,
+            provenance="derived",
+            demanded_by=criterion.name,
+            threshold=criterion.threshold,
+        )
+    return RunSizing(samples=DEFAULT_SAMPLES, provenance="default")
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,18 +264,19 @@ class ExploreConfiguration:
 def instantiate_explore(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
-) -> tuple[ExploreConfiguration, ...]:
+    samples_per_config: int | None = None,
+) -> tuple[tuple[ExploreConfiguration, ...], RunSizing]:
     """Instantiate one runnable configuration per grid point for an explore run.
 
     An explore run is a measure run per configuration with a descriptive
     posture: every criterion participates, but thresholds are not
     consulted — the instantiated criteria carry no bar, so the engine
-    characterises without judging, at any sample size.
+    characterises without judging, at any sample size. The per-configuration
+    count is the invocation's (``--samples-per-config``), defaulting to a
+    deliberately small figure — triage is small by design.
 
     Raises:
-        ContractConfigurationError: The contract file declares no
-            ``samples-per-config:`` (a pure characterisation has no anchor
-            to derive a count from), or the service resolves to a
+        ContractConfigurationError: The service resolves to a
             code-registered binding — explore currently requires a service
             declared in the services file, whose configuration grid is the
             factor source.
@@ -240,12 +292,11 @@ def instantiate_explore(
             )
         resolve_binding(declaration.service)  # raises the standard unresolvable refusal
         raise AssertionError("unreachable: resolve_binding refuses unknown names")
-    if declaration.samples_per_config is None:
-        raise ContractConfigurationError(
-            "`samples-per-config:` is required for an explore run — exploration "
-            "is a pure characterisation per configuration, so the sample count "
-            "is yours to choose (any positive number; small counts are the point)"
-        )
+    sizing = (
+        RunSizing(samples=samples_per_config, provenance="explicit")
+        if samples_per_config is not None
+        else RunSizing(samples=DEFAULT_SAMPLES, provenance="default")
+    )
     transforms = declaration.transforms
     views = _build_views(declaration)
     expected = _expected_postconditions(declaration.expected_pairs, transforms)
@@ -265,7 +316,7 @@ def instantiate_explore(
             views=views,
         )
         plan = RunPlan(
-            samples=declaration.samples_per_config,
+            samples=sizing.samples,
             inputs=declaration.inputs,
             kind=RunKind.EXPLORE,
             intent=Intent.SMOKE,
@@ -278,7 +329,7 @@ def instantiate_explore(
                 plan=plan,
             )
         )
-    return tuple(configurations)
+    return tuple(configurations), sizing
 
 
 def instantiate(
@@ -287,13 +338,13 @@ def instantiate(
     mode: RunKind = RunKind.TEST,
     samples: int | None = None,
     baseline_dir: Path | None = None,
-) -> tuple[ServiceContract, RunPlan, int | None, dict[str, str], tuple[tuple[str, str], ...]]:
+) -> tuple[ServiceContract, RunPlan, RunSizing, dict[str, str], tuple[tuple[str, str], ...]]:
     """Instantiate the contract and plan for a contract declaration under a run mode.
 
-    Returns the contract, the run plan, the derived sample count when the
-    size was derived, the resolved service provenance, and — under ``test``
-    — the ``(name, reason)`` pairs for empirical criteria that could not be
-    judged (no matching baseline).
+    Returns the contract, the run plan, the run's sizing (N and its
+    provenance — the run-plan line's data), the resolved service
+    provenance, and — under ``test`` — the ``(name, reason)`` pairs for
+    empirical criteria that could not be judged (no matching baseline).
 
     Under ``test``, a criterion without a declared threshold is an
     empirical criterion: when ``baseline_dir`` holds a matching baseline
@@ -305,7 +356,8 @@ def instantiate(
     Raises:
         ContractConfigurationError: On any load-time refusal — before any
             invocation. In particular, a ``test`` where nothing is
-            judgeable, and a threshold-less ``measure`` with no ``samples``.
+            judgeable, a silently derived N above the derivation gate's
+            limit, and a ``measure`` without an explicit sample count.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
     invoke = _instrumented_invoke(resolved)
@@ -321,7 +373,7 @@ def instantiate(
             if entry.threshold is not None
         ]
         empirical_declared = [c for c in declaration.criteria if c.threshold is None]
-        run_size, derived = _resolve_run_size(declaration, samples, normative, views, invoke)
+        sizing = _resolve_run_size(mode, declaration.intent, samples, normative)
 
         empirical: list[Criterion] = []
         if empirical_declared:
@@ -361,7 +413,7 @@ def instantiate(
                 derivation = derive_sample_size_first(
                     evidence.successes,
                     evidence.trials,
-                    run_size,
+                    sizing.samples,
                     declaration.confidence,
                 )
                 built = _build_criterion(entry, declaration.confidence, expected, transforms)
@@ -387,11 +439,11 @@ def instantiate(
             _build_criterion(entry, declaration.confidence, expected, transforms)
             for entry in declaration.criteria
         )
-        run_size, derived = _resolve_run_size(declaration, samples, criteria, views, invoke)
+        sizing = _resolve_run_size(mode, declaration.intent, samples, criteria)
 
     contract = ServiceContract(
         contract_id=declaration.contract, invoke=invoke, criteria=criteria, views=views
     )
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
-    plan = RunPlan(samples=run_size, inputs=declaration.inputs, kind=mode, intent=intent)
-    return contract, plan, derived, service_provenance, tuple(skipped)
+    plan = RunPlan(samples=sizing.samples, inputs=declaration.inputs, kind=mode, intent=intent)
+    return contract, plan, sizing, service_provenance, tuple(skipped)
