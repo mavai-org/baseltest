@@ -43,7 +43,7 @@ services:
         required: [items]
 ```
 
-The `response-schema` tells the model — through the provider's structured-output mechanism — exactly what shape to return, which is often the single strongest lever on an LLM service's pass rate. It is part of the service's identity like every other parameter. (Not every provider supports it; baseltest refuses up front rather than quietly dropping it, because dropping it would change what you are measuring.)
+The `response-schema` tells the model — through the provider's structured-output mechanism — exactly what shape to return, which is often the single strongest lever on an LLM service's pass rate. It is part of the service's identity like every other parameter. (Not every provider supports it; under `measure` and `test`, baseltest refuses up front rather than quietly dropping it, because dropping it would change what you are measuring. An `explore` run over a mixed-provider grid degrades honestly instead: the schema-less provider's configuration runs without the schema, announced by a console note — carry the output shape in the system prompt to keep such comparisons fair.)
 
 The schema above is written in YAML style, but only the *file* is YAML — on the wire, baseltest serialises it to exactly the JSON the provider APIs expect. And since YAML is a superset of JSON, you can also paste a JSON Schema in verbatim; both forms parse to the identical structure:
 

@@ -36,6 +36,7 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
+from ._providers import resolve_provider
 from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
 from ._services import (
     LanguageModelParameters,
@@ -265,7 +266,7 @@ def instantiate_explore(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
     samples_per_config: int | None = None,
-) -> tuple[tuple[ExploreConfiguration, ...], RunSizing]:
+) -> tuple[tuple[ExploreConfiguration, ...], RunSizing, tuple[str, ...]]:
     """Instantiate one runnable configuration per grid point for an explore run.
 
     An explore run is a measure run per configuration with a descriptive
@@ -274,6 +275,17 @@ def instantiate_explore(
     characterises without judging, at any sample size. The per-configuration
     count is the invocation's (``--samples-per-config``), defaulting to a
     deliberately small figure — triage is small by design.
+
+    A grid may span providers with differing structured-output support.
+    Where measure and test refuse a schema an unsupporting provider cannot
+    honour (population identity is load-bearing there), an exploration
+    degrades honestly instead: the schema is not sent for that
+    configuration, and the returned notes say so — the developer exploring
+    across providers carries the output shape in the system prompt when
+    the comparison should stay fair.
+
+    Returns the configurations (baseline first), the run sizing, and the
+    ``(note, ...)`` lines the caller should surface before running.
 
     Raises:
         ContractConfigurationError: The service resolves to a
@@ -308,7 +320,21 @@ def instantiate_explore(
         for entry in declaration.criteria
     )
     configurations = []
+    notes: list[str] = []
     for parameters in definition.grid:
+        if (
+            parameters.response_schema is not None
+            and not resolve_provider(parameters.provider).supports_response_schema
+        ):
+            # Announced degradation, never silent: the configuration that
+            # actually runs — and its artefact — carries no schema.
+            parameters = _replace(parameters, response_schema=None)
+            notes.append(
+                f"provider {parameters.provider!r} has no structured-output "
+                "support in this reader — the response-schema is not sent for "
+                "this configuration; carry the output shape in the system "
+                "prompt if the comparison should stay fair"
+            )
         contract = ServiceContract(
             contract_id=declaration.contract,
             invoke=_instrumented_invoke(language_model_invoker(parameters)),
@@ -329,7 +355,7 @@ def instantiate_explore(
                 plan=plan,
             )
         )
-    return tuple(configurations), sizing
+    return tuple(configurations), sizing, tuple(notes)
 
 
 def instantiate(

@@ -5,8 +5,10 @@ token vocabulary to its established token concepts, so this adapter pins
 the protocol-required value at a documented constant, recorded in
 provenance whenever the adapter is used.
 
-Structured output is not offered by this adapter yet; a declared
-``response-schema:`` is refused at load rather than silently dropped.
+A declared ``response-schema:`` is passed through the protocol's
+structured-output mechanism (``output_config.format`` with a JSON
+schema); the schema itself is the author's and travels verbatim — the
+endpoint validates it, per the basic-adapter rule.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -29,6 +31,10 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
     }
     if parameters.temperature is not None:
         body["temperature"] = parameters.temperature
+    if parameters.response_schema is not None:
+        body["output_config"] = {
+            "format": {"type": "json_schema", "schema": parameters.response_schema}
+        }
     return body
 
 
@@ -49,7 +55,7 @@ PROVIDER = Provider(
     default_endpoint="https://api.anthropic.com/v1/messages",
     key_env_fallback="ANTHROPIC_API_KEY",
     key_required=True,
-    supports_response_schema=False,
+    supports_response_schema=True,
     body=_body,
     headers=_headers,
     extract=_extract,

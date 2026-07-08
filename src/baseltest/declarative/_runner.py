@@ -182,11 +182,13 @@ def explore(
     declaration = load_contract(contract_path)
     discover_registrations(contract_path)
     services = discover_services(contract_path)
-    configurations, sizing = instantiate_explore(
+    configurations, sizing, notes = instantiate_explore(
         declaration, services, samples_per_config=samples_per_config
     )
     if emit:
         print(render_run_plan(sizing.samples, sizing.provenance, per_configuration=True))
+        for note in notes:
+            print(f"note: {note}")
 
     explored: list[ConfigurationExploration] = []
     for configuration in configurations:

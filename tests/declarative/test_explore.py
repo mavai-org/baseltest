@@ -271,6 +271,67 @@ class TestExploreRuns:
         assert len(list(root.glob("*.yaml"))) == 4
 
 
+class TestMixedProviderGrids:
+    SCHEMA_SERVICES = """
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a support agent. Reply with only a JSON object."
+      model: small-model
+      temperature: 0.2
+      response-schema:
+        type: object
+        properties: { answer: { type: string } }
+    explorations:
+      - provider: apertus
+        model: swiss-model
+"""
+
+    def test_schema_less_provider_is_warned_and_invoked_not_refused(
+        self,
+        tmp_path: Path,
+        llm_environment: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: Any,
+    ) -> None:
+        monkeypatch.setenv("PUBLICAI_API_KEY", "test-key")
+        explored = explore(
+            write_files(tmp_path, services=self.SCHEMA_SERVICES),
+            samples_per_config=1,
+            explorations_dir=tmp_path / "x",
+        )
+        assert len(explored) == 2  # the run proceeded across both providers
+        out = capsys.readouterr().out
+        assert "no structured-output support" in out
+        assert "system prompt" in out
+        # The baseline (generic provider) request carries the schema; the
+        # apertus request does not — dropped with the warning, never silently.
+        with_schema = [p for p in llm_environment if "response_format" in p]
+        without_schema = [p for p in llm_environment if "response_format" not in p]
+        assert len(with_schema) == 1 and len(without_schema) == 1
+
+    def test_measure_still_refuses_a_schema_the_provider_cannot_honour(
+        self,
+        tmp_path: Path,
+        llm_environment: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Population identity is load-bearing for measure/test: no degradation.
+        monkeypatch.setenv("PUBLICAI_API_KEY", "test-key")
+        services = self.SCHEMA_SERVICES.replace(
+            "      temperature: 0.2\n", "      temperature: 0.2\n      provider: apertus\n"
+        )
+        with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
+            run(
+                write_files(tmp_path, services=services),
+                mode="measure",
+                samples=5,
+                emit=False,
+            )
+
+
 class TestOtherVerbsIgnoreTheGrid:
     def test_measure_and_test_consume_the_baseline_only(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any

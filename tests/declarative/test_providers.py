@@ -149,10 +149,19 @@ class TestResponseSchema:
         invoke("hello")
         assert capture[0]["body"]["format"] == SCHEMA
 
+    def test_anthropic_structured_output_pass_through(self, capture: list[dict[str, Any]]) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", response_schema=SCHEMA)
+        invoke = build_invoker(resolve_provider("anthropic"), parameters)
+        invoke("hello")
+        output_config = capture[0]["body"]["output_config"]
+        assert output_config["format"]["type"] == "json_schema"
+        assert output_config["format"]["schema"] == SCHEMA
+
     def test_unsupporting_provider_refused_at_load_never_degraded(
         self, capture: list[dict[str, Any]]
     ) -> None:
+        # apertus's hosted endpoint asserts no structured-output support
         parameters = LanguageModelParameters(system_prompt="s", model="m1", response_schema=SCHEMA)
         with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
-            build_invoker(resolve_provider("anthropic"), parameters)
+            build_invoker(resolve_provider("apertus"), parameters)
         assert capture == []
