@@ -41,8 +41,8 @@ python --version                 # verify: must print 3.11+ — if not, stop and
 pip install -e ".[declarative]"
 
 cd examples/simulated-service
-baseltest test contract.yaml       # judge it against its declared bar
-baseltest measure contract.yaml    # or: record everything, persist a baseline
+baseltest test fortune-teller.yaml      # judge it against its declared bar
+baseltest measure fortune-teller.yaml   # or: record everything, persist a baseline
 ```
 
 (If pip ever answers with `Package 'baseltest' requires a different Python`, that is this issue: the active `pip` still belongs to an older interpreter. `deactivate`, delete `venv/`, and recreate it with the 3.11+ interpreter as above.)

@@ -57,9 +57,11 @@ The schema above is written in YAML style, but only the *file* is YAML — on th
 
 Everything in `configuration:` is part of the service's identity, and baseltest records the resolved values (including the model, even when it came from the environment) in every result — so you always know exactly what was measured.
 
-## File 2: the contract (`contract.yaml`)
+## File 2: the contract (`basket-builder.yaml` — the name is yours)
 
 This file says what you are examining: the inputs, what a good response looks like, and - optionally - the bar it must clear. It is deliberately **posture-free**: whether a run judges or measures is decided by how you invoke it, not by the file.
+
+A note on the two filenames: `mavai-services.yaml` (like `mavai-bindings.py`) is **fixed** — the reader discovers it by name, so the name is namespaced and non-negotiable. The contract file is never discovered; you pass it to the verb explicitly, so its name is entirely yours — name it for what it tests, and keep as many as you have things to test. The file identifies itself through its `format:` key, not its filename.
 
 ```yaml
 format: mavai-contract/1
@@ -96,7 +98,7 @@ The file reads top to bottom as *machinery, rules, cases*. The `transforms:` blo
 ## Run it
 
 ```bash
-baseltest test contract.yaml
+baseltest test basket-builder.yaml
 ```
 
 ```
@@ -110,7 +112,7 @@ That last line is the point of baseltest: the verdict is not "98% ≥ 95%". It i
 
 Both verbs accept `--samples N`, overriding the file: the contract file can size the full experiment (say, 1000 samples) while a developer runs a far cheaper 50-sample check — the confidence bound is honestly computed at the size actually run, so the cheap test is still a statistically meaningful one (and still refused if the size can't support the declared bars).
 
-**`test` judges; `measure` records.** The same file, run as `baseltest measure contract.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+**`test` judges; `measure` records.** The same file, run as `baseltest measure basket-builder.yaml`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
 
 ```
 criterion spirits-stay-polite: PASS
@@ -178,7 +180,7 @@ services:
 Add `samples-per-config:` to the contract file (it is required for explore — the count is a pure cost decision of yours, and small counts are the point: 1–10 is typical, and baseltest never complains about a low one) and run:
 
 ```bash
-baseltest explore contract.yaml
+baseltest explore basket-builder.yaml
 ```
 
 Every configuration in the grid — the baseline included — runs like a miniature measure experiment, and each writes one YAML artefact into `_baseltest/explorations/{contract}/`, named after the factor values that distinguish it (`model-gpt-4o-mini_temperature-0.0.yaml`, …). The artefacts are **descriptive only** — observed rates, per-criterion counts, failure reasons; no bounds, no thresholds, no verdicts (a declared `threshold:` in the contract file is simply not consulted). Triage, not judgement: the core move is

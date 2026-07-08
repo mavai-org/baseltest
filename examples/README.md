@@ -1,10 +1,10 @@
 # Examples
 
-Ready-to-run declarative authoring, from zero. Each folder holds **one contract file**; what a run does is the verb you invoke it with:
+Ready-to-run declarative authoring, from zero. Each folder holds **one contract file, named for what it tests** — the name is yours, and you keep as many contract files as you have things to test. (The `mavai-*` files beside it are the opposite: fixed, namespaced names the reader discovers automatically — `mavai-services.yaml` for service definitions, `mavai-bindings.py` for code registrations.) What a run does is the verb you invoke it with:
 
-- `baseltest test contract.yaml` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
-- `baseltest measure contract.yaml` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed.
-- `baseltest explore contract.yaml` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples, and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
+- `baseltest test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
+- `baseltest measure <contract-file>` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed.
+- `baseltest explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples, and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate.
 
@@ -15,14 +15,14 @@ Two files, two roles:
 | File | Role |
 |---|---|
 | `mavai-bindings.py` | **The service itself** — the code invoked once per sample. Here it *simulates* a stochastic service (true success rate ≈ 0.9) so the example runs offline; in real use this is where your API/LLM call lives. Discovered and imported automatically, like pytest's `conftest.py`. |
-| `contract.yaml` | **The declaration** — the service, the criteria (one with a bar, one without), the inputs. Posture-free: the verb decides what happens. |
+| `fortune-teller.yaml` | **The declaration** — the service, the criteria (one with a bar, one without), the inputs. Posture-free: the verb decides what happens. Freely named, unlike its discovered `mavai-*` neighbour. |
 
 ```bash
 pip install "baseltest[declarative]"
 cd examples/simulated-service
 
-baseltest test contract.yaml       # verdict against the 0.8 threshold
-baseltest measure contract.yaml    # everything recorded, baseline persisted
+baseltest test fortune-teller.yaml       # verdict against the 0.8 threshold
+baseltest measure fortune-teller.yaml    # everything recorded, baseline persisted
 ```
 
 Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence, not a comparison of one lucky sample.
@@ -36,9 +36,9 @@ The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md):
 ```bash
 export OPENAI_API_KEY=...
 cd examples/language-model
-baseltest test contract.yaml       # test posture: verdict (recorded in _baseltest/verdicts/), no baseline
-baseltest measure contract.yaml    # measure posture: characterisation + baseline artefact
-baseltest explore contract.yaml    # explore posture: one descriptive artefact per configuration
+baseltest test basket-builder.yaml       # test posture: verdict (recorded in _baseltest/verdicts/), no baseline
+baseltest measure basket-builder.yaml    # measure posture: characterisation + baseline artefact
+baseltest explore basket-builder.yaml    # explore posture: one descriptive artefact per configuration
 ```
 
 The contract declares `intent: smoke` with 30 samples and a 0.8 bar so a first try is quick, cheap, and *honestly passable* — 30 samples can never support a 0.95 claim, however well the model does, and baseltest refuses to pretend otherwise. To graduate to a production bar: raise `threshold`, remove `intent: smoke`, and either raise `samples` or delete it and let baseltest derive the minimum the bar needs.
@@ -59,7 +59,7 @@ The services file also carries an `explorations:` grid: two temperature variants
 2. **Run the exploration** (4 configurations × 3 samples — quick and cheap by design; an exploration renders no verdict, so no sample count is ever "too small"):
 
    ```bash
-   baseltest explore contract.yaml
+   baseltest explore basket-builder.yaml
    ```
 
 3. **Read the summary** — one line per configuration, observed rates only — then list the artefacts it wrote:
