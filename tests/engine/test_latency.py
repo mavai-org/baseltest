@@ -45,8 +45,15 @@ class TestLatencyBlock:
         assert block is not None
         assert dict(block.percentiles) == {"p50Ms": 100, "p90Ms": 180, "p95Ms": 190}
 
-    def test_single_passing_sample_supports_p50_only(self) -> None:
-        block = latency_block((sample(42),))
+    def test_below_the_median_minimum_no_percentiles_at_all(self) -> None:
+        # Four passing samples: the block itself emits (vector + triple),
+        # but even the median needs five contributing samples.
+        block = latency_block(tuple(sample(ms) for ms in (10, 20, 30, 40)))
         assert block is not None
-        assert block.percentiles == (("p50Ms", 42),)
-        assert block.sorted_passing_latencies_ms == (42,)
+        assert block.percentiles == ()
+        assert block.sorted_passing_latencies_ms == (10, 20, 30, 40)
+
+    def test_five_passing_samples_support_the_median_only(self) -> None:
+        block = latency_block(tuple(sample(ms) for ms in (10, 20, 30, 40, 50)))
+        assert block is not None
+        assert block.percentiles == (("p50Ms", 30),)

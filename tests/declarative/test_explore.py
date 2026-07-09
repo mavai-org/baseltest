@@ -167,12 +167,12 @@ class TestExploreRuns:
         from ruamel.yaml import YAML
 
         explored = explore(
-            write_files(tmp_path), samples_per_config=3, explorations_dir=tmp_path / "x", emit=False
+            write_files(tmp_path), samples_per_config=5, explorations_dir=tmp_path / "x", emit=False
         )
         yaml = YAML(typ="safe", pure=True)
         data = yaml.load(_io.StringIO(explored[0].path.read_text(encoding="utf-8")))
         projection = data["resultProjection"]
-        assert len(projection) == 3  # one entry per sample
+        assert len(projection) == 5  # one entry per sample
         first = projection["sample[0]"]
         assert first["inputIndex"] == 0
         assert first["content"].startswith("hello from")  # the actual response, verbatim
@@ -180,10 +180,11 @@ class TestExploreRuns:
         assert isinstance(first["executionTimeMs"], int)
         latency = data["latency"]
         assert latency["basis"] == "passing-samples"
-        assert "p50Ms" in latency and "p99Ms" not in latency  # gated at n=3
+        # gated at n=5: the median (needs 5) emits, the tail does not
+        assert "p50Ms" in latency and "p90Ms" not in latency and "p99Ms" not in latency
         # anchors mark every sample boundary for diff alignment
         text = explored[0].path.read_text(encoding="utf-8")
-        assert text.count("anchor:") == 3
+        assert text.count("anchor:") == 5
 
     def test_console_names_the_most_common_failure(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any

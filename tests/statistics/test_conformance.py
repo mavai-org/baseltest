@@ -209,9 +209,7 @@ def test_latency_summary_matches_oracle(case: dict[str, Any]) -> None:
 
 
 _MINIMUMS_TOLERANCE, _MINIMUMS_CASES = _load("latency_percentile_minimums.json")
-_EMISSION_MINIMUM_CASES = [
-    c for c in _MINIMUMS_CASES if c["approach"] == "emission_non_degeneracy"
-]
+_EMISSION_MINIMUM_CASES = [c for c in _MINIMUMS_CASES if c["approach"] == "emission_non_degeneracy"]
 
 
 def test_emission_minimums_suite_is_exact_and_complete() -> None:
@@ -231,6 +229,6 @@ def test_percentile_emission_minimums_match_oracle(case: dict[str, Any]) -> None
     from baseltest.engine.latency import _PERCENTILES
 
     minimums = {level: minimum for _, level, minimum in _PERCENTILES}
-    assert minimums[case["inputs"]["percentile"]] == (
-        case["expected"]["minimum_contributing_samples"]
+    assert (
+        minimums[case["inputs"]["percentile"]] == (case["expected"]["minimum_contributing_samples"])
     )

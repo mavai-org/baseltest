@@ -16,12 +16,13 @@ from baseltest.statistics import latency_percentile
 
 from .run import SampleRecord
 
-# The family's per-percentile minimum-contributing-samples rule: percentile
-# p needs at least 1 / (1 - p) contributing samples; below the minimum the
+# The family's per-percentile minimum-contributing-samples rule (the
+# Statistical Companion's non-degeneracy gate): below the minimum the
 # percentile is omitted from the artefact entirely rather than carrying a
-# number that looks authoritative but is noise.
+# number that looks authoritative but is noise. The values are
+# conformance-locked to the mavai-R latency_percentile_minimums fixture.
 _PERCENTILES: tuple[tuple[str, float, int], ...] = (
-    ("p50Ms", 0.50, 1),
+    ("p50Ms", 0.50, 5),
     ("p90Ms", 0.90, 10),
     ("p95Ms", 0.95, 20),
     ("p99Ms", 0.99, 100),
