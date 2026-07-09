@@ -81,6 +81,95 @@ class Criterion:
         return self.threshold is not None
 
 
+# The supported percentile levels, in tail order. The latency dimension's
+# vocabulary throughout the framework: bounds are declared, evaluated, and
+# reported against these labels.
+PERCENTILE_LEVELS: Mapping[str, float] = {"p50": 0.50, "p90": 0.90, "p95": 0.95, "p99": 0.99}
+
+
+@dataclass(frozen=True, slots=True)
+class LatencyBound:
+    """One resolved upper bound on an observed latency percentile.
+
+    A bound is always concrete by the time it reaches the contract: an
+    explicit ceiling carries the declared milliseconds; a baseline-derived
+    bound carries the order-statistic result and its derivation facts.
+
+    Attributes:
+        percentile: One of the supported labels (``p50``/``p90``/``p95``/``p99``).
+        threshold_ms: The bound in milliseconds; the observed percentile
+            passes iff it is at or below this value.
+        rank: For a baseline-derived bound, the one-based order-statistic
+            rank the threshold was read at.
+        baseline_percentile_ms: For a baseline-derived bound, the
+            baseline's nearest-rank point estimate — reporting context,
+            never the threshold.
+        baseline_samples: For a baseline-derived bound, the baseline's
+            contributing-sample count.
+    """
+
+    percentile: str
+    threshold_ms: int
+    rank: int | None = None
+    baseline_percentile_ms: int | None = None
+    baseline_samples: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.percentile not in PERCENTILE_LEVELS:
+            supported = ", ".join(PERCENTILE_LEVELS)
+            raise ValueError(f"unknown percentile {self.percentile!r} (supported: {supported})")
+        if self.threshold_ms <= 0:
+            raise ValueError(
+                f"{self.percentile}: threshold must be positive, got {self.threshold_ms}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class LatencyBar:
+    """The contract's latency dimension: resolved bounds, judged like any bar.
+
+    Latency is conditioned on functional success — only passing samples'
+    durations are judged — and gates the composite verdict by conjunction
+    with the functional criteria. Declaring the bar is the opt-in; there
+    is no advisory mode.
+
+    Attributes:
+        bounds: The asserted bounds, one per percentile, in tail order.
+        origin: ``"explicit"`` (declared ceilings) or
+            ``"baseline-derived"`` (order-statistic bounds from a measured
+            baseline) — the family's latency-provenance vocabulary.
+        confidence: For baseline-derived bounds, the one-sided confidence
+            the derivation was performed at; recorded for explicit bounds.
+        provenance: Where the declaration comes from (SLA reference, the
+            baseline artefact's name, ...).
+    """
+
+    bounds: tuple[LatencyBound, ...]
+    origin: str = "explicit"
+    confidence: float = 0.95
+    provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
+
+    def __post_init__(self) -> None:
+        if not self.bounds:
+            raise ValueError("a latency bar declares at least one bound")
+        if self.origin not in ("explicit", "baseline-derived"):
+            raise ValueError(f"unknown latency origin {self.origin!r}")
+        if not 0.0 < self.confidence < 1.0:
+            raise ValueError(f"latency confidence must be in (0, 1), got {self.confidence}")
+        labels = [bound.percentile for bound in self.bounds]
+        if len(labels) != len(set(labels)):
+            raise ValueError("a latency bar asserts each percentile at most once")
+        ordered = sorted(self.bounds, key=lambda b: PERCENTILE_LEVELS[b.percentile])
+        if list(self.bounds) != ordered:
+            raise ValueError("latency bounds must be declared in percentile order")
+        thresholds = [bound.threshold_ms for bound in self.bounds]
+        if thresholds != sorted(thresholds):
+            raise ValueError(
+                "latency thresholds must be non-decreasing across percentiles: a "
+                "tighter bound on a higher percentile contradicts itself"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class ServiceContract:
     """A stochastic service under test: identity, invocation, and criteria.
