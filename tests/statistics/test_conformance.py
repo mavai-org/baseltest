@@ -206,3 +206,31 @@ def test_latency_summary_matches_oracle(case: dict[str, Any]) -> None:
         case["expected"]["mean"], abs=_LATENCY_TOLERANCE
     )
     assert latency_max(latencies) == pytest.approx(case["expected"]["max"], abs=_LATENCY_TOLERANCE)
+
+
+_MINIMUMS_TOLERANCE, _MINIMUMS_CASES = _load("latency_percentile_minimums.json")
+_EMISSION_MINIMUM_CASES = [
+    c for c in _MINIMUMS_CASES if c["approach"] == "emission_non_degeneracy"
+]
+
+
+def test_emission_minimums_suite_is_exact_and_complete() -> None:
+    assert _MINIMUMS_TOLERANCE == 0  # every value is an integer; equality is exact
+    assert len(_EMISSION_MINIMUM_CASES) == 4  # one per supported percentile level
+
+
+@pytest.mark.parametrize("case", _EMISSION_MINIMUM_CASES, ids=lambda c: c["name"])
+def test_percentile_emission_minimums_match_oracle(case: dict[str, Any]) -> None:
+    """The emission gate the artefact writers use must equal the published
+    family standard exactly — the gating table itself, not a copy.
+
+    The suite's bound_existence cases (judgement-time minimums for a
+    non-saturated order-statistic bound) become conformance targets with
+    the latency-criterion work; they are not asserted here.
+    """
+    from baseltest.engine.latency import _PERCENTILES
+
+    minimums = {level: minimum for _, level, minimum in _PERCENTILES}
+    assert minimums[case["inputs"]["percentile"]] == (
+        case["expected"]["minimum_contributing_samples"]
+    )
