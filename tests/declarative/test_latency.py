@@ -116,7 +116,7 @@ class TestExitCodeContract:
         monkeypatch.chdir(tmp_path)
         contract = write_files(tmp_path, "latency:\n  empirical: [p50]\n")
         assert main(["test", str(contract), "--samples", "10"]) == 2
-        assert "run `baseltest measure` first" in capsys.readouterr().err
+        assert "run `basel measure` first" in capsys.readouterr().err
 
     def test_measure_then_empirical_judges_no_worse_than_measured(
         self, tmp_path: Path, monkeypatch: Any

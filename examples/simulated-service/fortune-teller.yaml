@@ -1,8 +1,8 @@
 # The fortune teller: one declaration, two questions. The file carries the
 # claim; the invocation sizes the run.
-#   baseltest test fortune-teller.yaml                  -> does it clear its bar? (verdict,
+#   basel test fortune-teller.yaml                  -> does it clear its bar? (verdict,
 #                                                          at the bar's derived minimum)
-#   baseltest measure fortune-teller.yaml --samples 200 -> what does it actually do?
+#   basel measure fortune-teller.yaml --samples 200 -> what does it actually do?
 #                                                          (baseline persisted)
 format: mavai-contract/1
 contract: fortune-teller-is-usually-encouraging

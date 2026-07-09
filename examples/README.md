@@ -2,9 +2,9 @@
 
 Ready-to-run declarative authoring, from zero. Each folder holds **one contract file, named for what it tests** — the name is yours, and you keep as many contract files as you have things to test. (The `mavai-*` files beside it are the opposite: fixed, namespaced names the reader discovers automatically — `mavai-services.yaml` for service definitions, `mavai-bindings.py` for code registrations.) What a run does is the verb you invoke it with:
 
-- `baseltest test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
-- `baseltest measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
-- `baseltest explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
+- `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
+- `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
+- `basel explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
 
@@ -21,9 +21,9 @@ Two files, two roles:
 pip install "baseltest[declarative]"
 cd examples/simulated-service
 
-baseltest test fortune-teller.yaml                  # verdict against the 0.8 threshold,
+basel test fortune-teller.yaml                  # verdict against the 0.8 threshold,
                                                     #   at the bar's derived minimum
-baseltest measure fortune-teller.yaml --samples 200 # everything recorded, baseline persisted
+basel measure fortune-teller.yaml --samples 200 # everything recorded, baseline persisted
 ```
 
 Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence, not a comparison of one lucky sample. And notice what the derived minimum implies: at n = 11, only a *perfect* run clears the 0.8 bar, so this ≈0.9-rate service fails honestly much of the time. That is the operating characteristic of the smallest feasible run — give it slack with `--samples 100` and watch the same service pass dependably. The n is visible on every run precisely so this trade-off is yours to see and make.
@@ -37,11 +37,11 @@ The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md):
 ```bash
 export OPENAI_API_KEY=...
 cd examples/language-model
-baseltest test basket-builder.yaml                  # test posture: verdict (recorded in
+basel test basket-builder.yaml                  # test posture: verdict (recorded in
                                                     #   _baseltest/verdicts/), no baseline
-baseltest measure basket-builder.yaml --samples 200 # measure posture: characterisation
+basel measure basket-builder.yaml --samples 200 # measure posture: characterisation
                                                     #   + baseline artefact
-baseltest explore basket-builder.yaml               # explore posture: one descriptive
+basel explore basket-builder.yaml               # explore posture: one descriptive
                                                     #   artefact per configuration
 ```
 
@@ -63,7 +63,7 @@ The services file also carries an `explorations:` grid: the same job on a differ
 2. **Run the exploration** (2 configurations × 5 samples each — the default; `--samples-per-config` to change it. Quick and cheap by design: an exploration renders no verdict, so no sample count is ever "too small"):
 
    ```bash
-   baseltest explore basket-builder.yaml
+   basel explore basket-builder.yaml
    ```
 
 3. **Read the summary** — one line per configuration, observed rates only — then list the artefacts it wrote:
@@ -84,7 +84,7 @@ The services file also carries an `explorations:` grid: the same job on a differ
 
    Each file carries the configuration's factors, observed pass rate, per-criterion counts and failure reasons, a gated latency summary (p50 at exploration-sized runs), and a per-sample **result projection** — which input drove each sample, which postconditions passed, how long the call took, and the model's response verbatim. Descriptive statistics only, triage rather than judgement — and when a configuration underperforms, the projection shows you *what it actually said*.
 
-5. **Promote the winner.** Fold its values into the `configuration:` block, then `baseltest measure` and `baseltest test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
+5. **Promote the winner.** Fold its values into the `configuration:` block, then `basel measure` and `basel test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
 
 Want a third model in the comparison? Uncomment the apertus entry and `export PUBLICAI_API_KEY=...`. Apertus's hosted endpoint has no structured-output support, so `explore` runs that configuration *without* the declared `response-schema:` and says so in a console note — the system prompt still states the output shape, which keeps the comparison fair.
 

@@ -1,1 +1,1 @@
-"""Shared pytest fixtures for the baseltest test suite."""
+"""Shared pytest fixtures for the test suite of the baseltest package."""

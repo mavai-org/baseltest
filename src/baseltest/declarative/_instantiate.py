@@ -322,14 +322,14 @@ def _latency_bar(
         )
         raise ContractConfigurationError(
             f"empirical latency bounds derive from a measured baseline: {reason} — "
-            "run `baseltest measure` first"
+            "run `basel measure` first"
         )
     stored = resolution.baseline
     assert stored is not None
     if stored.latency is None or not stored.latency.sorted_passing_latencies_ms:
         raise ContractConfigurationError(
             f"baseline {stored.path.name} records no latency profile (it predates "
-            "latency recording) — re-run `baseltest measure`"
+            "latency recording) — re-run `basel measure`"
         )
     vector = list(stored.latency.sorted_passing_latencies_ms)
     bounds = []
@@ -535,7 +535,7 @@ def instantiate(
                         if resolution is not None and resolution.reason
                         else "requires a baseline"
                     )
-                    skipped.append((entry.name, f"{reason} — run `baseltest measure` first"))
+                    skipped.append((entry.name, f"{reason} — run `basel measure` first"))
                     continue
                 stored = resolution.baseline
                 assert stored is not None
@@ -545,7 +545,7 @@ def instantiate(
                         (
                             entry.name,
                             f"baseline {stored.path.name} does not record this "
-                            "criterion — re-run `baseltest measure`",
+                            "criterion — re-run `basel measure`",
                         )
                     )
                     continue

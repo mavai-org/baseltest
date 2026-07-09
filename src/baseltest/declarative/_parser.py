@@ -159,7 +159,7 @@ def _check_top_level_keys(data: dict[str, Any]) -> None:
         if key == "kind":
             raise _fail(
                 "`kind:` was withdrawn — the run mode is the invocation verb: "
-                "`baseltest test contract.yaml` or `baseltest measure contract.yaml`"
+                "`basel test contract.yaml` or `basel measure contract.yaml`"
             )
         if key in _WITHDRAWN_SIZING_KEYS:
             raise _fail(_WITHDRAWN_SIZING_KEYS[key])

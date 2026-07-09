@@ -1,10 +1,10 @@
 # The basket-builder: a language model given a job, its output judged as
 # structure. Canonical order: machinery (transforms), rules (criteria),
 # cases (inputs). The file carries the claim; the invocation sizes the run.
-#   baseltest test basket-builder.yaml                  -> verdict (n = 5 under intent: smoke;
+#   basel test basket-builder.yaml                  -> verdict (n = 5 under intent: smoke;
 #                                                          size it with --samples)
-#   baseltest measure basket-builder.yaml --samples 200 -> characterisation + baseline artefact
-#   baseltest explore basket-builder.yaml               -> one descriptive artefact per configuration
+#   basel measure basket-builder.yaml --samples 200 -> characterisation + baseline artefact
+#   basel explore basket-builder.yaml               -> one descriptive artefact per configuration
 format: mavai-contract/1
 contract: basket-builder-returns-valid-baskets
 service: basket-builder

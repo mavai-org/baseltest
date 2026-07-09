@@ -109,7 +109,7 @@ class TestRunModes:
         assert [r.name for r in result.criterion_results] == ["judged"]
         out = capsys.readouterr().out
         assert "empirical criterion watched: no baseline found" in out
-        assert "baseltest measure" in out
+        assert "basel measure" in out
 
     def test_measure_mode_records_all_and_persists(self, tmp_path: Path) -> None:
         @binding("greeting-service")
