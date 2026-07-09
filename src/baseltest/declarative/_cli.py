@@ -128,7 +128,13 @@ def main(argv: list[str] | None = None) -> int:
         print(render_infeasible(arguments.contract_file.stem, infeasible), file=sys.stderr)
         return 2
     if arguments.command == "test":
-        return 1 if result.composite is Verdict.FAIL else 0
+        if result.composite is Verdict.FAIL:
+            return 1
+        if result.composite is Verdict.INCONCLUSIVE:
+            # A latency bound the run's passing samples could not estimate:
+            # no judgement was possible, so no assertion can rest on it.
+            return 3
+        return 0
     if getattr(arguments, "assert_bars", False):
         return _assert_recorded_bars(result)
     return 0  # a plain measure run records; recording cannot fail

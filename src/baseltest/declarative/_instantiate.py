@@ -12,9 +12,12 @@ from dataclasses import replace as _replace
 from pathlib import Path
 from typing import Any
 
-from baseltest.baseline import resolve_baseline
+from baseltest.baseline import BaselineResolution, resolve_baseline
 from baseltest.contract import (
+    PERCENTILE_LEVELS,
     Criterion,
+    LatencyBar,
+    LatencyBound,
     Postcondition,
     PostconditionResult,
     ServiceContract,
@@ -25,8 +28,19 @@ from baseltest.contract import (
     one_of,
     satisfies,
 )
-from baseltest.engine import Intent, RunKind, RunPlan, inputs_fingerprint
-from baseltest.statistics import check_feasibility, derive_sample_size_first
+from baseltest.engine import (
+    Intent,
+    RunKind,
+    RunPlan,
+    inputs_fingerprint,
+    minimum_contributing_samples,
+)
+from baseltest.statistics import (
+    bound_existence_minimum,
+    check_feasibility,
+    derive_latency_threshold,
+    derive_sample_size_first,
+)
 
 from ._errors import ContractConfigurationError
 from ._parser import (
@@ -258,6 +272,94 @@ def _resolve_run_size(
     return RunSizing(samples=DEFAULT_SAMPLES, provenance="default")
 
 
+def _latency_bar(
+    declaration: ContractDeclaration,
+    samples: int,
+    resolution: BaselineResolution | None,
+) -> LatencyBar | None:
+    """The contract's latency bar, resolved to concrete bounds — or a refusal.
+
+    Every refusal here fires before any service invocation: an asserted
+    percentile the planned sample count can never estimate, an empirical
+    declaration with no usable baseline, and a requested confidence the
+    baseline's size cannot support a non-saturated bound at (the
+    distribution-free existence condition) are all configuration facts,
+    knowable up front.
+    """
+    spec = declaration.latency
+    if spec is None:
+        return None
+    confidence = spec.confidence if spec.confidence is not None else declaration.confidence
+    asserted = [percentile for percentile, _ in spec.ceilings] or list(spec.empirical)
+    for percentile in asserted:
+        minimum = minimum_contributing_samples(percentile)
+        if minimum > samples:
+            raise ContractConfigurationError(
+                f"the latency bound on {percentile} needs at least {minimum} passing "
+                f"samples to estimate, and the run is planned at {samples} — run with "
+                f"`--samples {minimum}` or more (only passing samples contribute)"
+            )
+
+    if spec.ceilings:
+        return LatencyBar(
+            bounds=tuple(
+                LatencyBound(percentile=percentile, threshold_ms=ms)
+                for percentile, ms in spec.ceilings
+            ),
+            origin="explicit",
+            confidence=confidence,
+            provenance=ThresholdProvenance(
+                origin=spec.threshold_origin or "unspecified",
+                contract_ref=spec.contract_ref,
+            ),
+        )
+
+    if resolution is None or not resolution.matched:
+        reason = (
+            resolution.reason
+            if resolution is not None and resolution.reason
+            else "no baseline was found"
+        )
+        raise ContractConfigurationError(
+            f"empirical latency bounds derive from a measured baseline: {reason} — "
+            "run `baseltest measure` first"
+        )
+    stored = resolution.baseline
+    assert stored is not None
+    if stored.latency is None or not stored.latency.sorted_passing_latencies_ms:
+        raise ContractConfigurationError(
+            f"baseline {stored.path.name} records no latency profile (it predates "
+            "latency recording) — re-run `baseltest measure`"
+        )
+    vector = list(stored.latency.sorted_passing_latencies_ms)
+    bounds = []
+    for percentile in spec.empirical:
+        derived = derive_latency_threshold(vector, PERCENTILE_LEVELS[percentile], confidence)
+        if derived.saturated:
+            required = bound_existence_minimum(PERCENTILE_LEVELS[percentile], confidence)
+            raise ContractConfigurationError(
+                f"no {confidence:.0%}-confident upper bound on {percentile} exists "
+                f"from a baseline of {derived.n} passing samples — at least "
+                f"{required} are needed. Re-measure with a larger budget, or declare "
+                "a lower `latency: confidence:`"
+            )
+        bounds.append(
+            LatencyBound(
+                percentile=percentile,
+                threshold_ms=round(derived.threshold),
+                rank=derived.rank,
+                baseline_percentile_ms=round(derived.baseline_percentile),
+                baseline_samples=derived.n,
+            )
+        )
+    return LatencyBar(
+        bounds=tuple(bounds),
+        origin="baseline-derived",
+        confidence=confidence,
+        provenance=ThresholdProvenance(origin="empirical", contract_ref=stored.path.name),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ExploreConfiguration:
     """One grid point, ready to run: its factors, contract instance, and plan."""
@@ -407,20 +509,25 @@ def instantiate(
         empirical_declared = [c for c in declaration.criteria if c.threshold is None]
         sizing = _resolve_run_size(mode, declaration.intent, samples, normative)
 
+        needs_baseline = bool(empirical_declared) or (
+            declaration.latency is not None and bool(declaration.latency.empirical)
+        )
+        resolution = None
+        if needs_baseline and baseline_dir is not None:
+            resolution = resolve_baseline(
+                baseline_dir,
+                declaration.contract,
+                inputs_fingerprint(declaration.inputs),
+                {
+                    "taskFormat": FORMAT_IDENTIFIER,
+                    "binding": declaration.service,
+                    **service_provenance,
+                },
+            )
+        latency_bar = _latency_bar(declaration, sizing.samples, resolution)
+
         empirical: list[Criterion] = []
         if empirical_declared:
-            resolution = None
-            if baseline_dir is not None:
-                resolution = resolve_baseline(
-                    baseline_dir,
-                    declaration.contract,
-                    inputs_fingerprint(declaration.inputs),
-                    {
-                        "taskFormat": FORMAT_IDENTIFIER,
-                        "binding": declaration.service,
-                        **service_provenance,
-                    },
-                )
             for entry in empirical_declared:
                 if resolution is None or not resolution.matched:
                     reason = (
@@ -472,9 +579,16 @@ def instantiate(
             for entry in declaration.criteria
         )
         sizing = _resolve_run_size(mode, declaration.intent, samples, criteria)
+        # A declared latency bar is a test-time assertion; a measure run's
+        # product — the baseline's latency profile — is what it derives from.
+        latency_bar = None
 
     contract = ServiceContract(
-        contract_id=declaration.contract, invoke=invoke, criteria=criteria, views=views
+        contract_id=declaration.contract,
+        invoke=invoke,
+        criteria=criteria,
+        views=views,
+        latency=latency_bar,
     )
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
     plan = RunPlan(samples=sizing.samples, inputs=declaration.inputs, kind=mode, intent=intent)
