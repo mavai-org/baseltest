@@ -20,7 +20,15 @@ type.
 """
 
 from .evaluation import CriterionTally, TrialEvaluation, TrialViews, evaluate_trial
-from .model import Criterion, ServiceContract, ThresholdProvenance, TransformError
+from .model import (
+    PERCENTILE_LEVELS,
+    Criterion,
+    LatencyBar,
+    LatencyBound,
+    ServiceContract,
+    ThresholdProvenance,
+    TransformError,
+)
 from .postconditions import (
     Postcondition,
     PostconditionResult,
@@ -32,7 +40,10 @@ from .postconditions import (
 )
 
 __all__ = [
+    "PERCENTILE_LEVELS",
     "Criterion",
+    "LatencyBar",
+    "LatencyBound",
     "CriterionTally",
     "Postcondition",
     "PostconditionResult",

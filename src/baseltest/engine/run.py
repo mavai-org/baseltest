@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from baseltest.contract import (
     Criterion,
@@ -18,6 +19,11 @@ from baseltest.contract import (
 from baseltest.statistics import check_feasibility
 from baseltest.statistics.verdict import Verdict
 from baseltest.statistics.wilson import wilson_lower_bound
+
+from .latency import evaluate_latency
+
+if TYPE_CHECKING:
+    from .latency import LatencyEvaluation
 
 
 class RunKind(Enum):
@@ -146,8 +152,11 @@ class RunResult:
         finished_at: Run end, UTC.
         inputs_identity: Fingerprint of the input list (order-insensitive).
         samples: Per-sample records, present only when the run was asked
-            to record them (explorations do; tests and measures don't
+            to record them (explorations and measures do; tests don't
             carry per-sample payloads).
+        latency: The latency dimension's outcome, when the contract
+            asserts a latency bar; folded into the composite by
+            conjunction.
     """
 
     contract_id: str
@@ -160,6 +169,7 @@ class RunResult:
     inputs_identity: str
     overall_successes: int = 0
     samples: tuple[SampleRecord, ...] = ()
+    latency: "LatencyEvaluation | None" = None
 
     @property
     def thresholded_results(self) -> tuple[CriterionResult, ...]:
@@ -270,6 +280,7 @@ def execute(
     tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
     overall_successes = 0
     sample_records: list[SampleRecord] = []
+    passing_durations_ms: list[int] = []
     for i in range(plan.samples):
         input_index = i % len(plan.inputs)
         invoked_at = time.perf_counter()
@@ -284,6 +295,8 @@ def execute(
             trial_passed = trial_passed and evaluation.passed
             outcomes.extend(evaluation.outcomes)
         overall_successes += int(trial_passed)
+        if trial_passed:
+            passing_durations_ms.append(duration_ms)
         if record_samples:
             sample_records.append(
                 SampleRecord(
@@ -305,10 +318,23 @@ def execute(
         results.append(
             CriterionResult(criterion=criterion, tally=tally, lower_bound=bound, verdict=verdict)
         )
+    latency_evaluation = None
+    if contract.latency is not None:
+        latency_evaluation = evaluate_latency(contract.latency, passing_durations_ms, plan.samples)
+
     verdicts = [r.verdict for r in results if r.verdict is not None]
+    if latency_evaluation is not None:
+        verdicts.append(latency_evaluation.verdict)
     composite = None
     if verdicts:
-        composite = Verdict.FAIL if Verdict.FAIL in verdicts else Verdict.PASS
+        # Conjunction across dimensions: any FAIL fails; an unjudgeable
+        # latency bound (INCONCLUSIVE) never counts as a pass.
+        if Verdict.FAIL in verdicts:
+            composite = Verdict.FAIL
+        elif Verdict.INCONCLUSIVE in verdicts:
+            composite = Verdict.INCONCLUSIVE
+        else:
+            composite = Verdict.PASS
 
     return RunResult(
         contract_id=contract.contract_id,
@@ -317,6 +343,7 @@ def execute(
         criterion_results=tuple(results),
         composite=composite,
         started_at=started_at,
+        latency=latency_evaluation,
         finished_at=finished_at,
         inputs_identity=inputs_fingerprint(plan.inputs),
         overall_successes=overall_successes,

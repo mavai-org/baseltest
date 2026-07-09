@@ -62,6 +62,35 @@ def render_verdict_record(result: RunResult) -> str:
     execution.set("intent", result.plan.intent.name)
     execution.set("confidence", str(confidence))
 
+    if result.latency is not None:
+        latency = child(root, "latency")
+        latency.set("successful-samples", str(result.latency.contributing_samples))
+        strict_violations = sum(1 for e in result.latency.evaluations if e.status == "fail")
+        latency.set("strict-violations", str(strict_violations))
+        latency.set("advisory-violations", "0")  # declaring the bar is the opt-in; no advisory mode
+        observed = child(latency, "observed")
+        for label, value_ms in result.latency.observed:
+            percentile = child(observed, "percentile")
+            percentile.set("label", label)
+            percentile.set("value-ms", str(value_ms))
+        evaluations = child(latency, "evaluations")
+        for evaluation in result.latency.evaluations:
+            row = child(evaluations, "evaluation")
+            row.set("percentile", evaluation.bound.percentile)
+            if evaluation.observed_ms is not None:
+                row.set("observed-ms", str(evaluation.observed_ms))
+            row.set("threshold-ms", str(evaluation.bound.threshold_ms))
+            row.set("provenance", result.latency.bar.origin)
+            row.set("mode", "strict")
+            status = {"pass": "PASS", "fail": "STRICT_FAIL", "infeasible": "INFEASIBLE"}
+            row.set("status", status[evaluation.status])
+            if result.latency.bar.origin == "baseline-derived":
+                row.set("baseline-confidence", str(result.latency.bar.confidence))
+                if evaluation.bound.rank is not None:
+                    row.set("baseline-rank", str(evaluation.bound.rank))
+                if evaluation.bound.baseline_samples is not None:
+                    row.set("baseline-n", str(evaluation.bound.baseline_samples))
+
     if len(judged) == 1:
         only = judged[0]
         assert only.lower_bound is not None and only.criterion.threshold is not None

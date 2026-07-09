@@ -10,7 +10,9 @@ import pytest
 
 from baseltest.statistics import (
     achieved_power,
+    bound_existence_minimum,
     check_feasibility,
+    derive_latency_threshold,
     derive_sample_size_first,
     derive_threshold_first,
     evaluate_compliance,
@@ -232,3 +234,77 @@ def test_percentile_emission_minimums_match_oracle(case: dict[str, Any]) -> None
     assert (
         minimums[case["inputs"]["percentile"]] == (case["expected"]["minimum_contributing_samples"])
     )
+
+
+_THRESHOLD_DERIVE_TOLERANCE, _THRESHOLD_DERIVE_CASES = _load("latency_threshold.json")
+
+
+@pytest.mark.parametrize("case", _THRESHOLD_DERIVE_CASES, ids=lambda c: c["name"])
+def test_latency_threshold_matches_oracle(case: dict[str, Any]) -> None:
+    """Every conformance field is an integer or an element of the published
+    baseline, so the suite carries tolerance 0 and equality is exact."""
+    assert _THRESHOLD_DERIVE_TOLERANCE == 0
+    inputs = case["inputs"]
+    expected = case["expected"]
+
+    result = derive_latency_threshold(
+        baseline_latencies=inputs["baseline_latencies"],
+        percentile=inputs["p"],
+        confidence=inputs["confidence"],
+    )
+
+    assert result.rank == expected["rank"]
+    assert result.threshold == expected["threshold"]
+    assert result.baseline_percentile == expected["baseline_percentile"]
+    assert result.n == expected["n"]
+
+
+_BOOTSTRAP_TOLERANCE, _BOOTSTRAP_CASES = _load("latency_threshold_bootstrap.json")
+
+
+@pytest.mark.parametrize("case", _BOOTSTRAP_CASES, ids=lambda c: c["name"])
+def test_latency_threshold_bootstrap_conformance_fields(case: dict[str, Any]) -> None:
+    """The bootstrap suite's conformance fields include the unclamped rank
+    and the saturation flag; its bootstrap_upper / point_estimate / diff
+    fields are informational comparison content, not conformance targets
+    (no bootstrap method is implemented, deliberately)."""
+    inputs = case["inputs"]
+    expected = case["expected"]
+
+    result = derive_latency_threshold(
+        baseline_latencies=inputs["baseline_latencies"],
+        percentile=inputs["p"],
+        confidence=inputs["confidence"],
+    )
+
+    assert result.rank == expected["rank"]
+    assert result.threshold == expected["threshold"]
+    assert result.baseline_percentile == expected["baseline_percentile"]
+    assert result.n == expected["n"]
+    assert result.k_raw == expected["k_raw"]
+    assert result.saturated == expected["saturated"]
+
+
+def test_binomial_bound_is_conservative_against_bootstrap() -> None:
+    """Fixture-sanity guard: the exact binomial bound dominates the
+    informational bootstrap upper bound on every published case."""
+    for case in _BOOTSTRAP_CASES:
+        assert case["expected"]["threshold"] >= case["expected"]["bootstrap_upper"]
+
+
+_BOUND_EXISTENCE_CASES = [c for c in _MINIMUMS_CASES if c["approach"] == "bound_existence"]
+
+
+@pytest.mark.parametrize("case", _BOUND_EXISTENCE_CASES, ids=lambda c: c["name"])
+def test_bound_existence_minimums_match_oracle(case: dict[str, Any]) -> None:
+    """The judgement-time existence gate equals the published standard, and
+    the deriver's saturation flag flips exactly at the published minimum."""
+    p = case["inputs"]["percentile"]
+    confidence = case["inputs"]["confidence"]
+    minimum = case["expected"]["minimum_baseline_samples"]
+
+    assert bound_existence_minimum(p, confidence) == minimum
+    at_minimum = derive_latency_threshold(list(range(1, minimum + 1)), p, confidence)
+    below_minimum = derive_latency_threshold(list(range(1, minimum)), p, confidence)
+    assert not at_minimum.saturated
+    assert below_minimum.saturated

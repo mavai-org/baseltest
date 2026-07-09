@@ -17,7 +17,14 @@ tolerance, and nothing in this package has side effects.
 """
 
 from .feasibility import FeasibilityCheck, check_feasibility
-from .latency import latency_max, latency_mean, latency_percentile
+from .latency import (
+    LatencyThreshold,
+    bound_existence_minimum,
+    derive_latency_threshold,
+    latency_max,
+    latency_mean,
+    latency_percentile,
+)
 from .power import achieved_power, required_sample_size
 from .summary import MultiRunSummary, RunOutcome, summarize_runs
 from .threshold import (
@@ -48,6 +55,7 @@ __all__ = [
     "ConfidenceFirstThreshold",
     "DerivationApproach",
     "FeasibilityCheck",
+    "LatencyThreshold",
     "MultiRunSummary",
     "RegressionVerdict",
     "RunOutcome",
@@ -56,7 +64,9 @@ __all__ = [
     "Verdict",
     "WilsonInterval",
     "achieved_power",
+    "bound_existence_minimum",
     "check_feasibility",
+    "derive_latency_threshold",
     "latency_max",
     "latency_mean",
     "latency_percentile",

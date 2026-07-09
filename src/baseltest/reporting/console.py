@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from baseltest.engine import (
     CriterionResult,
     InfeasibleRunError,
+    LatencyEvaluation,
     RunKind,
     RunResult,
     Verdict,
@@ -105,6 +106,49 @@ def _recorded_bar_lines(result: CriterionResult) -> list[str]:
     return lines
 
 
+def _latency_lines(evaluation: LatencyEvaluation) -> list[str]:
+    """The latency dimension: observed percentiles and per-bound outcomes."""
+    bar = evaluation.bar
+    source = "declared ceiling"
+    if bar.origin == "baseline-derived":
+        source = (
+            f"no worse than measured ({_percent(bar.confidence)} bound from "
+            f"{bar.provenance.contract_ref})"
+        )
+    elif bar.provenance.contract_ref is not None:
+        source = f"declared ceiling ({bar.provenance.origin}, {bar.provenance.contract_ref})"
+    lines = [
+        f"  latency: {evaluation.verdict.value.upper()} — {source}",
+        (
+            f"    {evaluation.contributing_samples} of {evaluation.total_samples} "
+            "samples passed and contribute durations"
+        ),
+    ]
+    for outcome in evaluation.evaluations:
+        bound = outcome.bound
+        if outcome.status == "infeasible":
+            lines.append(f"    {bound.percentile}: no judgement — {outcome.reason}")
+            continue
+        relation = "within" if outcome.status == "pass" else "breaches"
+        detail = ""
+        if bound.rank is not None and bound.baseline_samples is not None:
+            detail = (
+                f" (bound is the baseline's {_ordinal(bound.rank)} of "
+                f"{bound.baseline_samples} sorted latencies; "
+                f"baseline {bound.percentile} was {bound.baseline_percentile_ms}ms)"
+            )
+        lines.append(
+            f"    {bound.percentile}: observed {outcome.observed_ms}ms {relation} "
+            f"the {bound.threshold_ms}ms bound{detail}"
+        )
+    return lines
+
+
+def _ordinal(rank: int) -> str:
+    suffix = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
+    return f"{rank}{suffix}"
+
+
 # javai-ref: JVI-51ASAR0 — do not remove (resolves in javai-orchestrator)
 def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a run result in the honest-output shapes.
@@ -132,6 +176,8 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
                 lines.extend(_verdict_lines(criterion_result))
             else:
                 lines.extend(_characterised_lines(criterion_result))
+        if result.latency is not None:
+            lines.extend(_latency_lines(result.latency))
     else:
         lines.append(
             f"contract {result.contract_id}: OBSERVATION "

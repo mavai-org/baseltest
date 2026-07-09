@@ -3,7 +3,7 @@
 from pathlib import Path
 from xml.etree import ElementTree
 
-from baseltest.contract import Criterion, ServiceContract, contains
+from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
 from baseltest.engine import Intent, RunKind, RunPlan, execute
 from baseltest.reporting import render_verdict_record, write_verdict_record
 
@@ -108,3 +108,64 @@ class TestVerdictRecord:
             text=True,
         )
         assert completed.returncode == 0, completed.stderr
+
+
+class TestLatencyElement:
+    def _result_with_latency(self, bar: LatencyBar):  # type: ignore[no-untyped-def]
+        contract = ServiceContract(
+            contract_id="paced",
+            invoke=lambda v: "ok",
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
+            latency=bar,
+        )
+        return execute(contract, RunPlan(samples=10, inputs=("a",), kind=RunKind.TEST))
+
+    def test_explicit_bounds_emit_the_family_latency_element(self) -> None:
+        bar = LatencyBar(bounds=(LatencyBound("p50", 60_000),), origin="explicit")
+        root = ElementTree.fromstring(render_verdict_record(self._result_with_latency(bar)))
+        latency = root.find(f"{NS}latency")
+        assert latency is not None
+        assert latency.get("successful-samples") == "10"
+        assert latency.get("strict-violations") == "0"
+        assert latency.get("advisory-violations") == "0"
+        observed = latency.find(f"{NS}observed")
+        assert observed is not None
+        labels = [p.get("label") for p in observed.findall(f"{NS}percentile")]
+        assert labels == ["p50", "p90"]  # gated at 10 contributing samples
+        evaluations = latency.find(f"{NS}evaluations")
+        assert evaluations is not None
+        row = evaluations.findall(f"{NS}evaluation")[0]
+        assert row.get("percentile") == "p50"
+        assert row.get("provenance") == "explicit"
+        assert row.get("mode") == "strict"
+        assert row.get("status") == "PASS"
+        assert row.get("baseline-rank") is None
+
+    def test_baseline_derived_bounds_carry_derivation_attributes(self) -> None:
+        bar = LatencyBar(
+            bounds=(
+                LatencyBound(
+                    "p50",
+                    60_000,
+                    rank=35,
+                    baseline_percentile_ms=10,
+                    baseline_samples=56,
+                ),
+            ),
+            origin="baseline-derived",
+            confidence=0.95,
+        )
+        root = ElementTree.fromstring(render_verdict_record(self._result_with_latency(bar)))
+        latency = root.find(f"{NS}latency")
+        assert latency is not None
+        evaluations = latency.find(f"{NS}evaluations")
+        assert evaluations is not None
+        row = evaluations.findall(f"{NS}evaluation")[0]
+        assert row.get("provenance") == "baseline-derived"
+        assert row.get("baseline-confidence") == "0.95"
+        assert row.get("baseline-rank") == "35"
+        assert row.get("baseline-n") == "56"
+
+    def test_no_latency_element_without_a_bar(self) -> None:
+        root = ElementTree.fromstring(render_verdict_record(run_result()))
+        assert root.find(f"{NS}latency") is None

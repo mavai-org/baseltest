@@ -162,6 +162,28 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.
 
+## The latency dimension
+
+Reliability has a second axis: not just *whether* the service answers correctly, but *how long* the correct answers take. A contract may assert a `latency:` block — per-percentile upper bounds judged over the durations of **passing** samples only (the timing of wrong answers does not characterise the correct path), gating the verdict by conjunction with the functional criteria: a test passes only when both dimensions do. Two shapes, mutually exclusive:
+
+```yaml
+latency:                 # explicit: SLA-style ceilings, in milliseconds
+  p50: 800
+  p95: 2500
+  threshold-origin: sla                  # optional provenance, as on criteria
+  contract-ref: "Acme SLA v3.2 §4.2"
+```
+
+```yaml
+latency:                 # empirical: no worse than measured
+  empirical: [p50, p95]
+  confidence: 0.95                       # optional; the derivation confidence
+```
+
+An **explicit** ceiling is your declared requirement, compared directly: the observed percentile (nearest-rank, over passing samples) passes at or below it. An **empirical** declaration derives its bounds from the matching measured baseline's recorded latency profile at test time, using an exact distribution-free upper confidence bound — the latency analogue of the functional *no worse than measured* bar, and like it, statistically honest about sample size: the bound derived from a small baseline is simply looser. The verdict line names the derivation (`bound is the baseline's 35th of 56 sorted latencies`), and the verdict record carries it.
+
+The framework refuses up front — before any invocation, exit 2 — what can never be judged: a percentile the planned sample count cannot estimate (the median needs 5 passing samples, p90 needs 10, p95 needs 20, p99 needs 100), an empirical declaration with no matching baseline (or one measured before latency recording existed — re-measure), and a requested confidence the baseline's size cannot support a bound at (the refusal names the required baseline size). When a run's *passing* count falls below a percentile's minimum only at evaluation time — a flaky service under a small budget — the latency dimension is INCONCLUSIVE rather than judged, and the run exits 3: no assertion can rest on it. Measure and explore runs never judge a latency block; they record the latency profile the empirical bounds derive from.
+
 ## Exploring configurations
 
 Before you measure or test a configuration seriously, you often want to know *which* configuration deserves it — does a lower temperature help? a different model? The third verb answers that cheaply. In the services file, the `configuration:` block is the baseline; an `explorations:` section lists the variants, each entry declaring only what deviates from it:
@@ -208,8 +230,8 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars, a silently derived n above the 100-sample gate, a measure without `--samples`, or an explore over a code-registered binding. |
-| `3` | **Unsupportable assertion.** `measure --assert` only: the sample size could never have supported a declared bar — no assertion can rest on the evidence, in either direction. Recorded and persisted all the same. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, or an explore over a code-registered binding. |
+| `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: too few samples *passed* for an asserted latency percentile to be estimated — the composite is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.
 

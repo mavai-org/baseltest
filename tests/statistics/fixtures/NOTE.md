@@ -20,6 +20,10 @@ vendored here:
 - `latency_percentile.json`
 - `latency_percentile_minimums.json` (also locks the artefact writers'
   per-percentile emission gate in `baseltest.engine`)
+- `latency_threshold.json`
+- `latency_threshold_bootstrap.json` (conformance fields incl. `k_raw` /
+  `saturated`; the bootstrap fields are informational comparison content,
+  not conformance targets — no bootstrap method is implemented)
 
 To refresh: copy the updated files from `mavai-R/inst/cases/` after bumping
 the `mavai-R` submodule, and update the pin recorded above.

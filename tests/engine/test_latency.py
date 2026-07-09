@@ -1,6 +1,15 @@
 """The shared latency summary: passing-samples basis, gating, sorted vector."""
 
-from baseltest.engine import SampleRecord, latency_block
+from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
+from baseltest.engine import (
+    RunKind,
+    RunPlan,
+    SampleRecord,
+    Verdict,
+    evaluate_latency,
+    execute,
+    latency_block,
+)
 
 
 def sample(ms: int, passed: bool = True) -> SampleRecord:
@@ -57,3 +66,69 @@ class TestLatencyBlock:
         block = latency_block(tuple(sample(ms) for ms in (10, 20, 30, 40, 50)))
         assert block is not None
         assert block.percentiles == (("p50Ms", 30),)
+
+
+def bar(*bounds: LatencyBound, origin: str = "explicit") -> LatencyBar:
+    return LatencyBar(bounds=bounds, origin=origin)
+
+
+class TestEvaluateLatency:
+    def test_one_sided_upper_equality_passes(self) -> None:
+        evaluation = evaluate_latency(bar(LatencyBound("p50", 30)), [10, 20, 30, 40, 50], 5)
+        assert evaluation.evaluations[0].observed_ms == 30
+        assert evaluation.evaluations[0].status == "pass"
+        assert evaluation.verdict is Verdict.PASS
+
+    def test_breach_fails_the_dimension(self) -> None:
+        evaluation = evaluate_latency(bar(LatencyBound("p50", 29)), [10, 20, 30, 40, 50], 5)
+        assert evaluation.evaluations[0].status == "fail"
+        assert evaluation.verdict is Verdict.FAIL
+
+    def test_too_few_passing_samples_is_infeasible_not_a_judgement(self) -> None:
+        evaluation = evaluate_latency(bar(LatencyBound("p50", 100)), [10, 20], 8)
+        outcome = evaluation.evaluations[0]
+        assert outcome.status == "infeasible"
+        assert outcome.observed_ms is None
+        assert outcome.reason is not None and "at least 5 passing samples" in outcome.reason
+        assert evaluation.verdict is Verdict.INCONCLUSIVE
+
+    def test_a_breach_outranks_an_infeasible_sibling(self) -> None:
+        evaluation = evaluate_latency(
+            bar(LatencyBound("p50", 1), LatencyBound("p95", 1000)),
+            [10, 20, 30, 40, 50],
+            5,
+        )
+        statuses = {e.bound.percentile: e.status for e in evaluation.evaluations}
+        assert statuses == {"p50": "fail", "p95": "infeasible"}
+        assert evaluation.verdict is Verdict.FAIL
+
+    def test_observed_percentiles_are_gated_descriptive_context(self) -> None:
+        evaluation = evaluate_latency(bar(LatencyBound("p50", 100)), list(range(1, 13)), 12)
+        assert [label for label, _ in evaluation.observed] == ["p50", "p90"]
+
+    def test_two_dimensional_composite_through_the_engine(self) -> None:
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=lambda v: "ok",
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
+            latency=bar(LatencyBound("p50", 60_000)),
+        )
+        result = execute(contract, RunPlan(samples=10, inputs=("a",), kind=RunKind.TEST))
+        assert result.latency is not None
+        assert result.latency.contributing_samples == 10
+        assert result.latency.verdict is Verdict.PASS
+        assert result.composite is Verdict.PASS
+
+    def test_infeasible_latency_makes_the_composite_inconclusive(self) -> None:
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=lambda v: "ok",
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
+            latency=bar(LatencyBound("p50", 60_000)),
+        )
+        # 4 samples: the functional criterion passes, but the median needs
+        # 5 passing samples — no latency judgement, so no composite pass.
+        result = execute(contract, RunPlan(samples=4, inputs=("a",), kind=RunKind.TEST))
+        assert result.latency is not None
+        assert result.latency.verdict is Verdict.INCONCLUSIVE
+        assert result.composite is Verdict.INCONCLUSIVE
