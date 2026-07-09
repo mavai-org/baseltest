@@ -8,7 +8,7 @@ For your first test you write **two small files and no Python**.
 
 ```bash
 # Python 3.11+ required
-pip install "baseltest[declarative]"
+pip install "baseltest[declarative]"    # the baseltest package ships the `basel` command
 
 export MAVAI_LLM_API_KEY="..."   # or your vendor's usual variable, e.g. OPENAI_API_KEY
 ```
@@ -101,7 +101,7 @@ The file reads top to bottom as *machinery, rules, cases*. The `transforms:` blo
 ## Run it
 
 ```bash
-baseltest test basket-builder.yaml
+basel test basket-builder.yaml
 ```
 
 ```
@@ -118,7 +118,7 @@ The first line is the **run-plan line**: every run opens by stating its n and wh
 
 `--samples N` works on `test` and `measure` alike, and the confidence bound is honestly computed at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
 
-**`test` judges; `measure` records.** The same file, run as `baseltest measure basket-builder.yaml --samples 1000`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles (p50/p90/p95/p99, each present only when the passing-sample count can support it) and the full ascending vector of passing-sample durations, the raw material from which a later consumer derives latency bounds at its own sample size and confidence; only passing samples contribute, because the timing of incorrect behaviour does not characterise the correct path. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. `measure` is the one verb with no default n — a measurement's budget is an experimental-design decision, so it must be typed: `--samples 1000` is a solid baseline-grade count, and a smaller deliberate budget is legitimate (an empirical bar derived from a smaller baseline simply widens honestly). A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `baseltest measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+**`test` judges; `measure` records.** The same file, run as `basel measure basket-builder.yaml --samples 1000`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles (p50/p90/p95/p99, each present only when the passing-sample count can support it) and the full ascending vector of passing-sample durations, the raw material from which a later consumer derives latency bounds at its own sample size and confidence; only passing samples contribute, because the timing of incorrect behaviour does not characterise the correct path. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. `measure` is the one verb with no default n — a measurement's budget is an experimental-design decision, so it must be typed: `--samples 1000` is a solid baseline-grade count, and a smaller deliberate budget is legitimate (an empirical bar derived from a smaller baseline simply widens honestly). A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `basel measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
 
 ```
 criterion spirits-stay-polite: PASS
@@ -160,7 +160,7 @@ A declined charge is a *response* (the criterion judges it); only genuine defect
 
 ## Measuring without judging
 
-A file with no thresholds at all cannot be tested — `baseltest test` refuses it, telling you so — but it measures perfectly well: `baseltest measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.
+A file with no thresholds at all cannot be tested — `basel test` refuses it, telling you so — but it measures perfectly well: `basel measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.
 
 ## The latency dimension
 
@@ -207,7 +207,7 @@ services:
 The per-configuration count is a pure cost decision of yours, and small counts are the point: the default is 5, `--samples-per-config` sizes it, and baseltest never complains about a low one. Run:
 
 ```bash
-baseltest explore basket-builder.yaml
+basel explore basket-builder.yaml
 ```
 
 Every configuration in the grid — the baseline included — runs like a miniature measure experiment, and each writes one YAML artefact into `_baseltest/explorations/{contract}/`, named after the factor values that distinguish it (`model-gpt-4o-mini_temperature-0.0.yaml`, …). The artefacts are **descriptive only** — observed rates, per-criterion counts, failure reasons, a gated latency summary, and a per-sample result projection carrying each response verbatim; no bounds, no thresholds, no verdicts (a declared `threshold:` in the contract file is simply not consulted). Triage, not judgement: the core move is
@@ -216,7 +216,7 @@ Every configuration in the grid — the baseline included — runs like a miniat
 diff _baseltest/explorations/basket-builder-returns-valid-baskets/model-gpt-4o-mini_temperature-0.{0,7}.yaml
 ```
 
-then promote the winner by folding its values into the `configuration:` block, run `baseltest measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore currently requires a service declared in the services file (a code-registered `@binding` carries no configuration grid to explore).
+then promote the winner by folding its values into the `configuration:` block, run `basel measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore currently requires a service declared in the services file (a code-registered `@binding` carries no configuration grid to explore).
 
 ## The verdict record
 

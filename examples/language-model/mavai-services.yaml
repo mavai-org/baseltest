@@ -37,7 +37,7 @@ services:
         You translate shopping instructions into a JSON basket.
         Respond with only a JSON object.
       temperature: 0.2
-    explorations:                  # `baseltest explore` runs the baseline plus these
+    explorations:                  # `basel explore` runs the baseline plus these
       - provider: anthropic        # same job, same temperature, different model
         model: claude-haiku-4-5-20251001
 #      - provider: apertus          # optional third model: the fully open Swiss
