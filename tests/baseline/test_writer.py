@@ -11,7 +11,16 @@ from baseltest.baseline import (
     write_baseline,
 )
 from baseltest.contract import Criterion, ServiceContract, contains
-from baseltest.engine import RunKind, RunPlan, execute
+from baseltest.engine import LatencyBlock, RunKind, RunPlan, execute
+
+
+def latency() -> LatencyBlock:
+    return LatencyBlock(
+        contributing_samples=2,
+        total_samples=3,
+        percentiles=(("p50Ms", 240),),
+        sorted_passing_latencies_ms=(180, 240),
+    )
 
 
 def record() -> BaselineRecord:
@@ -43,7 +52,7 @@ class TestRendering:
         from ruamel.yaml import YAML
 
         loaded = YAML(typ="safe", pure=True).load(render_baseline(record()))
-        assert loaded["schemaVersion"] == "baseltest-baseline-1"
+        assert loaded["schemaVersion"] == "baseltest-baseline-2"
         assert loaded["contractId"] == "refund-confirmation"
         assert loaded["sampleCount"] == 300
         assert loaded["provenance"]["binding"] == "refund-service"
@@ -67,6 +76,31 @@ class TestRendering:
         assert loaded["contractId"] == "no: not — a 'plain' scalar"
         assert "c: tricky #name" in loaded["criteria"]
 
+    def test_latency_block_carries_family_shape_and_sorted_vector(self) -> None:
+        from ruamel.yaml import YAML
+
+        with_latency = BaselineRecord(
+            contract_id="svc",
+            generated_at=datetime(2026, 7, 8, tzinfo=UTC),
+            sample_count=3,
+            inputs_identity="x",
+            criteria={"c": CriterionCharacterisation(successes=2, trials=3)},
+            latency=latency(),
+        )
+        loaded = YAML(typ="safe", pure=True).load(render_baseline(with_latency))
+        block = loaded["latency"]
+        assert block["basis"] == "passing-samples"
+        assert block["contributingSamples"] == 2
+        assert block["totalSamples"] == 3
+        assert block["p50Ms"] == 240
+        # gated out at small n: no authoritative-looking noise
+        for absent in ("p90Ms", "p95Ms", "p99Ms"):
+            assert absent not in block
+        assert block["sortedPassingLatenciesMs"] == [180, 240]
+
+    def test_no_latency_block_when_nothing_passed(self) -> None:
+        assert "latency:" not in render_baseline(record())
+
 
 class TestFromRunResult:
     def test_thresholded_criteria_carry_judgement_others_do_not(self) -> None:
@@ -83,6 +117,21 @@ class TestFromRunResult:
         assert built.criteria["measured"].trials == 300
         assert built.provenance == {"binding": "b"}
         assert built.inputs_identity == result.inputs_identity
+
+    def test_latency_summarises_recorded_samples(self) -> None:
+        criterion = Criterion(name="ok", postconditions=(contains("ok"),))
+        contract = ServiceContract(
+            contract_id="svc", invoke=lambda v: f"ok {v}", criteria=(criterion,)
+        )
+        plan = RunPlan(samples=30, inputs=("a",), kind=RunKind.MEASURE)
+        with_samples = BaselineRecord.from_run_result(execute(contract, plan, record_samples=True))
+        assert with_samples.latency is not None
+        assert with_samples.latency.contributing_samples == 30
+        assert len(with_samples.latency.sorted_passing_latencies_ms) == 30
+        # p50/p90/p95 supported at n=30; p99 needs 100
+        assert [k for k, _ in with_samples.latency.percentiles] == ["p50Ms", "p90Ms", "p95Ms"]
+        without_samples = BaselineRecord.from_run_result(execute(contract, plan))
+        assert without_samples.latency is None
 
 
 class TestWriting:

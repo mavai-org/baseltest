@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from baseltest.engine import RunResult
+from baseltest.engine import LatencyBlock, RunResult, latency_block
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +66,11 @@ class BaselineRecord:
         provenance: Additional provenance the caller supplies (e.g. the
             contract-format identifier, the resolved binding's name). String
             keys and values; recorded verbatim.
+        latency: The gated aggregate-latency summary, carrying the full
+            ascending vector of passing-sample durations — the raw material
+            a later test needs to derive its own bound at its own
+            confidence. ``None`` when no sample passed or no per-sample
+            observations were recorded.
     """
 
     contract_id: str
@@ -74,6 +79,7 @@ class BaselineRecord:
     inputs_identity: str
     criteria: Mapping[str, CriterionCharacterisation]
     provenance: Mapping[str, str] = field(default_factory=dict)
+    latency: LatencyBlock | None = None
 
     @staticmethod
     def from_run_result(
@@ -110,4 +116,5 @@ class BaselineRecord:
             inputs_identity=result.inputs_identity,
             criteria=criteria,
             provenance=dict(provenance or {}),
+            latency=latency_block(result.samples),
         )

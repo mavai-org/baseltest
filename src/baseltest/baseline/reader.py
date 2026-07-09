@@ -3,8 +3,13 @@
 The single-writer rule is untouched — reading is not writing. Because the
 artefact is emitted by exactly one writer (:mod:`.writer`), the parser here
 accepts precisely that emission grammar: two-space indentation, one
-``key: value`` per line, every string JSON-quoted. No third-party
-dependency; the scalars are JSON, the structure is indentation.
+``key: value`` per line or one ``- item`` per line under a list key, every
+string JSON-quoted. No third-party dependency; the scalars are JSON, the
+structure is indentation.
+
+Both artefact generations read back: ``baseltest-baseline-2`` (current)
+and ``baseltest-baseline-1`` (no ``latency:`` block — a version-1 artefact
+simply characterises the functional dimension only).
 
 Resolution is strict identity of what was measured: same contract, same
 inputs fingerprint, same covariates (the recorded provenance, minus the
@@ -18,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from .writer import SCHEMA_VERSION
+
+_READABLE_SCHEMAS = frozenset({SCHEMA_VERSION, "baseltest-baseline-1"})
 
 # Provenance keys that legitimately differ between the measure run and a
 # later test run: they identify the run, not the thing measured.
@@ -33,6 +40,21 @@ class StoredCriterion:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredLatency:
+    """The artefact's latency block, read back for bound derivation.
+
+    The sorted vector is the payload a later test derives its bound from;
+    the percentiles are the measurement run's descriptive summary.
+    """
+
+    basis: str
+    contributing_samples: int
+    total_samples: int
+    percentiles: tuple[tuple[str, int], ...]
+    sorted_passing_latencies_ms: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class StoredBaseline:
     """The artefact's content, read back for resolution and judgement."""
 
@@ -43,6 +65,7 @@ class StoredBaseline:
     generated_at: str
     provenance: dict[str, str]
     criteria: dict[str, StoredCriterion]
+    latency: StoredLatency | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,9 +86,15 @@ class BaselineResolution:
 
 
 def _parse_lines(lines: list[str]) -> dict[str, Any]:
-    """Parse the writer's emission grammar into nested mappings."""
+    """Parse the writer's emission grammar into nested mappings and lists.
+
+    A ``key:`` line opens a nested container that starts as a mapping and
+    becomes a list on its first ``- item`` line — the writer only ever
+    emits homogeneous containers, so the switch is unambiguous.
+    """
     root: dict[str, Any] = {}
-    stack: list[tuple[int, dict[str, Any]]] = [(0, root)]
+    # (indent, container, parent, key-in-parent); the root has no parent.
+    stack: list[tuple[int, Any, dict[str, Any] | None, str | None]] = [(0, root, None, None)]
     for raw in lines:
         if not raw.strip():
             continue
@@ -75,12 +104,22 @@ def _parse_lines(lines: list[str]) -> dict[str, Any]:
         line = raw.strip()
         while stack and stack[-1][0] > indent:
             stack.pop()
-        container = stack[-1][1]
-        if line.endswith(":"):
+        top_indent, container, parent, parent_key = stack[-1]
+        if line.startswith("- "):
+            if isinstance(container, dict):
+                if container or parent is None or parent_key is None:
+                    raise ValueError(f"malformed list item: {raw!r}")
+                container = []
+                parent[parent_key] = container
+                stack[-1] = (top_indent, container, parent, parent_key)
+            container.append(json.loads(line[2:]))
+        elif isinstance(container, list):
+            raise ValueError(f"malformed line inside a list: {raw!r}")
+        elif line.endswith(":"):
             key = _parse_key(line[:-1])
             child: dict[str, Any] = {}
             container[key] = child
-            stack.append((indent + 2, child))
+            stack.append((indent + 2, child, container, key))
         else:
             key_part, _, value_part = line.partition(": ")
             if not value_part:
@@ -93,18 +132,37 @@ def _parse_key(token: str) -> str:
     return json.loads(token) if token.startswith('"') else token
 
 
+def _parse_latency(body: dict[str, Any] | None) -> StoredLatency | None:
+    if body is None:
+        return None
+    percentiles = tuple(
+        (key, int(value))
+        for key, value in body.items()
+        if key.startswith("p") and key.endswith("Ms")
+    )
+    vector = tuple(int(v) for v in body.get("sortedPassingLatenciesMs", []))
+    return StoredLatency(
+        basis=str(body["basis"]),
+        contributing_samples=int(body["contributingSamples"]),
+        total_samples=int(body["totalSamples"]),
+        percentiles=percentiles,
+        sorted_passing_latencies_ms=vector,
+    )
+
+
 def read_baseline(path: Path) -> StoredBaseline:
     """Read one artefact back.
 
     Raises:
-        ValueError: The file is not a readable ``baseltest-baseline-1``
-            artefact (wrong schema, malformed emission).
+        ValueError: The file is not a readable baseline artefact (unknown
+            schema generation, malformed emission).
         OSError: The file cannot be read.
     """
     data = _parse_lines(path.read_text(encoding="utf-8").splitlines())
     schema = data.get("schemaVersion")
-    if schema != SCHEMA_VERSION:
-        raise ValueError(f"{path.name}: schema {schema!r} is not {SCHEMA_VERSION!r}")
+    if schema not in _READABLE_SCHEMAS:
+        readable = ", ".join(sorted(_READABLE_SCHEMAS))
+        raise ValueError(f"{path.name}: schema {schema!r} is not one of: {readable}")
     criteria: dict[str, StoredCriterion] = {}
     for name, body in data.get("criteria", {}).items():
         criteria[name] = StoredCriterion(
@@ -119,6 +177,7 @@ def read_baseline(path: Path) -> StoredBaseline:
         generated_at=str(data.get("generatedAt", "")),
         provenance=provenance,
         criteria=criteria,
+        latency=_parse_latency(data.get("latency")),
     )
 
 

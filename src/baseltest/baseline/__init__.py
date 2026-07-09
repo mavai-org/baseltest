@@ -17,6 +17,7 @@ from .reader import (
     BaselineResolution,
     StoredBaseline,
     StoredCriterion,
+    StoredLatency,
     read_baseline,
     resolve_baseline,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "BaselineResolution",
     "StoredBaseline",
     "StoredCriterion",
+    "StoredLatency",
     "read_baseline",
     "resolve_baseline",
     "BaselineRecord",

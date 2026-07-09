@@ -10,6 +10,7 @@ statistics package; everything downstream consumes its
 
 from baseltest.statistics.verdict import Verdict
 
+from .latency import LatencyBlock, latency_block
 from .run import (
     CriterionResult,
     InfeasibleCriterion,
@@ -30,6 +31,7 @@ __all__ = [
     "InfeasibleCriterion",
     "InfeasibleRunError",
     "Intent",
+    "LatencyBlock",
     "RunKind",
     "RunPlan",
     "RunResult",
@@ -39,4 +41,5 @@ __all__ = [
     "derive_minimum_samples",
     "execute",
     "inputs_fingerprint",
+    "latency_block",
 ]
