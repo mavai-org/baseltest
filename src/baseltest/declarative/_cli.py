@@ -1,4 +1,4 @@
-"""The ``baseltest`` console script."""
+"""The ``basel`` console script — the `baseltest` package's command."""
 
 import argparse
 import sys
@@ -20,7 +20,7 @@ from ._runner import (
 def main(argv: list[str] | None = None) -> int:
     """Entry point: the ``test`` / ``measure`` / ``explore`` verbs over a contract file."""
     parser = argparse.ArgumentParser(
-        prog="baseltest",
+        prog="basel",
         description="Statistically honest testing for stochastic services.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

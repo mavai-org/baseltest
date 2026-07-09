@@ -45,7 +45,7 @@ dev = [
 ]
 
 [project.scripts]
-baseltest = "baseltest.declarative._cli:main"
+basel = "baseltest.declarative._cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/baseltest"]

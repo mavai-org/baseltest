@@ -184,3 +184,15 @@ class TestProgressLine:
         from baseltest.declarative._runner import _tty_progress
 
         assert _tty_progress("anything") is None  # captured stderr is not a TTY
+
+
+def test_the_command_is_basel() -> None:
+    """The baseltest package ships exactly one console script, named basel."""
+    from importlib.metadata import entry_points
+
+    ours = {
+        ep.name: ep.value
+        for ep in entry_points(group="console_scripts")
+        if ep.value.startswith("baseltest.")
+    }
+    assert ours == {"basel": "baseltest.declarative._cli:main"}
