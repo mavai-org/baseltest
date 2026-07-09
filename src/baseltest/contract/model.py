@@ -187,12 +187,17 @@ class ServiceContract:
             once per response, lazily, by every consumer that names it.
             ``"raw"`` is reserved for the untransformed response and never
             appears here.
+        latency: The contract's latency dimension, when one is asserted:
+            resolved per-percentile bounds judged over passing samples'
+            durations, gating the composite verdict by conjunction with
+            the functional criteria.
     """
 
     contract_id: str
     invoke: Callable[[str], str]
     criteria: tuple[Criterion, ...]
     views: Mapping[str, Callable[[str], Any]] = field(default_factory=dict)
+    latency: LatencyBar | None = None
 
     def __post_init__(self) -> None:
         if not self.contract_id:
