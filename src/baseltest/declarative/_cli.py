@@ -13,6 +13,7 @@ from ._runner import (
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_VERDICT_DIR,
     explore,
+    report,
     run,
 )
 
@@ -99,7 +100,58 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_EXPLORATIONS_DIR,
         help="directory exploration artefacts are written into (one file per configuration)",
     )
+    explore_parser.add_argument(
+        "--html-report",
+        type=Path,
+        default=None,
+        help="also render the exploration comparison report to this path",
+    )
+    report_parser = subparsers.add_parser(
+        "report",
+        help=("render an HTML report from persisted artefacts — post-hoc, never invokes a service"),
+    )
+    report_parser.add_argument(
+        "kind",
+        choices=("test", "measure", "explore"),
+        help=(
+            "which report to render: test (from verdict records) or explore "
+            "(from exploration artefacts); measure is reserved"
+        ),
+    )
+    report_parser.add_argument(
+        "--verdict-dir",
+        type=Path,
+        default=DEFAULT_VERDICT_DIR,
+        help="where `report test` reads verdict records from",
+    )
+    report_parser.add_argument(
+        "--explorations-dir",
+        type=Path,
+        default=DEFAULT_EXPLORATIONS_DIR,
+        help="where `report explore` reads exploration artefacts from",
+    )
+    report_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output path (default: _baseltest/reports/<kind-specific name>)",
+    )
     arguments = parser.parse_args(argv)
+
+    if arguments.command == "report":
+        try:
+            written = report(
+                arguments.kind,
+                verdict_dir=arguments.verdict_dir,
+                explorations_dir=arguments.explorations_dir,
+                out=arguments.out,
+            )
+        except ContractConfigurationError as refusal:
+            print("report: nothing to render", file=sys.stderr)
+            print(f"  {refusal}", file=sys.stderr)
+            return 2
+        print(f"report written: {written.as_posix()}")
+        return 0
 
     try:
         if arguments.command == "explore":
@@ -107,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                 arguments.contract_file,
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
+                html_report=arguments.html_report,
             )
             return 0
         verdict_dir = None
