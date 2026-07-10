@@ -49,6 +49,21 @@ basel measure fortune-teller.yaml --samples 200   # or: record everything, persi
 
 You'll see a verdict with its uncertainty stated — run the test a few times and watch the observed rate move while the conclusion stays statistically honest. The `measure` verb is the other posture over the same file: every criterion recorded, a baseline artefact persisted. A third verb, `explore`, sweeps a grid of service configurations declared in the services file and writes one descriptive artefact per configuration — triage before you measure. Everything a run generates lands under `_baseltest/` in the working directory. When you have a model credential to hand, `examples/language-model/` runs a real language-model service from two small files — its grid pits two models against each other (GPT-4o-mini and Claude Haiku 4.5, with an optional entry for the fully open Swiss Apertus), so one `basel explore` run and one `diff` compare them on the same job; the [examples README](examples/README.md) has the step-by-step, and the [getting-started guide](docs/GETTING-STARTED.md) walks through all three verbs.
 
+## The command line
+
+The `baseltest` package ships one command, `basel`, with four verbs. The contract file carries the claim; the verb carries the posture; the invocation carries the budget.
+
+| Verb | What it does | Sizing |
+|---|---|---|
+| `basel test <contract.yaml>` | Judges the thresholded criteria (and any declared latency bounds): a statistical verdict with its uncertainty stated, persisted as a verdict record. | Defaults to the minimum the declared bars require; `--samples N` to size it yourself (a silently derived n above 100 is refused). |
+| `basel measure <contract.yaml> --samples N` | Records **every** criterion and persists the baseline artefact — the durable record future empirical bars derive from, latency profile included. | `--samples` is required: a measurement's budget is an experimental-design decision. |
+| `basel explore <contract.yaml>` | Runs every configuration in the service's grid and writes one descriptive artefact per configuration — triage, no verdicts. | `--samples-per-config` (default 5; no count is ever refused as too small). |
+| `basel report <test\|measure\|explore>` | Renders a self-contained HTML report from persisted artefacts — post-hoc, never invokes a service. `report measure` is reserved. | `--out` to relocate (default `_baseltest/reports/`). |
+
+Frequently reached-for flags: `--html-report <path>` on `test` and `explore` renders the report inline as part of the run (the same renderer as `basel report`, so the two outputs are identical); `--baseline-dir`, `--verdict-dir`, and `--explorations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
+
+Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration, nothing to render) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it.
+
 ## Where the project is going
 
 baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
