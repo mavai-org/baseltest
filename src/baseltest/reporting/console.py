@@ -35,24 +35,32 @@ def _verdict_lines(result: CriterionResult) -> list[str]:
         and result.lower_bound is not None
         and criterion.threshold is not None
     )
-    relation = "clears" if result.verdict is Verdict.PASS else "below"
-    threshold_text = (
-        f"{criterion.threshold:.4f}"
-        if criterion.provenance.origin == "empirical"  # derived: display rounded
-        else f"{criterion.threshold}"
-    )
     source = ""
     if criterion.provenance.contract_ref is not None:
         source = f" ({criterion.provenance.origin}, {criterion.provenance.contract_ref})"
+    if criterion.cutoff is not None:
+        # Regression posture: the integer cutoff is the stated decision
+        # artefact; the derived threshold is its construction, reported as
+        # context.
+        relation = "meets" if result.verdict is Verdict.PASS else "misses"
+        explanation = (
+            f"    {tally.successes} passing {relation} the required {criterion.cutoff} of "
+            f"{tally.trials} — the cutoff already carries the "
+            f"{_percent(criterion.confidence)} confidence of its derivation "
+            f"(threshold {criterion.threshold:.4f}){source}"
+        )
+    else:
+        relation = "clears" if result.verdict is Verdict.PASS else "below"
+        explanation = (
+            f"    observed rate {tally.observed_rate:.4f}; we can be "
+            f"{_percent(criterion.confidence)} confident the true rate is at least "
+            f"{result.lower_bound:.4f} — {relation} your {criterion.threshold} "
+            f"threshold{source}"
+        )
     return [
         f"  criterion {criterion.name}: {result.verdict.value.upper()}",
         f"    {tally.successes} of {tally.trials} responses met expectations",
-        (
-            f"    observed rate {tally.observed_rate:.4f}; we can be "
-            f"{_percent(criterion.confidence)} confident the true rate is at least "
-            f"{result.lower_bound:.4f} — {relation} your {threshold_text} "
-            f"threshold{source}"
-        ),
+        explanation,
         *(_failure_reason_lines(result) if result.verdict is Verdict.FAIL else []),
     ]
 

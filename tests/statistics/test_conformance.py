@@ -403,15 +403,23 @@ def _scripted_service(successes: int) -> Callable[[str], str]:
 
 
 def _judged_through_engine(
-    threshold: float, confidence: float, successes: int, trials: int
+    threshold: float,
+    confidence: float,
+    successes: int,
+    trials: int,
+    cutoff: int | None = None,
 ) -> CriterionResult:
     """Run one criterion through the production verdict path and return its
-    result — the same path a real probabilistic test's verdict takes."""
+    result — the same path a real probabilistic test's verdict takes. A
+    regression-procedure criterion carries its derived cutoff, exactly as
+    the declarative layer resolves one from a baseline; a compliance
+    criterion carries only its declared threshold."""
     criterion = Criterion(
         name="oracle-scenario",
         postconditions=(contains("ok"),),
         threshold=threshold,
         confidence=confidence,
+        cutoff=cutoff,
     )
     contract = ServiceContract(
         contract_id="conformance-scenario",
@@ -476,6 +484,7 @@ def test_regression_decision_through_production_verdict_path(case: dict[str, Any
         confidence=inputs["confidence"],
         successes=inputs["observed_successes"],
         trials=inputs["test_samples"],
+        cutoff=derived.cutoff,
     )
 
     assert judged.verdict is not None

@@ -10,6 +10,7 @@ from baseltest.engine import (
     Intent,
     RunKind,
     RunPlan,
+    bar_standing,
     derive_minimum_samples,
     execute,
     inputs_fingerprint,
@@ -167,3 +168,59 @@ class TestProgressCallback:
             on_sample=lambda done, total: seen.append((done, total)),
         )
         assert seen == [(1, 4), (2, 4), (3, 4), (4, 4)]
+
+
+def exact_service(successes: int) -> object:
+    """A service passing exactly the first `successes` invocations."""
+    counter = count(1)
+
+    def invoke(_input: str) -> str:
+        return "ok" if next(counter) <= successes else "bad"
+
+    return invoke
+
+
+class TestRegressionPosture:
+    """A baseline-derived criterion carries an integer cutoff; the verdict
+    is the raw observed count meeting it, not a test-side confidence bound
+    clearing the derived threshold."""
+
+    def _criterion(self, cutoff: int) -> Criterion:
+        return Criterion(
+            name="derived",
+            postconditions=(contains("ok"),),
+            threshold=0.9021,
+            cutoff=cutoff,
+        )
+
+    def test_count_at_cutoff_passes_even_where_the_bound_would_not(self) -> None:
+        contract = ServiceContract(
+            contract_id="svc", invoke=exact_service(91), criteria=(self._criterion(91),)
+        )
+        result = execute(contract, RunPlan(samples=100, inputs=("a",)))
+        r = result.criterion_results[0]
+        # The distinction under test: the test-side bound sits below the
+        # derived threshold, and the verdict is PASS regardless.
+        assert r.lower_bound is not None and r.lower_bound < 0.9021
+        assert r.verdict is Verdict.PASS
+        assert result.composite is Verdict.PASS
+
+    def test_count_below_cutoff_fails(self) -> None:
+        contract = ServiceContract(
+            contract_id="svc", invoke=exact_service(90), criteria=(self._criterion(91),)
+        )
+        result = execute(contract, RunPlan(samples=100, inputs=("a",)))
+        assert result.criterion_results[0].verdict is Verdict.FAIL
+
+    def test_run_shorter_than_cutoff_fails_and_records_unsupportable(self) -> None:
+        contract = ServiceContract(
+            contract_id="svc", invoke=exact_service(50), criteria=(self._criterion(91),)
+        )
+        result = execute(contract, RunPlan(samples=50, inputs=("a",)))
+        r = result.criterion_results[0]
+        assert r.verdict is Verdict.FAIL
+        assert bar_standing(r) == "unsupportable"
+
+    def test_cutoff_without_threshold_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="cannot stand without"):
+            Criterion(name="c", postconditions=(contains("ok"),), cutoff=5)
