@@ -170,6 +170,24 @@ class TestExplorationReport:
         html = render_exploration_report(list(sweep.contracts))
         assert '<span class="muted">-</span>' in html
 
+    def test_constant_configuration_shows_in_details_not_labels(self, tmp_path: Path) -> None:
+        # Artefacts carry the full configuration; only the differing keys
+        # label the variants — the constants sit in the factor list.
+        for model, p50 in (("a", 100), ("b", 300)):
+            write_variant(tmp_path, model, rate=1.0, successes=5, p50=p50, avg=p50)
+            path = tmp_path / "svc" / f"model-{model}.yaml"
+            text = path.read_text(encoding="utf-8").replace(
+                'factors:\n  "model": "' + model + '"',
+                'factors:\n  "system-prompt": "You are terse."\n'
+                '  "model": "' + model + '"\n  "temperature": 0.2',
+            )
+            path.write_text(text, encoding="utf-8")
+        sweep = read_exploration_directory(tmp_path)
+        labels = [v.label for v in sweep.contracts[0].variants]
+        assert labels == ["model=a", "model=b"]  # constants absent from labels
+        html = render_exploration_report(list(sweep.contracts))
+        assert "You are terse." in html and "temperature" in html  # ...but in the details
+
     def test_empty_state_renders_a_friendly_paragraph(self) -> None:
         html = render_exploration_report([])
         assert "No explorations found" in html

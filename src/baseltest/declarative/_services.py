@@ -263,6 +263,16 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     return entries
 
 
+def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
+    return {
+        "system-prompt": parameters.system_prompt,
+        "provider": parameters.provider,
+        "model": parameters.model or os.environ.get(ENV_MODEL) or None,
+        "temperature": parameters.temperature,
+        "response-schema": parameters.response_schema,
+    }
+
+
 def factor_values(
     definition: ServiceDefinition, parameters: LanguageModelParameters
 ) -> dict[str, Any]:
@@ -271,16 +281,24 @@ def factor_values(
     The keys are the definition's swept keys; the values are the point's
     resolved covariates (environment defaults applied, per the same rule
     provenance follows). This is what identifies the configuration in
-    exploration artefacts and their filenames.
+    exploration artefact *filenames* and variant labels.
     """
-    resolved: dict[str, Any] = {
-        "system-prompt": parameters.system_prompt,
-        "provider": parameters.provider,
-        "model": parameters.model or os.environ.get(ENV_MODEL) or None,
-        "temperature": parameters.temperature,
-        "response-schema": parameters.response_schema,
-    }
+    resolved = _resolved_values(parameters)
     return {key: resolved[key] for key in definition.swept_keys}
+
+
+def configuration_values(parameters: LanguageModelParameters) -> dict[str, Any]:
+    """One grid point's full resolved configuration, in canonical order.
+
+    Everything the point ran under — swept or constant across the grid —
+    with unset keys omitted. This is what the exploration artefact's
+    ``factors:`` block records: a reader of any single artefact sees the
+    whole configuration, not only the keys that happened to vary. The
+    response schema is carried structurally elsewhere (its absence per
+    provider is announced at run time; baselines record its fingerprint)
+    and is included here only when present, as declared.
+    """
+    return {key: value for key, value in _resolved_values(parameters).items() if value is not None}
 
 
 def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str], str]:

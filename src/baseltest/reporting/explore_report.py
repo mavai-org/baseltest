@@ -75,27 +75,43 @@ def read_exploration_directory(root: Path) -> ExplorationSweep:
     contracts = []
     skipped = []
     for contract_dir in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
-        variants = []
+        parsed: list[tuple[dict[str, Any], str]] = []
         for path in sorted(contract_dir.glob("*.yaml")):
             try:
                 data = yaml.load(path.read_text(encoding="utf-8"))
-                variants.append(_variant(data, path.stem))
+                if not isinstance(data, dict) or "statistics" not in data:
+                    raise KeyError("statistics")
+                parsed.append((data, path.stem))
             except (YAMLError, KeyError, TypeError, ValueError):
                 skipped.append(f"{contract_dir.name}/{path.name}")
-        if variants:
-            contracts.append(
-                ContractComparison(contract_id=contract_dir.name, variants=tuple(variants))
-            )
+        if parsed:
+            variants = tuple(_variant(data, stem, _differing_keys(parsed)) for data, stem in parsed)
+            contracts.append(ContractComparison(contract_id=contract_dir.name, variants=variants))
     return ExplorationSweep(contracts=tuple(contracts), skipped=tuple(skipped))
 
 
-def _variant(data: dict[str, Any], stem: str) -> Variant:
+def _differing_keys(parsed: list[tuple[dict[str, Any], str]]) -> list[str]:
+    """The factor keys that distinguish this contract's variants.
+
+    Artefacts carry the full resolved configuration; the label carries
+    only the keys whose values vary across the variants (or that some
+    variants lack) — the full map sits in each variant's collapsed
+    factor list.
+    """
+    factor_maps = [dict(data.get("factors") or {}) for data, _ in parsed]
+    keys = list(dict.fromkeys(key for factors in factor_maps for key in factors))
+    return [key for key in keys if len({repr(factors.get(key)) for factors in factor_maps}) > 1]
+
+
+def _variant(data: dict[str, Any], stem: str, differing: list[str]) -> Variant:
     execution = data.get("execution", {})
     statistics = data.get("statistics", {})
     cost = data.get("cost", {})
     latency = data.get("latency") or {}
-    factors = tuple((data.get("factors") or {}).items())
-    label = ", ".join(f"{k}={v}" for k, v in factors) if factors else stem
+    factor_map = dict(data.get("factors") or {})
+    factors = tuple(factor_map.items())
+    labelled = [(k, factor_map[k]) for k in differing if k in factor_map]
+    label = ", ".join(f"{k}={v}" for k, v in labelled) if labelled else stem
     criteria = tuple(
         (name, float(body.get("observedPassRate", 0.0)))
         for name, body in (statistics.get("criteria") or {}).items()

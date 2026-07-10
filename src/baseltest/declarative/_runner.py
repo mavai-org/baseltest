@@ -231,7 +231,11 @@ def explore(
             on_sample=_tty_progress(record_label) if emit else None,
             record_samples=True,  # projections are the artefact's triage payload
         )
-        record = ExplorationRecord.from_run_result(result, factors=configuration.factors)
+        record = ExplorationRecord.from_run_result(
+            result,
+            factors=configuration.factors,
+            configuration=configuration.configuration,
+        )
         artefact = write_exploration(record, Path(explorations_dir))
         explored.append(
             ConfigurationExploration(

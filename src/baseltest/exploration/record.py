@@ -37,7 +37,11 @@ class ExplorationRecord:
         generated_at: When this configuration's run finished, UTC.
         factors: The configuration's discriminating factor values — the
             grid keys that vary, with this point's resolved values, in
-            canonical order. Empty when the grid has a single point.
+            canonical order. Empty when the grid has a single point; names
+            the artefact's file.
+        configuration: The full resolved configuration the point ran
+            under, constants included — what the artefact's ``factors:``
+            block records. Falls back to ``factors`` when empty.
         samples_planned: The per-configuration sample count asked for.
         samples_executed: The samples actually run.
         successes: Trials on which every criterion passed.
@@ -59,6 +63,7 @@ class ExplorationRecord:
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
     criteria: Mapping[str, CriterionStatistics] = field(default_factory=dict)
     total_time_ms: int = 0
+    configuration: tuple[tuple[str, Any], ...] = ()
     latency: LatencyBlock | None = None
     samples: tuple[SampleRecord, ...] = ()
 
@@ -69,7 +74,9 @@ class ExplorationRecord:
 
     @staticmethod
     def from_run_result(
-        result: RunResult, factors: Mapping[str, Any] | None = None
+        result: RunResult,
+        factors: Mapping[str, Any] | None = None,
+        configuration: Mapping[str, Any] | None = None,
     ) -> "ExplorationRecord":
         """Build one configuration's record from its completed run."""
         distribution: Counter[str] = Counter()
@@ -85,6 +92,7 @@ class ExplorationRecord:
             contract_id=result.contract_id,
             generated_at=result.finished_at,
             factors=tuple((factors or {}).items()),
+            configuration=tuple((configuration or {}).items()),
             samples_planned=result.plan.samples,
             samples_executed=result.plan.samples,
             successes=result.overall_successes,
