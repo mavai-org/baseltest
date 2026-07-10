@@ -21,6 +21,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from baseltest.contract import ServiceDeliveryError
+
 from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _mistral, _ollama, _openai
 from ._protocol import (
@@ -55,14 +57,19 @@ __all__ = [
 
 
 class ProviderResponseError(Exception):
-    """The provider returned an error response — a defect, never a sample.
+    """The provider rejected the request — a configuration defect, never a sample.
 
-    Per the family rule, an error response or transport failure aborts the
-    run: the service was misconfigured or unreachable, not stochastic. The
-    abort must be *investigable*, so this error carries the provider, the
-    status, and the response body — which names the actual problem (a
-    rejected schema, an unknown model id, an expired credential) — instead
+    A client-side error status (a rejected schema, an unknown model id,
+    an expired credential) says the *request* was wrong, not that the
+    service is stochastic — counting it as failed samples would render a
+    verdict about nothing. The abort must be *investigable*, so this
+    error carries the provider, the status, and the response body instead
     of a bare "HTTP Error 400".
+
+    Failed *delivery* is different: an unreachable service or a
+    server-side error is a failed sample (the service did not deliver),
+    raised as :class:`baseltest.contract.ServiceDeliveryError` and counted
+    against the criteria with its cause as the reason.
     """
 
     def __init__(self, provider: str, status: int, detail: str) -> None:
@@ -146,7 +153,20 @@ def build_invoker(
                 detail = error.read().decode("utf-8", "replace")[:2000]
             except OSError:
                 detail = ""
+            if error.code >= 500:
+                # The service answered that it is failing: a failed
+                # delivery, counted as a failed sample with its cause.
+                raise ServiceDeliveryError(
+                    f"service failed to deliver: {provider.name} answered "
+                    f"HTTP {error.code} at {endpoint}" + (f" — {detail[:200]}" if detail else "")
+                ) from None
             raise ProviderResponseError(provider.name, error.code, detail) from None
+        except urllib.error.URLError as error:
+            # No response at all — DNS, refused connection, timeout: the
+            # service is unreachable, which is a failed delivery too.
+            raise ServiceDeliveryError(
+                f"service unreachable at {endpoint}: {error.reason}"
+            ) from None
         content = provider.extract(payload)
         if not isinstance(content, str):
             raise ValueError("the provider response carried no text content")

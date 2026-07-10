@@ -8,6 +8,7 @@ from baseltest.engine import InfeasibleRunError, RunResult, Verdict
 from baseltest.reporting import bar_standing, render_infeasible
 
 from ._errors import ContractConfigurationError
+from ._providers import ProviderResponseError
 from ._runner import (
     DEFAULT_BASELINE_DIR,
     DEFAULT_EXPLORATIONS_DIR,
@@ -176,6 +177,16 @@ def main(argv: list[str] | None = None) -> int:
     except ContractConfigurationError as refusal:
         print(f"contract {arguments.contract_file}: cannot run as declared", file=sys.stderr)
         print(f"  {refusal}", file=sys.stderr)
+        return 2
+    except ProviderResponseError as rejection:
+        # The provider rejected the request: a configuration problem the
+        # message names (schema, model id, credential) — investigable,
+        # never a stack trace, never counted as samples.
+        print(
+            f"contract {arguments.contract_file}: the provider rejected the request",
+            file=sys.stderr,
+        )
+        print(f"  {rejection}", file=sys.stderr)
         return 2
     except InfeasibleRunError as infeasible:
         print(render_infeasible(arguments.contract_file.stem, infeasible), file=sys.stderr)

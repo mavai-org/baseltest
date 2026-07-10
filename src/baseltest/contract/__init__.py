@@ -26,6 +26,7 @@ from .model import (
     LatencyBar,
     LatencyBound,
     ServiceContract,
+    ServiceDeliveryError,
     ThresholdProvenance,
     TransformError,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "Postcondition",
     "PostconditionResult",
     "ServiceContract",
+    "ServiceDeliveryError",
     "ThresholdProvenance",
     "TransformError",
     "TrialEvaluation",

@@ -13,6 +13,8 @@ from baseltest.contract import (
     Criterion,
     CriterionTally,
     ServiceContract,
+    ServiceDeliveryError,
+    TrialEvaluation,
     TrialViews,
     evaluate_trial,
 )
@@ -232,6 +234,36 @@ def _preflight(contract: ServiceContract, plan: RunPlan) -> None:
         raise InfeasibleRunError(plan.samples, infeasible)
 
 
+def _skipped_outcomes(criterion: Criterion) -> tuple[tuple[str, str], ...]:
+    return tuple((p.name, "skipped") for p in criterion.postconditions)
+
+
+def _record_failed_delivery(
+    contract: ServiceContract, tallies: dict[str, CriterionTally], reason: str
+) -> None:
+    """Count one undelivered sample as a failure of every criterion."""
+    for criterion in contract.criteria:
+        tallies[criterion.name].record(
+            TrialEvaluation(passed=False, reason=reason, outcomes=_skipped_outcomes(criterion))
+        )
+
+
+def _failed_delivery_record(
+    contract: ServiceContract, input_index: int, duration_ms: int
+) -> SampleRecord:
+    """The per-sample record of an undelivered response: no content, all skipped."""
+    outcomes: list[tuple[str, str]] = []
+    for criterion in contract.criteria:
+        outcomes.extend(_skipped_outcomes(criterion))
+    return SampleRecord(
+        input_index=input_index,
+        postconditions=tuple(outcomes),
+        execution_time_ms=duration_ms,
+        content="",
+        passed=False,
+    )
+
+
 def _judge(criterion: Criterion, tally: CriterionTally) -> tuple[float | None, Verdict | None]:
     """A thresholded criterion's bound and verdict; (None, None) otherwise."""
     if criterion.threshold is None or tally.trials == 0:
@@ -284,7 +316,21 @@ def execute(
     for i in range(plan.samples):
         input_index = i % len(plan.inputs)
         invoked_at = time.perf_counter()
-        response = contract.invoke(plan.inputs[input_index])
+        try:
+            response = contract.invoke(plan.inputs[input_index])
+        except ServiceDeliveryError as failure:
+            # An anticipated failed delivery: a failed sample, counted
+            # against every criterion with the cause as its reason — the
+            # run completes to a verdict, and the reason surfaces where
+            # every other failure reason does. Other exceptions remain
+            # defects and abort.
+            duration_ms = round((time.perf_counter() - invoked_at) * 1000)
+            _record_failed_delivery(contract, tallies, str(failure))
+            if record_samples:
+                sample_records.append(_failed_delivery_record(contract, input_index, duration_ms))
+            if on_sample is not None:
+                on_sample(i + 1, plan.samples)
+            continue
         duration_ms = round((time.perf_counter() - invoked_at) * 1000)
         views = TrialViews(response, contract.views)  # one cache per trial, all criteria
         trial_passed = True
