@@ -19,6 +19,21 @@ class TransformError(Exception):
     """
 
 
+class ServiceDeliveryError(Exception):
+    """An anticipated delivery failure: the service did not produce a response.
+
+    Raised by an invocation when the service could not be reached or
+    answered with a server-side error — a failed delivery, which is a
+    *failed sample*: the engine counts it against every criterion with
+    this failure's message as the reason, and the run completes to a
+    verdict. An unreachable service is a failed service; hiding that
+    behind an abort would leave the cause buried and the rate unjudged.
+
+    Reserve other exceptions for genuine defects (misconfiguration, a bug
+    in a binding) — those still abort the run.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class ThresholdProvenance:
     """Where a criterion's declared threshold comes from.
