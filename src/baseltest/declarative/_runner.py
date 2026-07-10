@@ -9,10 +9,15 @@ from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
 from baseltest.reporting import (
+    parse_verdict_record,
+    read_exploration_directory,
+    read_verdict_directory,
+    render_exploration_report,
     render_explorations,
-    render_html_report,
     render_run,
     render_run_plan,
+    render_test_report,
+    render_verdict_record,
     write_verdict_record,
 )
 
@@ -30,6 +35,7 @@ ARTEFACT_ROOT = Path("_baseltest")
 DEFAULT_BASELINE_DIR = ARTEFACT_ROOT / "baselines"
 DEFAULT_VERDICT_DIR = ARTEFACT_ROOT / "verdicts"
 DEFAULT_EXPLORATIONS_DIR = ARTEFACT_ROOT / "explorations"
+DEFAULT_REPORTS_DIR = ARTEFACT_ROOT / "reports"
 
 
 def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
@@ -142,9 +148,13 @@ def run(
         baseline_path = str(write_baseline(record, Path(baseline_dir)))
 
     if html_report is not None:
+        # The one rendering path: the report is rendered from the persisted
+        # verdict record's content, so an inline report and a post-hoc
+        # `basel report test` over the same run are identical.
+        verdict_record = parse_verdict_record(render_verdict_record(result))
         report_path = Path(html_report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(render_html_report(result), encoding="utf-8")
+        report_path.write_text(render_test_report([verdict_record]), encoding="utf-8")
 
     if emit:
         for name, reason in skipped:
@@ -168,6 +178,7 @@ def explore(
     *,
     samples_per_config: int | None = None,
     explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
+    html_report: str | Path | None = None,
     emit: bool = True,
 ) -> tuple[ConfigurationExploration, ...]:
     """Run the contract's inputs and criteria over every configuration in the grid.
@@ -185,6 +196,9 @@ def explore(
             default applies.
         explorations_dir: The artefact directory; one subdirectory per
             contract, one file per configuration.
+        html_report: When given, the comparison report is rendered from the
+            just-persisted artefacts to this path — the same renderer
+            `basel report explore` uses, so the two are identical.
         emit: Whether to print the rendered summary.
 
     Returns:
@@ -217,13 +231,26 @@ def explore(
             on_sample=_tty_progress(record_label) if emit else None,
             record_samples=True,  # projections are the artefact's triage payload
         )
-        record = ExplorationRecord.from_run_result(result, factors=configuration.factors)
+        record = ExplorationRecord.from_run_result(
+            result,
+            factors=configuration.factors,
+            configuration=configuration.configuration,
+        )
         artefact = write_exploration(record, Path(explorations_dir))
         explored.append(
             ConfigurationExploration(
                 factors=dict(configuration.factors), result=result, path=artefact
             )
         )
+
+    if html_report is not None:
+        # The one rendering path: parse the just-persisted artefacts back,
+        # scoped to this contract, and render with the report verb's renderer.
+        sweep = read_exploration_directory(Path(explorations_dir))
+        contracts = [c for c in sweep.contracts if c.contract_id == declaration.contract]
+        report_path = Path(html_report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(render_exploration_report(contracts), encoding="utf-8")
 
     if emit:
         print(
@@ -234,3 +261,56 @@ def explore(
             )
         )
     return tuple(explored)
+
+
+def report(
+    kind: str,
+    *,
+    verdict_dir: str | Path = DEFAULT_VERDICT_DIR,
+    explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
+    out: str | Path | None = None,
+) -> Path:
+    """Render an HTML report from persisted artefacts — never executes anything.
+
+    ``test`` sweeps the verdict records; ``explore`` sweeps the exploration
+    artefacts; ``measure`` is reserved (the family has no measure report
+    type yet). Exit semantics are the caller's: this function raises a
+    refusal when there is nothing to render.
+
+    Raises:
+        ContractConfigurationError: Nothing to render — missing or empty
+            artefact directory, or a report kind that does not exist yet.
+    """
+    if kind == "measure":
+        raise ContractConfigurationError(
+            "no measure report type exists yet in the mavai family — a measure "
+            "run's product is its baseline artefact. Render `basel report test` "
+            "or `basel report explore` instead."
+        )
+    if kind == "test":
+        directory = Path(verdict_dir)
+        sweep = read_verdict_directory(directory) if directory.is_dir() else None
+        if sweep is None or not sweep.records:
+            raise ContractConfigurationError(
+                f"no verdict records found under {directory.as_posix()} — run "
+                "`basel test <contract>` first, then render the report"
+            )
+        for name in sweep.skipped:
+            print(f"note: skipped unparseable verdict record {name}", file=sys.stderr)
+        content = render_test_report(list(sweep.records))
+        target = Path(out) if out is not None else DEFAULT_REPORTS_DIR / "test.html"
+    else:
+        root = Path(explorations_dir)
+        exploration_sweep = read_exploration_directory(root) if root.is_dir() else None
+        if exploration_sweep is None or not exploration_sweep.contracts:
+            raise ContractConfigurationError(
+                f"no exploration artefacts found under {root.as_posix()} — run "
+                "`basel explore <contract>` first, then render the report"
+            )
+        for name in exploration_sweep.skipped:
+            print(f"note: skipped unparseable exploration artefact {name}", file=sys.stderr)
+        content = render_exploration_report(list(exploration_sweep.contracts))
+        target = Path(out) if out is not None else DEFAULT_REPORTS_DIR / "explorations.html"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return target

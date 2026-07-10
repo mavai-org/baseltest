@@ -10,16 +10,36 @@ and uses no verdict vocabulary.
 from baseltest.engine import bar_standing
 
 from .console import render_explorations, render_infeasible, render_run, render_run_plan
-from .html import render_html_report
+from .explore_report import (
+    ContractComparison,
+    ExplorationSweep,
+    read_exploration_directory,
+    render_exploration_report,
+)
+from .test_report import render_test_report
+from .verdict_reader import (
+    VerdictRecord,
+    VerdictSweep,
+    parse_verdict_record,
+    read_verdict_directory,
+)
 from .verdict_xml import render_verdict_record, write_verdict_record
 
 __all__ = [
+    "ContractComparison",
+    "ExplorationSweep",
+    "VerdictRecord",
+    "VerdictSweep",
     "bar_standing",
+    "parse_verdict_record",
+    "read_exploration_directory",
+    "read_verdict_directory",
     "render_explorations",
-    "render_html_report",
+    "render_exploration_report",
     "render_infeasible",
     "render_run",
     "render_run_plan",
+    "render_test_report",
     "render_verdict_record",
     "write_verdict_record",
 ]

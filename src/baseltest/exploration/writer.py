@@ -152,9 +152,13 @@ def render_exploration(record: ExplorationRecord) -> str:
         f"useCaseId: {_quote(record.contract_id)}",
         f"generatedAt: {_quote(record.generated_at.isoformat())}",
     ]
-    if record.factors:
+    rendered_factors = record.configuration or record.factors
+    if rendered_factors:
+        # The block carries the full resolved configuration (constants
+        # included) so one artefact tells the whole story; the filename
+        # stem still derives from the discriminating factors alone.
         lines.append("factors:")
-        for key, value in record.factors:
+        for key, value in rendered_factors:
             lines.append(f"  {_quote(key)}: {_scalar(value)}")
     lines.extend(
         [

@@ -55,6 +55,7 @@ from ._registry import has_binding, resolve_binding, resolve_check, resolve_tran
 from ._services import (
     LanguageModelParameters,
     ServiceDefinition,
+    configuration_values,
     factor_values,
     language_model_invoker,
     resolved_provenance,
@@ -362,10 +363,16 @@ def _latency_bar(
 
 @dataclass(frozen=True, slots=True)
 class ExploreConfiguration:
-    """One grid point, ready to run: its factors, contract instance, and plan."""
+    """One grid point, ready to run: its factors, contract instance, and plan.
+
+    ``factors`` is the discriminating subset (grid keys that vary — names
+    files and labels); ``configuration`` is the full resolved map the
+    point runs under, recorded in its artefact.
+    """
 
     parameters: LanguageModelParameters
     factors: dict[str, Any]
+    configuration: dict[str, Any]
     contract: ServiceContract
     plan: RunPlan
 
@@ -459,6 +466,7 @@ def instantiate_explore(
             ExploreConfiguration(
                 parameters=parameters,
                 factors=factor_values(definition, parameters),
+                configuration=configuration_values(parameters),
                 contract=contract,
                 plan=plan,
             )
