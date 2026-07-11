@@ -67,6 +67,13 @@ class Criterion:
         threshold: The declared minimum acceptable pass rate in ``(0, 1)``,
             or ``None`` for a criterion that is characterised, never judged.
         confidence: The confidence level for this criterion's verdict.
+        cutoff: For a baseline-derived (regression) criterion, the resolved
+            integer decision artefact: the verdict is PASS iff the raw
+            observed success count meets it. The confidence correction
+            already lives inside the derivation that produced the cutoff,
+            so the observed count is compared directly. When ``None`` the
+            threshold is a declared bar and the verdict is the test
+            sample's own confidence bound clearing it (compliance posture).
         provenance: Where the threshold comes from, when one is declared.
     """
 
@@ -74,6 +81,7 @@ class Criterion:
     postconditions: tuple[Postcondition, ...]
     threshold: float | None = None
     confidence: float = 0.95
+    cutoff: int | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
 
     def __post_init__(self) -> None:
@@ -89,6 +97,16 @@ class Criterion:
             raise ValueError(
                 f"criterion {self.name!r}: confidence must be in (0, 1), got {self.confidence}"
             )
+        if self.cutoff is not None:
+            if self.threshold is None:
+                raise ValueError(
+                    f"criterion {self.name!r}: a cutoff is the decision artefact of a "
+                    "derived threshold; it cannot stand without one"
+                )
+            if self.cutoff < 1:
+                raise ValueError(
+                    f"criterion {self.name!r}: cutoff must be a positive count, got {self.cutoff}"
+                )
 
     @property
     def is_thresholded(self) -> bool:

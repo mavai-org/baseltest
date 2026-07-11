@@ -568,6 +568,7 @@ def instantiate(
                     _replace(
                         built,
                         threshold=derivation.min_pass_rate,
+                        cutoff=derivation.cutoff,
                         provenance=ThresholdProvenance(
                             origin="empirical", contract_ref=stored.path.name
                         ),

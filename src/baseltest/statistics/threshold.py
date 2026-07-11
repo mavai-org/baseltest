@@ -29,6 +29,8 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
+from scipy.stats import binom
+
 from ._constants import SOUNDNESS_FLOOR_CONFIDENCE
 from .power import required_sample_size
 from .wilson import wilson_lower_bound, wilson_lower_bound_from_rate
@@ -66,18 +68,35 @@ def _effective_baseline_rate(
 
 @dataclass(frozen=True, slots=True)
 class SampleSizeFirstThreshold:
-    """The threshold derived from a baseline and a declared test sample size."""
+    """The threshold derived from a baseline and a declared test sample size.
+
+    The binding decision artefact of the regression procedure is the
+    integer ``cutoff``: the test passes iff the raw observed success count
+    meets it. ``min_pass_rate`` is the real-valued construction behind the
+    cutoff and a report obligation, never the verdict rule; comparing a
+    test-side confidence bound against it stacks two corrections and
+    over-rejects.
+    """
 
     min_pass_rate: float
     sample_size: int
     confidence_level: float
     baseline_pass_rate: float
+    cutoff: int
+    achieved_size: float
     approach: DerivationApproach = DerivationApproach.SAMPLE_SIZE_FIRST
 
     @property
     def gap_from_baseline(self) -> float:
         """How much lower the derived threshold is than the raw baseline rate."""
         return self.baseline_pass_rate - self.min_pass_rate
+
+    @property
+    def displayed_rate(self) -> float:
+        """The cutoff as a rate (``cutoff / sample_size``) — the displayed
+        form of the decision artefact, distinct from the real-valued
+        construction behind it."""
+        return self.cutoff / self.sample_size
 
 
 def derive_sample_size_first(
@@ -113,12 +132,19 @@ def derive_sample_size_first(
 
     effective_rate = _effective_baseline_rate(baseline_successes, baseline_trials, confidence_level)
     min_pass_rate = wilson_lower_bound_from_rate(effective_rate, test_samples, confidence_level)
+    cutoff = math.ceil(test_samples * min_pass_rate)
+    # The lower-tail false-degradation probability at the effective baseline
+    # rate: how often a service still performing at baseline would be
+    # failed by this cutoff.
+    achieved_size = float(binom.cdf(cutoff - 1, test_samples, effective_rate))
 
     return SampleSizeFirstThreshold(
         min_pass_rate=min_pass_rate,
         sample_size=test_samples,
         confidence_level=confidence_level,
         baseline_pass_rate=baseline_successes / baseline_trials,
+        cutoff=cutoff,
+        achieved_size=achieved_size,
     )
 
 
