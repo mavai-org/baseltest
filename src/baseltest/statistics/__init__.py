@@ -7,6 +7,7 @@ covering:
 - Wilson score confidence intervals (`wilson`)
 - Pass-rate threshold derivation, in three directions (`threshold`)
 - Power analysis / sample size calculation (`power`)
+- Risk-driven sizing against the moving acceptance floor (`sizing`)
 - Feasibility checking for a test configuration (`feasibility`)
 - Verdict evaluation for a single criterion (`verdict`)
 - Combined false-positive risk across multiple criteria (`summary`)
@@ -26,6 +27,7 @@ from .latency import (
     latency_percentile,
 )
 from .power import achieved_power, required_sample_size
+from .sizing import detectable_rate, power_at, required_samples_for_power
 from .summary import MultiRunSummary, RunOutcome, summarize_runs
 from .threshold import (
     ConfidenceFirstThreshold,
@@ -73,9 +75,12 @@ __all__ = [
     "derive_confidence_first",
     "derive_sample_size_first",
     "derive_threshold_first",
+    "detectable_rate",
     "evaluate_compliance",
     "evaluate_regression",
+    "power_at",
     "required_sample_size",
+    "required_samples_for_power",
     "summarize_runs",
     "wilson_interval",
     "wilson_lower_bound",

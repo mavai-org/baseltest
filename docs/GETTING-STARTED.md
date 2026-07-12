@@ -114,7 +114,7 @@ contract basket-builder-returns-valid-baskets: PASS
 
 That last line is the point of baseltest: the verdict is not "100% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a high observed rate over too few samples would honestly fail. Notice what the derived minimum means: at n = 52, only a perfect run can clear a 0.95 bar. A larger `--samples` buys slack — at n = 100, two failures still pass (the lower bound of 98/100 is 0.9530). Add `--html-report report.html` for a self-contained summary page.
 
-The first line is the **run-plan line**: every run opens by stating its n and where the value came from, so no sample ever runs on a number you can't see. The contract file carries the **claim** (criteria, thresholds, intent); the invocation carries the **budget**. With no flag, a test runs at the *derived minimum* — the smallest n that can support every declared bar at its confidence, computed from the thresholds themselves. One guard applies to that derivation: if the minimum exceeds **100 samples** (roughly, any bar above 0.96), the run is refused before a single invocation, naming the number to type — `--samples N` runs it deliberately at any size, and `intent: smoke` gives a cheap pass that renders no statistical verdict. The gate binds only the number nobody typed: an explicit flag of any size sails through (and is still feasibility-checked, so a flag too small for the bar is refused too).
+The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n that can support every bar at its confidence. That minimum is the weakest admissible design (only a perfect run clears the bar): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (roughly, any bar above 0.96) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (still feasibility-checked), and `intent: smoke` gives a cheap pass with no statistical verdict. *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
 
 `--samples N` works on `test` and `measure` alike, and the confidence bound is honestly computed at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
 
@@ -127,6 +127,29 @@ criterion spirits-stay-polite: PASS
 ```
 
 The workflow is **measure once, test forever after** — and the baseline only matches if it measured *the same thing*: same contract, same inputs, same service configuration. Change the model or the system prompt and the test tells you the baseline no longer applies (naming the differing settings) instead of quietly judging against stale evidence.
+
+## Sizing by risk: tell it what you tolerate
+
+For empirical criteria, the sample size is a **derived output of your stated risk**, not a guess. The empirical bar is derived *at the test's own size* and falls as the sample shrinks, so dialling `--samples` down quietly buys an easier pass — the trap this closes. `basel test` instead asks two plain questions — the lowest real pass rate you will accept, and how sure you want to be — and computes the smallest n at which a service truly at that rate fails about four times out of five (`--power` overrides the 0.80 default).
+
+Declare the claim wherever it belongs:
+
+- **In the contract file** — the criterion key `tolerate: 0.84` (the worst acceptable true rate), with an optional per-criterion `confidence:` override. A CI run then needs no flags.
+- **On the command line** — `--tolerate 84 --confidence 95` (rates or percentages); a flag overrides the contract key. Against several empirical criteria, name each claim: `--tolerate keeps-up=0.84 --tolerate stays-polite=0.9` (the bare form is refused). The largest requirement governs the run; the output marks which criterion set it.
+- **Interactively** — with no claim declared and a terminal attached, the test asks, shows each criterion's proven baseline rate, and confirms before running. With no terminal it refuses: exit 2, zero invocations, the exact flags named.
+
+Every mode prints the **explanation sentence**, computed from the n that actually runs:
+
+```
+You need to run 214 tests.
+
+What this means:
+If this test passes, you can be 95% confident the true pass rate is at least 85%. This design will catch a genuine drop to 84% about 80% of the time.
+```
+
+`--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--yes` restores automation). A tolerance **at or above** the proven baseline is over-reach — a test designed to fail, which more samples only make worse — so no size is computed: re-measure and set the tolerance against the new proven rate, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a wider tolerance or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
+
+The decision rule is untouched — risk-driven sizing only chooses *how many* samples feed the same empirical derivation and judgement. The HTML report's **Run design** block records the deal: the approach (`confidence-first (risk-driven)` or `sample-size-first`), the claims and computed size, and — for a run smaller than its baseline's measurement — the drop it could actually catch and the estimated time saving.
 
 ## Testing your own (non-LLM) service
 
@@ -238,7 +261,7 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, or an explore over a code-registered binding. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a code-registered binding, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
 | `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: too few samples *passed* for an asserted latency percentile to be estimated — the composite is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.

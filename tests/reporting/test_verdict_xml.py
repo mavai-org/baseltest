@@ -5,9 +5,38 @@ from xml.etree import ElementTree
 
 from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
 from baseltest.engine import Intent, RunKind, RunPlan, execute
-from baseltest.reporting import render_verdict_record, write_verdict_record
+from baseltest.reporting import (
+    BaselineDisclosure,
+    ClaimDisclosure,
+    RunDesign,
+    parse_verdict_record,
+    render_verdict_record,
+    write_verdict_record,
+)
 
 NS = "{http://mavai.org/verdict/1.0}"
+
+RISK_DRIVEN_DESIGN = RunDesign(
+    approach="confidence-first (risk-driven)",
+    claims=(
+        ClaimDisclosure(
+            criterion="keeps-up",
+            baseline_rate=0.9,
+            tolerated_rate=0.84,
+            confidence=0.95,
+            target_power=0.8,
+            required_n=214,
+        ),
+    ),
+    governing="keeps-up",
+    baseline=BaselineDisclosure(
+        source_file="sized-one-abc.yaml",
+        generated_at="2026-07-12T10:00:00+00:00",
+        samples=1000,
+        baseline_rate=0.9,
+        derived_threshold=0.85,
+    ),
+)
 
 
 def run_result():  # type: ignore[no-untyped-def]
@@ -102,6 +131,52 @@ class TestVerdictRecord:
             pytest.skip("xmllint or the family XSD not available on this machine")
         record = tmp_path / "record.xml"
         record.write_text(render_verdict_record(run_result()), encoding="utf-8")
+        completed = subprocess.run(
+            [xmllint, "--noout", "--schema", str(xsd), str(record)],
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 0, completed.stderr
+
+
+class TestRunDesignRecording:
+    def test_design_rides_the_schema_and_round_trips_through_the_reader(self) -> None:
+        text = render_verdict_record(run_result(), RISK_DRIVEN_DESIGN)
+        root = ElementTree.fromstring(text)
+        baseline = root.find(f"{NS}baseline")
+        assert baseline is not None
+        assert baseline.get("samples") == "1000"
+        assert baseline.get("source-file") == "sized-one-abc.yaml"
+        environment = root.find(f"{NS}environment")
+        assert environment is not None
+        keys = {e.get("key") for e in environment.findall(f"{NS}entry")}
+        assert "sizing-approach" in keys
+        assert "sizing-claim:keeps-up" in keys
+
+        parsed = parse_verdict_record(text)
+        assert parsed.design == RISK_DRIVEN_DESIGN
+
+    def test_no_design_emits_no_baseline_or_environment(self) -> None:
+        root = ElementTree.fromstring(render_verdict_record(run_result()))
+        assert root.find(f"{NS}baseline") is None
+        assert root.find(f"{NS}environment") is None
+        assert parse_verdict_record(render_verdict_record(run_result())).design is None
+
+    def test_designed_record_still_validates_against_the_family_xsd(self, tmp_path: Path) -> None:
+        import shutil
+        import subprocess
+
+        import pytest
+
+        xmllint = shutil.which("xmllint")
+        xsd = (
+            Path(__file__).resolve().parents[3]
+            / "punit/punit-report/src/main/resources/org/mavai/punit/report/verdict-1.2.xsd"
+        )
+        if xmllint is None or not xsd.is_file():
+            pytest.skip("xmllint or the family XSD not available on this machine")
+        record = tmp_path / "record.xml"
+        record.write_text(render_verdict_record(run_result(), RISK_DRIVEN_DESIGN), encoding="utf-8")
         completed = subprocess.run(
             [xmllint, "--noout", "--schema", str(xsd), str(record)],
             capture_output=True,

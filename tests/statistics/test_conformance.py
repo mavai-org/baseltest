@@ -35,13 +35,17 @@ from baseltest.statistics import (
     derive_latency_threshold,
     derive_sample_size_first,
     derive_threshold_first,
+    detectable_rate,
     evaluate_compliance,
     latency_max,
     latency_mean,
     latency_percentile,
+    power_at,
     required_sample_size,
+    required_samples_for_power,
     wilson_interval,
     wilson_lower_bound,
+    wilson_lower_bound_from_rate,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -380,6 +384,72 @@ def test_bound_existence_minimums_match_oracle(case: dict[str, Any]) -> None:
     below_minimum = derive_latency_threshold(list(range(1, minimum)), p, confidence)
     assert not at_minimum.saturated
     assert below_minimum.saturated
+
+
+_SIZING_TOLERANCE, _SIZING_CASES = _load("risk_driven_sizing.json")
+_REQUIRED_N_CASES = [c for c in _SIZING_CASES if c["approach"] == "required_n"]
+_POWER_AT_CASES = [c for c in _SIZING_CASES if c["approach"] == "power_at"]
+_DETECTABLE_RATE_CASES = [c for c in _SIZING_CASES if c["approach"] == "detectable_rate"]
+
+
+@pytest.mark.parametrize("case", _REQUIRED_N_CASES, ids=lambda c: c["name"])
+def test_required_samples_for_power_matches_oracle(case: dict[str, Any]) -> None:
+    """The smallest sample size meeting the target power against the moving
+    acceptance floor, plus that size's floor and achieved power — the floor
+    through the same Wilson function the decision rule uses (one shared z)."""
+    inputs = case["inputs"]
+
+    required = required_samples_for_power(
+        baseline_rate=inputs["baseline_rate"],
+        minimum_acceptable_rate=inputs["minimum_acceptable_rate"],
+        confidence_level=inputs["confidence"],
+        target_power=inputs["target_power"],
+    )
+    assert_oracle("risk_driven_sizing", case, "required_n", required)
+
+    floor = wilson_lower_bound_from_rate(
+        inputs["baseline_rate"], case["expected"]["required_n"], inputs["confidence"]
+    )
+    assert_oracle("risk_driven_sizing", case, "floor", floor, _SIZING_TOLERANCE)
+
+    achieved = power_at(
+        sample_size=case["expected"]["required_n"],
+        baseline_rate=inputs["baseline_rate"],
+        minimum_acceptable_rate=inputs["minimum_acceptable_rate"],
+        confidence_level=inputs["confidence"],
+    )
+    assert_oracle("risk_driven_sizing", case, "achieved_power", achieved, _SIZING_TOLERANCE)
+
+
+@pytest.mark.parametrize("case", _POWER_AT_CASES, ids=lambda c: c["name"])
+def test_power_at_candidate_size_matches_oracle(case: dict[str, Any]) -> None:
+    inputs = case["inputs"]
+
+    floor = wilson_lower_bound_from_rate(
+        inputs["baseline_rate"], inputs["test_samples"], inputs["confidence"]
+    )
+    assert_oracle("risk_driven_sizing", case, "floor", floor, _SIZING_TOLERANCE)
+
+    power = power_at(
+        sample_size=inputs["test_samples"],
+        baseline_rate=inputs["baseline_rate"],
+        minimum_acceptable_rate=inputs["minimum_acceptable_rate"],
+        confidence_level=inputs["confidence"],
+    )
+    assert_oracle("risk_driven_sizing", case, "power", power, _SIZING_TOLERANCE)
+
+
+@pytest.mark.parametrize("case", _DETECTABLE_RATE_CASES, ids=lambda c: c["name"])
+def test_detectable_rate_matches_oracle(case: dict[str, Any]) -> None:
+    inputs = case["inputs"]
+
+    rate = detectable_rate(
+        sample_size=inputs["test_samples"],
+        baseline_rate=inputs["baseline_rate"],
+        confidence_level=inputs["confidence"],
+        target_power=inputs["target_power"],
+    )
+    assert_oracle("risk_driven_sizing", case, "detectable_rate", rate, _SIZING_TOLERANCE)
 
 
 # ---------------------------------------------------------------------------

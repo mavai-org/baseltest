@@ -5,9 +5,9 @@ published conformance cases (`mavai-R/inst/cases/*.json` upstream), used by
 `tests/statistics/test_conformance.py` to validate this package's statistics
 primitives against the reference implementation.
 
-Pinned at `mavai-R` `v0.8.4` (the `regression_decision` suite and the
-conformance `manifest.json` are new in 0.8.4; every other vendored file
-is byte-identical with 0.8.3). `test_conformance.py` verifies each
+Pinned at `mavai-R` `v0.8.5` (the `risk_driven_sizing` suite and its
+manifest entry are new in 0.8.5; every other vendored file is
+byte-identical with 0.8.4). `test_conformance.py` verifies each
 vendored suite against the manifest's content hash, so drift from the
 pin fails the build rather than passing silently.
 
@@ -35,6 +35,9 @@ vendored here:
 - `regression_decision.json` (the composed decision rules — regression's
   `K >= cutoff` and compliance's Wilson-bound clearance — evaluated
   through the production verdict path)
+- `risk_driven_sizing.json` (self-consistent power against the moving
+  acceptance floor: required sample size, power at a candidate size, and
+  the detectable-rate inversion)
 - `manifest.json` (the oracle's conformance manifest: case rosters,
   binding/informational field classification, content hashes, and the
   family-mandatory suite tier)

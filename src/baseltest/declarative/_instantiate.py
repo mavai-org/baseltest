@@ -12,7 +12,12 @@ from dataclasses import replace as _replace
 from pathlib import Path
 from typing import Any
 
-from baseltest.baseline import BaselineResolution, resolve_baseline
+from baseltest.baseline import (
+    BaselineResolution,
+    StoredBaseline,
+    StoredCriterion,
+    resolve_baseline,
+)
 from baseltest.contract import (
     PERCENTILE_LEVELS,
     Criterion,
@@ -40,6 +45,7 @@ from baseltest.statistics import (
     check_feasibility,
     derive_latency_threshold,
     derive_sample_size_first,
+    wilson_lower_bound,
 )
 
 from ._errors import ContractConfigurationError
@@ -175,7 +181,8 @@ def _build_criterion(
         name=declaration.name,
         postconditions=tuple(postconditions),
         threshold=declaration.threshold,
-        confidence=confidence,
+        # A criterion-level `confidence:` overrides the contract-level one.
+        confidence=declaration.confidence if declaration.confidence is not None else confidence,
         provenance=provenance,
     )
 
@@ -228,18 +235,21 @@ def _resolve_run_size(
     intent: str,
     samples: int | None,
     judged: Sequence[Criterion],
+    samples_provenance: str | None = None,
 ) -> RunSizing:
     """The run's N: an explicit flag, or the verb's own sizing story.
 
     A test under validation intent derives its N from the claim — the
     largest per-criterion feasibility minimum — refusing a silently
     derived N above the limit (the gate binds the number nobody typed;
-    an explicit flag of any size sails through). A smoke test gets the
-    small fixed default. A measure gets no default at all: its budget is
-    an experimental-design decision and must be typed.
+    an explicit flag of any size sails through; a risk-driven N computed
+    from the operator's declared tolerance arrives with its own
+    provenance). A smoke test gets the small fixed default. A measure
+    gets no default at all: its budget is an experimental-design decision
+    and must be typed.
     """
     if samples is not None:
-        return RunSizing(samples=samples, provenance="explicit")
+        return RunSizing(samples=samples, provenance=samples_provenance or "explicit")
     if mode is RunKind.MEASURE:
         raise ContractConfigurationError(
             "a measure run's sample count is yours to choose — run with "
@@ -362,6 +372,26 @@ def _latency_bar(
 
 
 @dataclass(frozen=True, slots=True)
+class BaselineContext:
+    """The resolved baseline a test's empirical criteria judged against —
+    the identity and the weakest criterion's standing, for the report's
+    sizing disclosures.
+
+    ``weakest_effective_rate`` is the lowest effective baseline rate among
+    the judged empirical criteria (the criterion closest to any tolerance,
+    hence the one downsizing hurts first); ``weakest_threshold`` is that
+    criterion's derived bar at this run's size.
+    """
+
+    source_file: str
+    generated_at: str
+    samples: int
+    weakest_criterion: str
+    weakest_effective_rate: float
+    weakest_threshold: float
+
+
+@dataclass(frozen=True, slots=True)
 class ExploreConfiguration:
     """One grid point, ready to run: its factors, contract instance, and plan.
 
@@ -474,19 +504,163 @@ def instantiate_explore(
     return tuple(configurations), sizing, tuple(notes)
 
 
+def _resolve_matching_baseline(
+    declaration: ContractDeclaration,
+    empirical_declared: Sequence[CriterionDeclaration],
+    service_provenance: dict[str, str],
+    baseline_dir: Path | None,
+) -> BaselineResolution | None:
+    """The baseline resolution a test's empirical needs call for, or ``None``.
+
+    Resolution is attempted only when something will consume it — a
+    bar-less criterion or an empirical latency declaration — and a
+    baseline directory was given.
+    """
+    needs_baseline = bool(empirical_declared) or (
+        declaration.latency is not None and bool(declaration.latency.empirical)
+    )
+    if not needs_baseline or baseline_dir is None:
+        return None
+    return resolve_baseline(
+        baseline_dir,
+        declaration.contract,
+        inputs_fingerprint(declaration.inputs),
+        {
+            "taskFormat": FORMAT_IDENTIFIER,
+            "binding": declaration.service,
+            **service_provenance,
+        },
+    )
+
+
+def _baseline_evidence(
+    entry: CriterionDeclaration, resolution: BaselineResolution | None
+) -> tuple[StoredBaseline, StoredCriterion] | str:
+    """One criterion's baseline evidence, or the plain reason it has none."""
+    if resolution is None or not resolution.matched:
+        reason = (
+            resolution.reason
+            if resolution is not None and resolution.reason
+            else "requires a baseline"
+        )
+        return f"{reason} — run `basel measure` first"
+    stored = resolution.baseline
+    assert stored is not None
+    evidence = stored.criteria.get(entry.name)
+    if evidence is None or evidence.trials == 0:
+        return (
+            f"baseline {stored.path.name} does not record this criterion — re-run `basel measure`"
+        )
+    return stored, evidence
+
+
+def _judge_against_baseline(
+    entry: CriterionDeclaration,
+    stored: StoredBaseline,
+    evidence: StoredCriterion,
+    samples: int,
+    confidence: float,
+    expected: Sequence[Postcondition],
+    transforms: dict[str, str],
+) -> tuple[Criterion, float, float]:
+    """One empirical criterion made judgeable: bar derived at this run's size.
+
+    Returns the criterion, its effective baseline rate (the Wilson lower
+    bound stands in for a perfect baseline), and the derived bar.
+    """
+    built = _build_criterion(entry, confidence, expected, transforms)
+    derivation = derive_sample_size_first(
+        evidence.successes, evidence.trials, samples, built.confidence
+    )
+    criterion = _replace(
+        built,
+        threshold=derivation.min_pass_rate,
+        cutoff=derivation.cutoff,
+        provenance=ThresholdProvenance(origin="empirical", contract_ref=stored.path.name),
+    )
+    effective_rate = (
+        wilson_lower_bound(evidence.successes, evidence.trials, built.confidence)
+        if evidence.successes == evidence.trials
+        else evidence.successes / evidence.trials
+    )
+    return criterion, effective_rate, derivation.min_pass_rate
+
+
+def _empirical_criteria(
+    declared: Sequence[CriterionDeclaration],
+    resolution: BaselineResolution | None,
+    samples: int,
+    confidence: float,
+    expected: Sequence[Postcondition],
+    transforms: dict[str, str],
+) -> tuple[list[Criterion], list[tuple[str, str]], "BaselineContext | None"]:
+    """Judge every declared empirical criterion against the resolved baseline.
+
+    Returns the judgeable criteria, the ``(name, reason)`` pairs for those
+    that could not be judged, and the baseline context for the report's
+    sizing disclosures (``None`` when nothing was judged).
+    """
+    judged: list[Criterion] = []
+    skipped: list[tuple[str, str]] = []
+    weakest: tuple[float, str, float] | None = None  # (effective rate, name, threshold)
+    for entry in declared:
+        located = _baseline_evidence(entry, resolution)
+        if isinstance(located, str):
+            skipped.append((entry.name, located))
+            continue
+        stored, evidence = located
+        criterion, effective_rate, threshold = _judge_against_baseline(
+            entry, stored, evidence, samples, confidence, expected, transforms
+        )
+        judged.append(criterion)
+        # The weakest criterion is the one closest to any tolerance —
+        # the one downsizing hurts first.
+        if weakest is None or effective_rate < weakest[0]:
+            weakest = (effective_rate, entry.name, threshold)
+    return judged, skipped, _baseline_context(resolution, weakest)
+
+
+def _baseline_context(
+    resolution: BaselineResolution | None, weakest: tuple[float, str, float] | None
+) -> "BaselineContext | None":
+    """The judged baseline's identity and weakest standing, or ``None``."""
+    if weakest is None:
+        return None
+    assert resolution is not None and resolution.baseline is not None
+    stored = resolution.baseline
+    return BaselineContext(
+        source_file=stored.path.name,
+        generated_at=stored.generated_at,
+        samples=stored.sample_count,
+        weakest_criterion=weakest[1],
+        weakest_effective_rate=weakest[0],
+        weakest_threshold=weakest[2],
+    )
+
+
 def instantiate(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition] | None = None,
     mode: RunKind = RunKind.TEST,
     samples: int | None = None,
     baseline_dir: Path | None = None,
-) -> tuple[ServiceContract, RunPlan, RunSizing, dict[str, str], tuple[tuple[str, str], ...]]:
+    samples_provenance: str | None = None,
+) -> tuple[
+    ServiceContract,
+    RunPlan,
+    RunSizing,
+    dict[str, str],
+    tuple[tuple[str, str], ...],
+    "BaselineContext | None",
+]:
     """Instantiate the contract and plan for a contract declaration under a run mode.
 
     Returns the contract, the run plan, the run's sizing (N and its
     provenance — the run-plan line's data), the resolved service
-    provenance, and — under ``test`` — the ``(name, reason)`` pairs for
-    empirical criteria that could not be judged (no matching baseline).
+    provenance, — under ``test`` — the ``(name, reason)`` pairs for
+    empirical criteria that could not be judged (no matching baseline),
+    and the resolved baseline's context when empirical criteria were
+    judged against one (the report's sizing disclosures read it).
 
     Under ``test``, a criterion without a declared threshold is an
     empirical criterion: when ``baseline_dir`` holds a matching baseline
@@ -515,65 +689,19 @@ def instantiate(
             if entry.threshold is not None
         ]
         empirical_declared = [c for c in declaration.criteria if c.threshold is None]
-        sizing = _resolve_run_size(mode, declaration.intent, samples, normative)
-
-        needs_baseline = bool(empirical_declared) or (
-            declaration.latency is not None and bool(declaration.latency.empirical)
+        sizing = _resolve_run_size(mode, declaration.intent, samples, normative, samples_provenance)
+        resolution = _resolve_matching_baseline(
+            declaration, empirical_declared, service_provenance, baseline_dir
         )
-        resolution = None
-        if needs_baseline and baseline_dir is not None:
-            resolution = resolve_baseline(
-                baseline_dir,
-                declaration.contract,
-                inputs_fingerprint(declaration.inputs),
-                {
-                    "taskFormat": FORMAT_IDENTIFIER,
-                    "binding": declaration.service,
-                    **service_provenance,
-                },
-            )
         latency_bar = _latency_bar(declaration, sizing.samples, resolution)
-
-        empirical: list[Criterion] = []
-        if empirical_declared:
-            for entry in empirical_declared:
-                if resolution is None or not resolution.matched:
-                    reason = (
-                        resolution.reason
-                        if resolution is not None and resolution.reason
-                        else "requires a baseline"
-                    )
-                    skipped.append((entry.name, f"{reason} — run `basel measure` first"))
-                    continue
-                stored = resolution.baseline
-                assert stored is not None
-                evidence = stored.criteria.get(entry.name)
-                if evidence is None or evidence.trials == 0:
-                    skipped.append(
-                        (
-                            entry.name,
-                            f"baseline {stored.path.name} does not record this "
-                            "criterion — re-run `basel measure`",
-                        )
-                    )
-                    continue
-                derivation = derive_sample_size_first(
-                    evidence.successes,
-                    evidence.trials,
-                    sizing.samples,
-                    declaration.confidence,
-                )
-                built = _build_criterion(entry, declaration.confidence, expected, transforms)
-                empirical.append(
-                    _replace(
-                        built,
-                        threshold=derivation.min_pass_rate,
-                        cutoff=derivation.cutoff,
-                        provenance=ThresholdProvenance(
-                            origin="empirical", contract_ref=stored.path.name
-                        ),
-                    )
-                )
+        empirical, skipped, baseline_context = _empirical_criteria(
+            empirical_declared,
+            resolution,
+            sizing.samples,
+            declaration.confidence,
+            expected,
+            transforms,
+        )
         criteria = tuple(normative + empirical)
         if not criteria:
             detail = f" ({skipped[0][1]})" if skipped else ""
@@ -591,6 +719,7 @@ def instantiate(
         # A declared latency bar is a test-time assertion; a measure run's
         # product — the baseline's latency profile — is what it derives from.
         latency_bar = None
+        baseline_context = None
 
     contract = ServiceContract(
         contract_id=declaration.contract,
@@ -601,4 +730,4 @@ def instantiate(
     )
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
     plan = RunPlan(samples=sizing.samples, inputs=declaration.inputs, kind=mode, intent=intent)
-    return contract, plan, sizing, service_provenance, tuple(skipped)
+    return contract, plan, sizing, service_provenance, tuple(skipped), baseline_context

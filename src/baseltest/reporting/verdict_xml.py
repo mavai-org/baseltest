@@ -8,6 +8,7 @@ every emitted element conforms. ``version="1.2"``: the per-criterion
 decomposition is always populated.
 """
 
+import json
 import math
 from importlib import metadata
 from pathlib import Path
@@ -15,7 +16,15 @@ from xml.etree import ElementTree
 
 from baseltest.engine import CriterionResult, RunResult
 
+from .run_design import RunDesign
+
 _NAMESPACE = "http://mavai.org/verdict/1.0"
+
+# The run-design facts ride the schema's free-form environment entries —
+# the family verdict schema itself is unchanged by the sizing disclosures.
+SIZING_APPROACH_KEY = "sizing-approach"
+SIZING_GOVERNING_KEY = "sizing-governing"
+SIZING_CLAIM_PREFIX = "sizing-claim:"
 
 
 def _generator() -> str:
@@ -36,8 +45,13 @@ def _origin(result: CriterionResult) -> str:
     return result.criterion.provenance.origin.upper()
 
 
-def render_verdict_record(result: RunResult) -> str:
-    """Render a completed test run as one ``verdict-record`` document."""
+def render_verdict_record(result: RunResult, design: RunDesign | None = None) -> str:
+    """Render a completed test run as one ``verdict-record`` document.
+
+    ``design`` — when the caller recorded how the run's size came about —
+    is carried inside the family schema: the resolved baseline in the
+    schema's ``baseline`` element, the approach and any risk-driven claims
+    as ``environment`` entries."""
     ElementTree.register_namespace("", _NAMESPACE)
     root = ElementTree.Element(f"{{{_NAMESPACE}}}verdict-record")
     root.set("version", "1.2")
@@ -117,8 +131,44 @@ def render_verdict_record(result: RunResult) -> str:
     if refs:
         provenance.set("contract-ref", refs[0])
 
+    # A baseline element needs its full identity; a record missing the
+    # measurement timestamp (a pre-timestamp artefact) is not emitted.
+    if design is not None and design.baseline is not None and design.baseline.generated_at:
+        stored = design.baseline
+        baseline = child(root, "baseline")
+        baseline.set("source-file", stored.source_file)
+        baseline.set("generated-at", stored.generated_at)
+        baseline.set("samples", str(stored.samples))
+        baseline.set("baseline-rate", str(stored.baseline_rate))
+        baseline.set("derived-threshold", str(stored.derived_threshold))
+
     termination = child(root, "termination")
     termination.set("reason", "COMPLETED")
+
+    if design is not None:
+        environment = child(root, "environment")
+
+        def entry(key: str, value: str) -> None:
+            element = child(environment, "entry")
+            element.set("key", key)
+            element.set("value", value)
+
+        entry(SIZING_APPROACH_KEY, design.approach)
+        if design.governing is not None:
+            entry(SIZING_GOVERNING_KEY, design.governing)
+        for claim in design.claims:
+            entry(
+                f"{SIZING_CLAIM_PREFIX}{claim.criterion}",
+                json.dumps(
+                    {
+                        "baselineRate": claim.baseline_rate,
+                        "toleratedRate": claim.tolerated_rate,
+                        "confidence": claim.confidence,
+                        "targetPower": claim.target_power,
+                        "requiredN": claim.required_n,
+                    }
+                ),
+            )
 
     reasons: dict[str, int] = {}
     for criterion_result in judged:
@@ -156,9 +206,11 @@ def render_verdict_record(result: RunResult) -> str:
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}\n'
 
 
-def write_verdict_record(result: RunResult, directory: Path) -> Path:
+def write_verdict_record(
+    result: RunResult, directory: Path, design: RunDesign | None = None
+) -> Path:
     """Write the record to ``<directory>/<contract>-<inputs tail>.xml``."""
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{result.contract_id}-{result.inputs_identity[:12]}.xml"
-    path.write_text(render_verdict_record(result), encoding="utf-8")
+    path.write_text(render_verdict_record(result, design), encoding="utf-8")
     return path
