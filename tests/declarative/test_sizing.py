@@ -252,18 +252,58 @@ class TestExplicitSamples:
     def test_a_weak_size_against_a_declared_claim_names_the_needed_count(
         self, tmp_path, monkeypatch, capsys
     ):  # type: ignore[no-untyped-def]
-        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        contract = prepare(
+            tmp_path,
+            monkeypatch,
+            ONE_CRITERION.replace("name: keeps-up", "name: keeps-up\n    tolerate: 0.84"),
+        )
         fake_tty(monkeypatch, ["n"])
-        code = main(["test", str(contract), "--samples", "100", "--tolerate", "84"])
+        code = main(["test", str(contract), "--samples", "100"])
         assert code == 2
         out = capsys.readouterr().out
         assert f"you would need about {REQUIRED_FOR_MAIN_CLAIM} tests" in out
+
+    def test_contract_keys_with_explicit_samples_run_at_the_chosen_size(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        contract = prepare(
+            tmp_path,
+            monkeypatch,
+            ONE_CRITERION.replace("name: keeps-up", "name: keeps-up\n    tolerate: 0.84"),
+        )
+        code = main(["test", str(contract), "--samples", "400", "--no-verdict-xml"])
+        assert code in (0, 1)
+        out = capsys.readouterr().out
+        assert "You asked to run 400 tests." in out
+        assert "confident the true pass rate is at least" in out
 
     def test_interactive_confirmation_lets_a_weak_run_proceed(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
         fake_tty(monkeypatch, ["y"])
         code = main(["test", str(contract), "--samples", "30", "--no-verdict-xml"])
         assert code in (0, 1)
+
+
+class TestContradictorySizingFlags:
+    def test_samples_with_tolerate_aborts_naming_both_flags(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        assert main(["test", str(contract), "--samples", "100", "--tolerate", "84"]) == 2
+        err = capsys.readouterr().err
+        assert "--samples and --tolerate are contradictory sizing instructions" in err
+        assert not list((tmp_path / "_baseltest" / "verdicts").glob("*.xml"))
+
+    def test_samples_with_named_tolerate_form_aborts_too(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        code = main(["test", str(contract), "--samples", "100", "--tolerate", "keeps-up=0.84"])
+        assert code == 2
+        assert "contradictory sizing instructions" in capsys.readouterr().err
+
+    def test_samples_with_power_aborts_naming_both_flags(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        assert main(["test", str(contract), "--samples", "100", "--power", "0.9"]) == 2
+        err = capsys.readouterr().err
+        assert "--samples and --power are contradictory sizing instructions" in err
+        assert not list((tmp_path / "_baseltest" / "verdicts").glob("*.xml"))
 
 
 class TestOverReach:

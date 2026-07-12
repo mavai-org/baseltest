@@ -122,6 +122,34 @@ class _EmpiricalCriterion:
     tolerated_rate: float | None
 
 
+def _refuse_contradictory_sizing_flags(
+    samples: int | None, tolerate: list[str] | None, power: str | None, force: bool
+) -> None:
+    """One sizing source per invocation: an explicit ``--samples`` cannot be
+    combined with the risk-driven claim flags.
+
+    ``--force`` lifts the conflict: the over-reach fallthrough demands an
+    explicit ``--samples`` alongside the tolerance, because no size can be
+    computed in that regime. Contract-file ``tolerate:`` keys are not a
+    conflict — an explicit ``--samples`` against declared claims runs at
+    the chosen n, priced in plain language.
+    """
+    if samples is None or force:
+        return
+    if tolerate:
+        raise SizingRefusalError(
+            "--samples and --tolerate are contradictory sizing instructions "
+            "(--tolerate computes the sample count) — drop one of them, or "
+            "declare `tolerate:` in the contract file to price an explicit "
+            "--samples run"
+        )
+    if power is not None:
+        raise SizingRefusalError(
+            "--samples and --power are contradictory sizing instructions "
+            "(--power shapes a computed sample count) — drop one of them"
+        )
+
+
 def _parse_tolerate_flags(
     entries: list[str] | None, empirical_names: list[str]
 ) -> dict[str, float]:
@@ -578,8 +606,12 @@ def resolve_test_sizing(
 
     Raises:
         SizingRefusalError: A refusal or declined confirmation, before any
-            invocation — the CLI maps it to exit code 2.
+            invocation — the CLI maps it to exit code 2. In particular,
+            contradictory sizing instructions: an explicit ``--samples``
+            together with ``--tolerate`` or ``--power`` (without the
+            over-reach fallthrough's ``--force``).
     """
+    _refuse_contradictory_sizing_flags(samples, tolerate, power, force)
     interaction = _Interaction(
         interactive=sys.stdin.isatty() and not emit_json,
         assume_yes=assume_yes,
