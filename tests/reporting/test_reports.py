@@ -97,6 +97,10 @@ class TestTestReport:
         ):
             assert column in html
         assert "Statistical assumptions and limitations" in html
+        assert (
+            "The required count is derived from the baseline at the stated confidence; "
+            "a criterion passes when its passed count reaches it." in html
+        )
         assert "<script" not in html and "http://" not in html and "https://" not in html
         assert 'class="basel-pass"' in html
 

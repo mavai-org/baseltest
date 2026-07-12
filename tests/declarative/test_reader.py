@@ -52,7 +52,7 @@ class TestFirstContactPath:
         result = run(write_contract(tmp_path, GREETING_CONTRACT))
         assert result.composite is Verdict.PASS
         out = capsys.readouterr().out
-        assert "contract greeting-service-is-polite: PASS" in out
+        assert "contract greeting-service-is-polite — verdict: PASS" in out
 
     def test_unregistered_binding_refused_with_zero_invocations(self, tmp_path: Path) -> None:
         with pytest.raises(ContractConfigurationError) as excinfo:

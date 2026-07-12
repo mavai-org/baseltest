@@ -280,7 +280,7 @@ def _over_reach_message(criterion: _EmpiricalCriterion) -> str:
         "\n"
         "Unless the system has genuinely improved since that run, this test is very "
         "likely to fail: it must prove the system is better than your own best "
-        "measurement showed. Running more tests will not rescue it — a larger sample "
+        "measurement showed. Running more samples will not rescue it — a larger sample "
         f"pins the result more tightly around the true ~{baseline}, making a pass even "
         "less likely. Only a small, lucky sample could clear the bar.\n"
         "\n"
@@ -307,6 +307,43 @@ def _explanation(
         f"genuine drop to {_percent(claim.tolerated_rate)} about {_percent(power)} of "
         f"the time.{suffix}"
     )
+
+
+def _sizing_table(claims: list[SizingClaim], samples: int, governing: str) -> list[str]:
+    """The multi-criterion sizing block as one aligned table: a row per
+    claim, priced at the governing run size, the governing row marked."""
+    headers = (
+        "criterion",
+        "tolerates",
+        "confidence",
+        "drop caught",
+        "a pass proves",
+        "needs alone",
+    )
+    rows = []
+    for claim in claims:
+        floor = wilson_lower_bound_from_rate(claim.baseline_rate, samples, claim.confidence)
+        power = power_at(samples, claim.baseline_rate, claim.tolerated_rate, claim.confidence)
+        rows.append(
+            (
+                claim.criterion,
+                _percent(claim.tolerated_rate),
+                _percent(claim.confidence),
+                f"about {_percent(power)}",
+                f"at least {_percent(floor)}",
+                str(claim.required_n or 0),
+            )
+        )
+    widths = [max(len(header), *(len(row[i]) for row in rows)) for i, header in enumerate(headers)]
+    lines = ["  " + "  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True)).rstrip()]
+    for claim, row in zip(claims, rows, strict=True):
+        cells = [row[0].ljust(widths[0])]
+        cells.extend(row[i].rjust(widths[i]) for i in range(1, len(headers)))
+        line = "  " + "  ".join(cells)
+        if claim.criterion == governing:
+            line += "  ← sets the run size"
+        lines.append(line.rstrip())
+    return lines
 
 
 def _governing_samples(claims: list[SizingClaim], normative_minimum: int) -> tuple[int, str]:
@@ -366,7 +403,7 @@ class _Interaction:
     """How the sizing conversation talks: injectable for tests."""
 
     interactive: bool
-    assume_yes: bool
+    accept_weak_design: bool
     force: bool
     emit_json: bool
     ask: Callable[[str], str]
@@ -415,7 +452,7 @@ def _prompt_confidence(interaction: _Interaction) -> float:
     interaction.say(
         "\nHow sure do you want to be that a PASS is trustworthy?\n"
         "  [1] Standard - 95% sure  (recommended)\n"
-        "  [2] High     - 99% sure  (more careful, needs more tests)\n"
+        "  [2] High     - 99% sure  (more careful, needs more samples)\n"
         "  [3] Custom"
     )
     while True:
@@ -475,7 +512,7 @@ def _explicit_samples_mode(
     several = len(criteria) > 1
     claims: list[SizingClaim] = []
     weak_lines: list[str] = []
-    interaction.say(f"\nYou asked to run {samples} tests.\n\nWhat this means:")
+    interaction.say(f"\nYou asked to run {samples} samples.\n\nWhat this means:")
     for criterion in criteria:
         if criterion.tolerated_rate is not None:
             claim = _priced_claim(criterion, target_power)
@@ -487,7 +524,7 @@ def _explicit_samples_mode(
             if weak:
                 weak_lines.append(
                     f"To reliably catch a drop to {_percent(claim.tolerated_rate)} on "
-                    f"criterion {claim.criterion}, you would need about {required} tests."
+                    f"criterion {claim.criterion}, you would need about {required} samples."
                 )
         else:
             catchable = detectable_rate(
@@ -514,15 +551,15 @@ def _explicit_samples_mode(
                     f"{_percent(criterion.baseline_rate)}."
                 )
         claims.append(claim)
-    if weak_lines and not (interaction.assume_yes or interaction.force):
+    if weak_lines and not (interaction.accept_weak_design or interaction.force):
         interaction.say("\nwarning: this is a weak test.")
         for line in weak_lines:
             interaction.say(f"  {line}")
         if not interaction.interactive:
             raise SizingRefusalError(
-                "a weak test design needs an explicit go-ahead: re-run with --yes to "
-                "confirm it, raise --samples, or declare what the test must catch "
-                "with --tolerate"
+                "a weak test design needs an explicit go-ahead: re-run with "
+                "--accept-weak-design to confirm it, raise --samples, or declare "
+                "what the test must catch with --tolerate"
             )
         if not interaction.confirm("Continue anyway?", default_yes=False):
             raise SizingRefusalError("run declined — no samples were taken")
@@ -559,19 +596,28 @@ def _risk_driven_mode(
             json.dumps(_json_payload(claims, samples, governing, explanations), indent=2)
         )
     else:
-        interaction.say(f"\nYou need to run {samples} tests.\n\nWhat this means:")
-        for line in explanations:
-            interaction.say(line)
+        qualifier = "tolerances" if several else "tolerance"
+        interaction.say(
+            f"\nThis test needs {samples} samples (computed from your declared {qualifier})."
+        )
+        if several:
+            interaction.say("")
+            for line in _sizing_table(claims, samples, governing):
+                interaction.say(line)
+            interaction.say("")
+        else:
+            interaction.say(explanations[0])
+            interaction.say("")
         if samples > LARGE_RUN_NOTE_LIMIT:
             interaction.say(
-                f"\nnote: {samples} tests is the honest cost of the confidence and "
-                "tolerance you asked for. To spend less, tolerate a larger drop "
+                f"\nnote: a run of {samples} samples is the honest cost of the confidence "
+                "and tolerance you asked for. To spend less, tolerate a larger drop "
                 "(--tolerate) or accept a lower confidence (--confidence)."
             )
     if (
         prompted
-        and not interaction.assume_yes
-        and not interaction.confirm(f"\nRun {samples} tests now?", default_yes=True)
+        and not interaction.accept_weak_design
+        and not interaction.confirm(f"\nRun {samples} samples now?", default_yes=True)
     ):
         raise SizingRefusalError("run declined — no samples were taken")
     return ResolvedSizing(
@@ -592,7 +638,7 @@ def resolve_test_sizing(
     tolerate: list[str] | None,
     confidence: str | None,
     power: str | None,
-    assume_yes: bool,
+    accept_weak_design: bool,
     emit_json: bool,
     force: bool,
     ask: Callable[[str], str] | None = None,
@@ -614,7 +660,7 @@ def resolve_test_sizing(
     _refuse_contradictory_sizing_flags(samples, tolerate, power, force)
     interaction = _Interaction(
         interactive=sys.stdin.isatty() and not emit_json,
-        assume_yes=assume_yes,
+        accept_weak_design=accept_weak_design,
         force=force,
         emit_json=emit_json,
         # Resolved at call time so a test harness's stand-ins apply.
@@ -705,7 +751,7 @@ def resolve_test_sizing(
     ]
     if over:  # unreachable via prompt validation, reachable via keys+prompt mixes
         return _over_reach_mode(resolved, over[0], samples, target_power, interaction)
-    interaction.say("\nCalculating the number of tests needed...")
+    interaction.say("\nCalculating the number of samples needed...")
     return _risk_driven_mode(resolved, declaration, target_power, interaction, prompted=True)
 
 
@@ -736,8 +782,8 @@ def _over_reach_mode(
             raise SizingRefusalError("run declined — no samples were taken")
     if samples is None:
         raise SizingRefusalError(
-            "no number of tests can be computed for a tolerance at or above the "
-            "proven baseline (more tests only make a pass less likely) — choose "
+            "no number of samples can be computed for a tolerance at or above the "
+            "proven baseline (more samples only make a pass less likely) — choose "
             "the size yourself with --samples N"
         )
     # The over-reaching claim prices nothing; explain what the chosen size

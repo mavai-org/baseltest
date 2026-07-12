@@ -177,6 +177,10 @@ def _append_per_criterion(html: list[str], record: VerdictRecord) -> None:
         return
     html.append("<details>\n<summary>Per-criterion breakdown</summary>\n")
     html.append('<div class="per-criterion">\n')
+    html.append(
+        "<p>The required count is derived from the baseline at the stated confidence; "
+        "a criterion passes when its passed count reaches it.</p>\n"
+    )
     for row in record.criteria:
         html.append('<div class="criterion-block">\n')
         html.append(

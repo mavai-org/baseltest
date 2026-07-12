@@ -99,9 +99,9 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
             verb_parser.add_argument(
-                "--yes",
+                "--accept-weak-design",
                 action="store_true",
-                help="skip confirmation prompts (for automation)",
+                help="accept a weak design without the confirmation prompt (for automation)",
             )
             verb_parser.add_argument(
                 "--json",
@@ -278,7 +278,7 @@ def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
         tolerate=arguments.tolerate,
         confidence=arguments.confidence,
         power=arguments.power,
-        assume_yes=arguments.yes,
+        accept_weak_design=arguments.accept_weak_design,
         emit_json=arguments.emit_json,
         force=arguments.force,
     )

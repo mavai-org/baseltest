@@ -21,22 +21,26 @@ def run_result(criteria: tuple[Criterion, ...], samples: int = 300, kind: RunKin
 
 
 class TestVerdictOutput:
-    def test_states_rate_bound_n_and_threshold(self) -> None:
+    def test_states_verdict_counts_threshold_and_bound(self) -> None:
         criterion = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         text = render_run(run_result((criterion,)))
-        assert "contract refund-confirmation: PASS" in text
-        assert "300 of 300 responses" in text
-        assert "observed rate 1.0000" in text
-        assert "confident the true rate is at least" in text
-        assert "0.95 threshold" in text
+        assert "contract refund-confirmation — verdict: PASS" in text
+        row = next(line for line in text.splitlines() if "relevant" in line)
+        assert "PASS" in row
+        assert "300/300" in row
+        assert "0.95" in row
+        assert "wilson lower" in row
 
     def test_multi_criterion_shape_lists_each_stream_and_composite(self) -> None:
         passing = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         failing = Criterion(name="strict", postconditions=(contains("nope"),), threshold=0.5)
         text = render_run(run_result((passing, failing)))
-        assert text.splitlines()[0] == "contract refund-confirmation: FAIL"
-        assert "criterion relevant: PASS" in text
-        assert "criterion strict: FAIL" in text
+        assert text.splitlines()[0] == "contract refund-confirmation — verdict: FAIL"
+        assert "criterion" in text and "verdict" in text and "basis" in text  # table header
+        relevant_row = next(line for line in text.splitlines() if "relevant" in line)
+        strict_row = next(line for line in text.splitlines() if "strict" in line)
+        assert "PASS" in relevant_row
+        assert "FAIL" in strict_row
 
     def test_mixed_contract_characterises_without_verdict_vocabulary_on_that_line(self) -> None:
         judged = Criterion(name="judged", postconditions=(contains("refund"),), threshold=0.95)
@@ -58,7 +62,7 @@ class TestVerdictOutput:
             provenance=ThresholdProvenance(origin="sla", contract_ref="SLA v2 §4.1"),
         )
         text = render_run(run_result((criterion,)))
-        assert "(sla, SLA v2 §4.1)" in text
+        assert "sla — SLA v2 §4.1" in text
 
 
 class TestObservationOutput:

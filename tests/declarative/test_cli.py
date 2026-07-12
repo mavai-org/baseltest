@@ -75,7 +75,7 @@ class TestSampleSizing:
         monkeypatch.chdir(tmp_path)
         assert main(["test", str(write_contract(tmp_path)), "--samples", "60"]) == 0
         out = capsys.readouterr().out
-        assert "60 of 60 responses" in out
+        assert "60/60" in out
         assert "n = 60 (set via --samples)" in out
 
     def test_flag_too_small_for_the_bar_is_refused(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
