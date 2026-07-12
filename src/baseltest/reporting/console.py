@@ -27,42 +27,62 @@ def _variance(successes: int, trials: int) -> float:
     return rate * (1 - rate)
 
 
-def _verdict_lines(result: CriterionResult) -> list[str]:
+def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str]:
+    """One judged criterion's table cells: name, verdict, passed, required,
+    threshold, basis."""
     criterion = result.criterion
     tally = result.tally
-    assert (
-        result.verdict is not None
-        and result.lower_bound is not None
-        and criterion.threshold is not None
-    )
-    source = ""
-    if criterion.provenance.contract_ref is not None:
-        source = f" ({criterion.provenance.origin}, {criterion.provenance.contract_ref})"
+    assert result.verdict is not None and criterion.threshold is not None
     if criterion.cutoff is not None:
         # Regression posture: the integer cutoff is the stated decision
-        # artefact; the derived threshold is its construction, reported as
-        # context.
-        relation = "meets" if result.verdict is Verdict.PASS else "misses"
-        explanation = (
-            f"    {tally.successes} passing {relation} the required {criterion.cutoff} of "
-            f"{tally.trials} — the cutoff already carries the "
-            f"{_percent(criterion.confidence)} confidence of its derivation "
-            f"(threshold {criterion.threshold:.4f}){source}"
-        )
+        # artefact; the derived threshold is its construction.
+        required = str(criterion.cutoff)
+        threshold = f"{criterion.threshold:.4f}"
     else:
-        relation = "clears" if result.verdict is Verdict.PASS else "below"
-        explanation = (
-            f"    observed rate {tally.observed_rate:.4f}; we can be "
-            f"{_percent(criterion.confidence)} confident the true rate is at least "
-            f"{result.lower_bound:.4f} — {relation} your {criterion.threshold} "
-            f"threshold{source}"
-        )
-    return [
-        f"  criterion {criterion.name}: {result.verdict.value.upper()}",
-        f"    {tally.successes} of {tally.trials} responses met expectations",
-        explanation,
-        *(_failure_reason_lines(result) if result.verdict is Verdict.FAIL else []),
-    ]
+        required = "—"
+        threshold = f"{criterion.threshold:g}"
+    basis = criterion.provenance.origin
+    if criterion.provenance.contract_ref is not None:
+        basis = f"{basis} — {criterion.provenance.contract_ref}"
+    if criterion.cutoff is None and result.lower_bound is not None:
+        # A declared bar is judged by the run's own bound clearing it; the
+        # bound is this row's evidence and the table carries it.
+        basis = f"{basis} (wilson lower {result.lower_bound:.4f})"
+    return (
+        criterion.name,
+        result.verdict.value.upper(),
+        f"{tally.successes}/{tally.trials}",
+        required,
+        threshold,
+        basis,
+    )
+
+
+def _verdict_table(results: Sequence[CriterionResult]) -> list[str]:
+    """The judged criteria as one aligned table, a row per criterion; the
+    most common failure reasons stay indented beneath a FAIL row."""
+    all_empirical = all(r.criterion.cutoff is not None for r in results)
+    headers = (
+        "criterion",
+        "verdict",
+        "passed",
+        "required",
+        "derived threshold" if all_empirical else "threshold",
+        "basis",
+    )
+    rows = [_verdict_row(result) for result in results]
+    widths = [max(len(header), *(len(row[i]) for row in rows)) for i, header in enumerate(headers)]
+    lines = ["  " + "  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True)).rstrip()]
+    left_aligned = {0, 1, len(headers) - 1}
+    for result, row in zip(results, rows, strict=True):
+        cells = [
+            cell.ljust(width) if i in left_aligned else cell.rjust(width)
+            for i, (cell, width) in enumerate(zip(row, widths, strict=True))
+        ]
+        lines.append(("  " + "  ".join(cells)).rstrip())
+        if result.verdict is Verdict.FAIL:
+            lines.extend(_failure_reason_lines(result))
+    return lines
 
 
 def _failure_reason_lines(result: CriterionResult, limit: int = 3) -> list[str]:
@@ -161,7 +181,9 @@ def _ordinal(rank: int) -> str:
 def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a run result in the honest-output shapes.
 
-    Under test: per-criterion verdict lines plus the composite. Under
+    Under test: the composite verdict as the title line, then the judged
+    criteria as one aligned table (failure reasons beneath a FAIL row) and
+    any unthresholded criteria characterised beneath it. Under
     measure: pure recording — every criterion's evidence, a declared bar
     noted as met / not met (data, never a verdict). When a baseline
     artefact was persisted, its path is named.
@@ -178,11 +200,13 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
             else:
                 lines.extend(_characterised_lines(criterion_result))
     elif result.composite is not None:
-        lines.append(f"contract {result.contract_id}: {result.composite.value.upper()}")
+        lines.append(f"contract {result.contract_id} — verdict: {result.composite.value.upper()}")
+        judged = [r for r in result.criterion_results if r.verdict is not None]
+        if judged:
+            lines.append("")
+            lines.extend(_verdict_table(judged))
         for criterion_result in result.criterion_results:
-            if criterion_result.verdict is not None:
-                lines.extend(_verdict_lines(criterion_result))
-            else:
+            if criterion_result.verdict is None:
                 lines.extend(_characterised_lines(criterion_result))
         if result.latency is not None:
             lines.extend(_latency_lines(result.latency))
