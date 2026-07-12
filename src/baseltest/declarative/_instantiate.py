@@ -229,18 +229,21 @@ def _resolve_run_size(
     intent: str,
     samples: int | None,
     judged: Sequence[Criterion],
+    samples_provenance: str | None = None,
 ) -> RunSizing:
     """The run's N: an explicit flag, or the verb's own sizing story.
 
     A test under validation intent derives its N from the claim — the
     largest per-criterion feasibility minimum — refusing a silently
     derived N above the limit (the gate binds the number nobody typed;
-    an explicit flag of any size sails through). A smoke test gets the
-    small fixed default. A measure gets no default at all: its budget is
-    an experimental-design decision and must be typed.
+    an explicit flag of any size sails through; a risk-driven N computed
+    from the operator's declared tolerance arrives with its own
+    provenance). A smoke test gets the small fixed default. A measure
+    gets no default at all: its budget is an experimental-design decision
+    and must be typed.
     """
     if samples is not None:
-        return RunSizing(samples=samples, provenance="explicit")
+        return RunSizing(samples=samples, provenance=samples_provenance or "explicit")
     if mode is RunKind.MEASURE:
         raise ContractConfigurationError(
             "a measure run's sample count is yours to choose — run with "
@@ -481,6 +484,7 @@ def instantiate(
     mode: RunKind = RunKind.TEST,
     samples: int | None = None,
     baseline_dir: Path | None = None,
+    samples_provenance: str | None = None,
 ) -> tuple[ServiceContract, RunPlan, RunSizing, dict[str, str], tuple[tuple[str, str], ...]]:
     """Instantiate the contract and plan for a contract declaration under a run mode.
 
@@ -516,7 +520,7 @@ def instantiate(
             if entry.threshold is not None
         ]
         empirical_declared = [c for c in declaration.criteria if c.threshold is None]
-        sizing = _resolve_run_size(mode, declaration.intent, samples, normative)
+        sizing = _resolve_run_size(mode, declaration.intent, samples, normative, samples_provenance)
 
         needs_baseline = bool(empirical_declared) or (
             declaration.latency is not None and bool(declaration.latency.empirical)

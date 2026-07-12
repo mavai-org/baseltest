@@ -69,6 +69,7 @@ def run(
     mode: str | RunKind = RunKind.TEST,
     *,
     samples: int | None = None,
+    samples_provenance: str | None = None,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
     verdict_dir: str | Path | None = None,
     html_report: str | Path | None = None,
@@ -106,6 +107,7 @@ def run(
         mode=run_mode,
         samples=samples,
         baseline_dir=Path(baseline_dir),
+        samples_provenance=samples_provenance,
     )
     if html_report is not None and run_mode is not RunKind.TEST:
         raise ContractConfigurationError(

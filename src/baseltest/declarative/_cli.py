@@ -8,7 +8,9 @@ from baseltest.engine import InfeasibleRunError, RunResult, Verdict
 from baseltest.reporting import bar_standing, render_infeasible
 
 from ._errors import ContractConfigurationError
+from ._parser import load_contract
 from ._providers import ProviderResponseError
+from ._registrations import discover_registrations
 from ._runner import (
     DEFAULT_BASELINE_DIR,
     DEFAULT_EXPLORATIONS_DIR,
@@ -17,6 +19,8 @@ from ._runner import (
     report,
     run,
 )
+from ._services import discover_services
+from ._sizing import ResolvedSizing, SizingRefusalError, resolve_test_sizing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,6 +69,54 @@ def main(argv: list[str] | None = None) -> int:
                 "--no-verdict-xml",
                 action="store_true",
                 help="do not write the verdict-record XML",
+            )
+            verb_parser.add_argument(
+                "--tolerate",
+                action="append",
+                metavar="RATE|CRITERION=RATE",
+                help=(
+                    "the lowest real pass rate you are willing to accept before the "
+                    "test should fail (a rate like 0.84, or a percentage like 84); "
+                    "the run size is computed from it. The bare form addresses a "
+                    "contract with exactly one empirical criterion; repeat "
+                    "CRITERION=RATE to address several"
+                ),
+            )
+            verb_parser.add_argument(
+                "--confidence",
+                default=None,
+                help=(
+                    "how sure you want to be that a PASS is trustworthy (0.95 or "
+                    "95); overrides the contract file's declared confidence"
+                ),
+            )
+            verb_parser.add_argument(
+                "--power",
+                default=None,
+                help=(
+                    "advanced: how reliably a genuine drop to the tolerated rate "
+                    "must be caught (default 0.8)"
+                ),
+            )
+            verb_parser.add_argument(
+                "--yes",
+                action="store_true",
+                help="skip confirmation prompts (for automation)",
+            )
+            verb_parser.add_argument(
+                "--json",
+                dest="emit_json",
+                action="store_true",
+                help="machine-readable sizing output; implies non-interactive",
+            )
+            verb_parser.add_argument(
+                "--force",
+                action="store_true",
+                help=(
+                    "design the test anyway when the tolerance is at or above the "
+                    "proven baseline (requires --samples; the required-size search "
+                    "is undefined in that regime)"
+                ),
             )
         if verb == "measure":
             verb_parser.add_argument(
@@ -164,16 +216,26 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         verdict_dir = None
-        if arguments.command == "test" and not arguments.no_verdict_xml:
-            verdict_dir = arguments.verdict_dir
+        emit = True
+        sizing = ResolvedSizing(samples=arguments.samples)
+        if arguments.command == "test":
+            if not arguments.no_verdict_xml:
+                verdict_dir = arguments.verdict_dir
+            emit = not arguments.emit_json
+            sizing = _resolve_sizing(arguments)
         result = run(
             arguments.contract_file,
             mode=arguments.command,
-            samples=arguments.samples,
+            samples=sizing.samples,
+            samples_provenance=sizing.provenance,
             baseline_dir=arguments.baseline_dir,
             html_report=arguments.html_report,
             verdict_dir=verdict_dir,
+            emit=emit,
         )
+    except SizingRefusalError as refusal:
+        print(f"{refusal}", file=sys.stderr)
+        return 2
     except ContractConfigurationError as refusal:
         print(f"contract {arguments.contract_file}: cannot run as declared", file=sys.stderr)
         print(f"  {refusal}", file=sys.stderr)
@@ -202,6 +264,25 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(arguments, "assert_bars", False):
         return _assert_recorded_bars(result)
     return 0  # a plain measure run records; recording cannot fail
+
+
+def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
+    """The ``test`` verb's sizing conversation, before any invocation."""
+    declaration = load_contract(arguments.contract_file)
+    discover_registrations(arguments.contract_file)
+    services = discover_services(arguments.contract_file)
+    return resolve_test_sizing(
+        declaration,
+        services,
+        baseline_dir=arguments.baseline_dir,
+        samples=arguments.samples,
+        tolerate=arguments.tolerate,
+        confidence=arguments.confidence,
+        power=arguments.power,
+        assume_yes=arguments.yes,
+        emit_json=arguments.emit_json,
+        force=arguments.force,
+    )
 
 
 def _assert_recorded_bars(result: RunResult) -> int:

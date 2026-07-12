@@ -214,6 +214,8 @@ def render_run_plan(
     """
     unit = " per configuration" if per_configuration else ""
     flag = "--samples-per-config" if per_configuration else "--samples"
+    if provenance == "risk-driven":
+        return f"n = {samples}{unit} (risk-driven: computed from your declared tolerance)"
     if provenance == "derived":
         detail = f"derived: threshold {threshold} requires at least {samples} samples"
         if demanded_by is not None:

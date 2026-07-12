@@ -142,6 +142,9 @@ class ContractDeclaration:
     confidence: float
     latency: LatencyDeclaration | None = None
     source_path: Path | None = field(default=None, compare=False)
+    # Whether the file itself declared `confidence:` (as opposed to the
+    # default applying) — interactive sizing asks only for what is missing.
+    confidence_declared: bool = field(default=False, compare=False)
 
 
 def _fail(message: str) -> ContractConfigurationError:
@@ -504,6 +507,7 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
         confidence=float(confidence),
         latency=_parse_latency(data),
         source_path=source_path,
+        confidence_declared="confidence" in data,
     )
 
 
