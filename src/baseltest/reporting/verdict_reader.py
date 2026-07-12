@@ -5,9 +5,12 @@ report (``--html-report``) and a post-hoc ``basel report test`` over the
 same run parse the same XML and are identical by construction.
 """
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from xml.etree import ElementTree
+
+from .run_design import BaselineDisclosure, ClaimDisclosure, RunDesign
 
 _NS = "{http://mavai.org/verdict/1.0}"
 
@@ -74,6 +77,7 @@ class VerdictRecord:
     contract_ref: str | None = None
     wilson_lower: float | None = None
     statistics_threshold: float | None = None
+    design: RunDesign | None = None
 
 
 def parse_verdict_record(text: str) -> VerdictRecord:
@@ -152,6 +156,7 @@ def parse_verdict_record(text: str) -> VerdictRecord:
     identity = root.find(f"{_NS}identity")
     provenance = root.find(f"{_NS}provenance")
     statistics = root.find(f"{_NS}statistics")
+    design = _parse_design(root)
     wilson_lower = statistics.get("wilson-lower") if statistics is not None else None
     statistics_threshold = statistics.get("threshold") if statistics is not None else None
     return VerdictRecord(
@@ -172,6 +177,55 @@ def parse_verdict_record(text: str) -> VerdictRecord:
         statistics_threshold=(
             float(statistics_threshold) if statistics_threshold is not None else None
         ),
+        design=design,
+    )
+
+
+def _parse_design(root: ElementTree.Element) -> RunDesign | None:
+    """The recorded run design: environment sizing entries plus the
+    ``baseline`` element. Records that predate the disclosures parse to
+    ``None`` and render without a design block."""
+    environment = root.find(f"{_NS}environment")
+    entries: dict[str, str] = {}
+    if environment is not None:
+        for element in environment.findall(f"{_NS}entry"):
+            entries[element.get("key", "")] = element.get("value", "")
+    approach = entries.get("sizing-approach")
+    if approach is None:
+        return None
+
+    claims = []
+    for key, value in entries.items():
+        if not key.startswith("sizing-claim:"):
+            continue
+        body = json.loads(value)
+        claims.append(
+            ClaimDisclosure(
+                criterion=key.removeprefix("sizing-claim:"),
+                baseline_rate=float(body["baselineRate"]),
+                tolerated_rate=float(body["toleratedRate"]),
+                confidence=float(body["confidence"]),
+                target_power=float(body["targetPower"]),
+                required_n=int(body["requiredN"]) if body.get("requiredN") is not None else None,
+            )
+        )
+
+    baseline_element = root.find(f"{_NS}baseline")
+    baseline = None
+    if baseline_element is not None:
+        baseline = BaselineDisclosure(
+            source_file=baseline_element.get("source-file", ""),
+            generated_at=baseline_element.get("generated-at", ""),
+            samples=int(baseline_element.get("samples", "0")),
+            baseline_rate=float(baseline_element.get("baseline-rate", "0")),
+            derived_threshold=float(baseline_element.get("derived-threshold", "0")),
+        )
+
+    return RunDesign(
+        approach=approach,
+        claims=tuple(sorted(claims, key=lambda c: c.criterion)),
+        governing=entries.get("sizing-governing"),
+        baseline=baseline,
     )
 
 

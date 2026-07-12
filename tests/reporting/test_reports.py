@@ -5,6 +5,10 @@ from pathlib import Path
 from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
 from baseltest.engine import RunKind, RunPlan, execute
 from baseltest.reporting import (
+    BaselineDisclosure,
+    ClaimDisclosure,
+    RunDesign,
+    SizingDisclosure,
     parse_verdict_record,
     read_exploration_directory,
     read_verdict_directory,
@@ -131,6 +135,70 @@ class TestTestReport:
         sweep = read_verdict_directory(tmp_path)
         assert len(sweep.records) == 1
         assert sweep.skipped == ("junk.xml",)
+
+
+RISK_DRIVEN_DESIGN = RunDesign(
+    approach="confidence-first (risk-driven)",
+    claims=(
+        ClaimDisclosure(
+            criterion="c",
+            baseline_rate=0.9,
+            tolerated_rate=0.84,
+            confidence=0.95,
+            target_power=0.8,
+            required_n=214,
+        ),
+    ),
+    governing="c",
+    baseline=BaselineDisclosure(
+        source_file="svc-abc.yaml",
+        generated_at="2026-07-12T10:00:00+00:00",
+        samples=1000,
+        baseline_rate=0.9,
+        derived_threshold=0.85,
+    ),
+)
+
+
+class TestRunDesignDisclosures:
+    def test_approach_and_paired_downsizing_disclosures_render(self) -> None:
+        disclosure = SizingDisclosure(
+            design=RISK_DRIVEN_DESIGN,
+            executed_samples=100,
+            target_power=0.8,
+            detectable_rate=0.769353,
+            baseline_samples=1000,
+            time_saved_fraction=0.9,
+            time_saved_ms=12_300,
+        )
+        html = render_test_report([run_record()], [disclosure])
+        assert "Run design" in html
+        assert "confidence-first (risk-driven)" in html
+        assert "tolerated rate 84%, confidence 95%, target power 80%, computed n 214" in html
+        assert "(set the run size)" in html
+        assert (
+            "With 100 samples, this test would only catch a drop below 77% "
+            "four times out of five." in html
+        )
+        assert "about 90% less execution time" in html
+        assert "roughly 12.3 seconds" in html
+        assert "Estimates only" in html
+
+    def test_no_downsizing_disclosure_without_a_detectable_rate(self) -> None:
+        disclosure = SizingDisclosure(
+            design=RISK_DRIVEN_DESIGN,
+            executed_samples=1000,
+            target_power=0.8,
+        )
+        html = render_test_report([run_record()], [disclosure])
+        assert "Run design" in html
+        assert "only catch a drop below" not in html
+        assert "less execution time" not in html
+
+    def test_records_without_a_design_render_no_design_block(self) -> None:
+        html = render_test_report([run_record()], [None])
+        assert "Run design" not in html
+        assert render_test_report([run_record()]).count("Run design") == 0
 
 
 class TestExplorationReport:

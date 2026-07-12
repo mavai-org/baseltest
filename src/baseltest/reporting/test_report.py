@@ -10,13 +10,22 @@ every number is read from the parsed record, never computed here.
 """
 
 from .report_html import document_head, escape, footer, timestamp, verdict_css_class
+from .run_design import APPROACH_GLOSSES, SizingDisclosure
 from .verdict_reader import LatencyRecord, VerdictRecord
 
 _STATUS_CLASS = {"PASS": "latency-pass", "STRICT_FAIL": "latency-fail", "INFEASIBLE": "muted"}
 
 
-def render_test_report(records: list[VerdictRecord]) -> str:
-    """Render the parsed verdict records as one self-contained HTML page."""
+def render_test_report(
+    records: list[VerdictRecord],
+    disclosures: list[SizingDisclosure | None] | None = None,
+) -> str:
+    """Render the parsed verdict records as one self-contained HTML page.
+
+    ``disclosures``, aligned with ``records``, carries each record's
+    computed sizing-transparency values (computed upstream — this renderer
+    only formats them); records without one render without a design block.
+    """
     generated = timestamp()
     passed = sum(1 for r in records if r.verdict == "PASS")
     failed = sum(1 for r in records if r.verdict == "FAIL")
@@ -44,6 +53,7 @@ def render_test_report(records: list[VerdictRecord]) -> str:
 
     _append_assumptions(html)
 
+    aligned = disclosures if disclosures is not None else [None] * len(records)
     html.append("<main>\n")
     for contract_id in dict.fromkeys(r.contract_id for r in records):
         html.append('<section class="test-group">\n')
@@ -54,19 +64,22 @@ def render_test_report(records: list[VerdictRecord]) -> str:
             "<th>p95</th><th>p99</th><th>Samples</th><th>Elapsed</th>"
         )
         html.append("</tr>\n</thead>\n<tbody>\n")
-        for record in records:
+        for record, disclosure in zip(records, aligned, strict=True):
             if record.contract_id == contract_id:
-                _append_row(html, record)
+                _append_row(html, record, disclosure)
         html.append("</tbody>\n</table>\n</section>\n")
     html.append("</main>\n")
     html.append(footer(generated))
     return "".join(html)
 
 
-def _append_row(html: list[str], record: VerdictRecord) -> None:
+def _append_row(
+    html: list[str], record: VerdictRecord, disclosure: SizingDisclosure | None = None
+) -> None:
     html.append("<tr>\n<td>\n<details>\n")
     html.append(f"<summary>{escape(record.contract_id)}</summary>\n")
     html.append(f'<pre class="level2">{escape(_summary_text(record))}</pre>\n')
+    _append_run_design(html, disclosure)
     _append_per_criterion(html, record)
     _append_latency_detail(html, record.latency)
     _append_clauses(html, record)
@@ -96,6 +109,67 @@ def _summary_text(record: VerdictRecord) -> str:
     if record.contract_ref is not None:
         lines.append(f"contract ref: {record.contract_ref}")
     return "\n".join(lines)
+
+
+def _pct(rate: float) -> str:
+    return f"{round(rate * 100)}%"
+
+
+def _seconds(milliseconds: int) -> str:
+    return f"{milliseconds / 1000:.1f} seconds"
+
+
+def _power_phrase(target_power: float) -> str:
+    """Plain language for the disclosed power; the default reads as odds."""
+    if abs(target_power - 0.8) < 1e-9:
+        return "four times out of five"
+    return f"about {_pct(target_power)} of the time"
+
+
+def _append_run_design(html: list[str], disclosure: SizingDisclosure | None) -> None:
+    """The sizing-transparency block: the approach that shaped the design,
+    and — for a run smaller than its baseline's measurement — the paired
+    downsizing and efficiency disclosures. All values arrive computed."""
+    if disclosure is None:
+        return
+    design = disclosure.design
+    html.append("<details>\n<summary>Run design</summary>\n")
+    html.append('<div class="per-criterion">\n<div class="criterion-block">\n')
+    gloss = APPROACH_GLOSSES.get(design.approach)
+    line = f"<strong>Approach:</strong> {escape(design.approach)}"
+    if gloss:
+        line += f" — {escape(gloss)}"
+    html.append(f"<p>{line}</p>\n")
+    if design.claims:
+        html.append("<dl>\n")
+        for claim in design.claims:
+            marker = " (set the run size)" if claim.criterion == design.governing else ""
+            required = f", computed n {claim.required_n}" if claim.required_n is not None else ""
+            html.append(
+                f"<dt>{escape(claim.criterion)}{marker}</dt>"
+                f"<dd>tolerated rate {_pct(claim.tolerated_rate)}, confidence "
+                f"{_pct(claim.confidence)}, target power {_pct(claim.target_power)}"
+                f"{required}</dd>\n"
+            )
+        html.append("</dl>\n")
+    if disclosure.detectable_rate is not None and disclosure.baseline_samples is not None:
+        html.append(
+            f"<p>This run executed {disclosure.executed_samples} samples against a "
+            f"baseline measured over {disclosure.baseline_samples}. With "
+            f"{disclosure.executed_samples} samples, this test would only catch a drop "
+            f"below {_pct(disclosure.detectable_rate)} "
+            f"{_power_phrase(disclosure.target_power)}.</p>\n"
+        )
+        if disclosure.time_saved_fraction is not None and disclosure.time_saved_ms is not None:
+            html.append(
+                f"<p>Estimated saving versus a run at the baseline's "
+                f"{disclosure.baseline_samples} samples: about "
+                f"{_pct(disclosure.time_saved_fraction)} less execution time "
+                f"(roughly {_seconds(disclosure.time_saved_ms)}, from this run's own "
+                "per-sample average). Estimates only; no token figures are recorded "
+                "for this run.</p>\n"
+            )
+    html.append("</div>\n</div>\n</details>\n")
 
 
 def _append_per_criterion(html: list[str], record: VerdictRecord) -> None:

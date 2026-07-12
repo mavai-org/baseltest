@@ -16,6 +16,13 @@ from .explore_report import (
     read_exploration_directory,
     render_exploration_report,
 )
+from .run_design import (
+    RISK_DRIVEN_APPROACH,
+    BaselineDisclosure,
+    ClaimDisclosure,
+    RunDesign,
+    SizingDisclosure,
+)
 from .test_report import render_test_report
 from .verdict_reader import (
     VerdictRecord,
@@ -26,8 +33,13 @@ from .verdict_reader import (
 from .verdict_xml import render_verdict_record, write_verdict_record
 
 __all__ = [
+    "RISK_DRIVEN_APPROACH",
+    "BaselineDisclosure",
+    "ClaimDisclosure",
     "ContractComparison",
     "ExplorationSweep",
+    "RunDesign",
+    "SizingDisclosure",
     "VerdictRecord",
     "VerdictSweep",
     "bar_standing",

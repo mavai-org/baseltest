@@ -226,8 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run(
             arguments.contract_file,
             mode=arguments.command,
-            samples=sizing.samples,
-            samples_provenance=sizing.provenance,
+            sizing_resolution=sizing,
             baseline_dir=arguments.baseline_dir,
             html_report=arguments.html_report,
             verdict_dir=verdict_dir,

@@ -306,6 +306,59 @@ class TestOverReach:
         assert "declined" in capsys.readouterr().err
 
 
+class TestReportDisclosures:
+    def test_a_downsized_run_disclosures_approach_trade_and_saving(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        report = tmp_path / "report.html"
+        code = main(
+            [
+                "test",
+                str(contract),
+                "--samples",
+                "50",
+                "--yes",
+                "--html-report",
+                str(report),
+            ]
+        )
+        assert code in (0, 1)
+        html = report.read_text(encoding="utf-8")
+        assert "Run design" in html
+        assert "sample-size-first" in html
+        assert "This run executed 50 samples against a baseline measured over 200." in html
+        assert "would only catch a drop below" in html
+        assert "four times out of five" in html
+        assert "less execution time" in html and "Estimates only" in html
+
+    def test_a_risk_driven_run_disclosures_the_approach_and_claims(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        report = tmp_path / "report.html"
+        code = main(["test", str(contract), "--tolerate", "84", "--html-report", str(report)])
+        assert code == 0
+        html = report.read_text(encoding="utf-8")
+        assert "confidence-first (risk-driven)" in html
+        assert f"computed n {REQUIRED_FOR_MAIN_CLAIM}" in html
+        # The computed size exceeds the baseline's own 200 samples: there is
+        # no downsizing trade to disclose.
+        assert "only catch a drop below" not in html
+
+    def test_the_post_hoc_report_carries_the_same_disclosures(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        inline = tmp_path / "inline.html"
+        assert main(
+            ["test", str(contract), "--samples", "50", "--yes", "--html-report", str(inline)]
+        ) in (0, 1)
+        assert main(["report", "test"]) == 0
+        post_hoc = (tmp_path / "_baseltest" / "reports" / "test.html").read_text(encoding="utf-8")
+        assert "Run design" in post_hoc
+        assert "would only catch a drop below" in post_hoc
+        assert "less execution time" in post_hoc
+
+
 class TestJsonMode:
     def test_json_emits_the_sizing_block_and_runs_silently(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, TWO_CRITERIA)

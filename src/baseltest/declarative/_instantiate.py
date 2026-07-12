@@ -40,6 +40,7 @@ from baseltest.statistics import (
     check_feasibility,
     derive_latency_threshold,
     derive_sample_size_first,
+    wilson_lower_bound,
 )
 
 from ._errors import ContractConfigurationError
@@ -366,6 +367,26 @@ def _latency_bar(
 
 
 @dataclass(frozen=True, slots=True)
+class BaselineContext:
+    """The resolved baseline a test's empirical criteria judged against —
+    the identity and the weakest criterion's standing, for the report's
+    sizing disclosures.
+
+    ``weakest_effective_rate`` is the lowest effective baseline rate among
+    the judged empirical criteria (the criterion closest to any tolerance,
+    hence the one downsizing hurts first); ``weakest_threshold`` is that
+    criterion's derived bar at this run's size.
+    """
+
+    source_file: str
+    generated_at: str
+    samples: int
+    weakest_criterion: str
+    weakest_effective_rate: float
+    weakest_threshold: float
+
+
+@dataclass(frozen=True, slots=True)
 class ExploreConfiguration:
     """One grid point, ready to run: its factors, contract instance, and plan.
 
@@ -485,13 +506,22 @@ def instantiate(
     samples: int | None = None,
     baseline_dir: Path | None = None,
     samples_provenance: str | None = None,
-) -> tuple[ServiceContract, RunPlan, RunSizing, dict[str, str], tuple[tuple[str, str], ...]]:
+) -> tuple[
+    ServiceContract,
+    RunPlan,
+    RunSizing,
+    dict[str, str],
+    tuple[tuple[str, str], ...],
+    "BaselineContext | None",
+]:
     """Instantiate the contract and plan for a contract declaration under a run mode.
 
     Returns the contract, the run plan, the run's sizing (N and its
     provenance — the run-plan line's data), the resolved service
-    provenance, and — under ``test`` — the ``(name, reason)`` pairs for
-    empirical criteria that could not be judged (no matching baseline).
+    provenance, — under ``test`` — the ``(name, reason)`` pairs for
+    empirical criteria that could not be judged (no matching baseline),
+    and the resolved baseline's context when empirical criteria were
+    judged against one (the report's sizing disclosures read it).
 
     Under ``test``, a criterion without a declared threshold is an
     empirical criterion: when ``baseline_dir`` holds a matching baseline
@@ -540,6 +570,7 @@ def instantiate(
         latency_bar = _latency_bar(declaration, sizing.samples, resolution)
 
         empirical: list[Criterion] = []
+        weakest: tuple[float, str, float] | None = None  # (effective rate, name, threshold)
         if empirical_declared:
             for entry in empirical_declared:
                 if resolution is None or not resolution.matched:
@@ -579,6 +610,25 @@ def instantiate(
                         ),
                     )
                 )
+                effective_rate = (
+                    wilson_lower_bound(evidence.successes, evidence.trials, built.confidence)
+                    if evidence.successes == evidence.trials
+                    else evidence.successes / evidence.trials
+                )
+                if weakest is None or effective_rate < weakest[0]:
+                    weakest = (effective_rate, entry.name, derivation.min_pass_rate)
+        baseline_context = None
+        if weakest is not None:
+            assert resolution is not None and resolution.baseline is not None
+            stored_baseline = resolution.baseline
+            baseline_context = BaselineContext(
+                source_file=stored_baseline.path.name,
+                generated_at=stored_baseline.generated_at,
+                samples=stored_baseline.sample_count,
+                weakest_criterion=weakest[1],
+                weakest_effective_rate=weakest[0],
+                weakest_threshold=weakest[2],
+            )
         criteria = tuple(normative + empirical)
         if not criteria:
             detail = f" ({skipped[0][1]})" if skipped else ""
@@ -596,6 +646,7 @@ def instantiate(
         # A declared latency bar is a test-time assertion; a measure run's
         # product — the baseline's latency profile — is what it derives from.
         latency_bar = None
+        baseline_context = None
 
     contract = ServiceContract(
         contract_id=declaration.contract,
@@ -606,4 +657,4 @@ def instantiate(
     )
     intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
     plan = RunPlan(samples=sizing.samples, inputs=declaration.inputs, kind=mode, intent=intent)
-    return contract, plan, sizing, service_provenance, tuple(skipped)
+    return contract, plan, sizing, service_provenance, tuple(skipped), baseline_context

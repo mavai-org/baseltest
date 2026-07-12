@@ -9,6 +9,10 @@ from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
 from baseltest.reporting import (
+    RISK_DRIVEN_APPROACH,
+    BaselineDisclosure,
+    ClaimDisclosure,
+    RunDesign,
     parse_verdict_record,
     read_exploration_directory,
     read_verdict_directory,
@@ -21,11 +25,13 @@ from baseltest.reporting import (
     write_verdict_record,
 )
 
+from ._disclosure import sizing_disclosure
 from ._errors import ContractConfigurationError
-from ._instantiate import instantiate, instantiate_explore
+from ._instantiate import BaselineContext, instantiate, instantiate_explore
 from ._parser import FORMAT_IDENTIFIER, load_contract
 from ._registrations import discover_registrations
 from ._services import discover_services
+from ._sizing import ResolvedSizing
 
 # Every baseltest-generated artefact lives under one visible parent in the
 # working directory: one root entry, one .gitignore line, one `rm -rf` for a
@@ -70,6 +76,7 @@ def run(
     *,
     samples: int | None = None,
     samples_provenance: str | None = None,
+    sizing_resolution: ResolvedSizing | None = None,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
     verdict_dir: str | Path | None = None,
     html_report: str | Path | None = None,
@@ -83,6 +90,9 @@ def run(
 
     Args:
         path: The contract file.
+        sizing_resolution: The CLI's resolved risk-driven sizing, when the
+            invocation went through the sizing conversation — supplies the
+            sample count, its provenance, and the recorded design claims.
         baseline_dir: Where measure runs persist their baseline artefact.
         emit: Whether to print the rendered output (the CLI does; API
             callers may render from the returned result instead).
@@ -97,11 +107,14 @@ def run(
             declared threshold under verification intent.
     """
     run_mode = RunKind(mode) if isinstance(mode, str) else mode
+    if sizing_resolution is not None:
+        samples = sizing_resolution.samples if samples is None else samples
+        samples_provenance = samples_provenance or sizing_resolution.provenance
     contract_path = Path(path)
     declaration = load_contract(contract_path)
     discover_registrations(contract_path)
     services = discover_services(contract_path)
-    contract, plan, sizing, service_provenance, skipped = instantiate(
+    contract, plan, sizing, service_provenance, skipped, baseline_context = instantiate(
         declaration,
         services,
         mode=run_mode,
@@ -109,6 +122,9 @@ def run(
         baseline_dir=Path(baseline_dir),
         samples_provenance=samples_provenance,
     )
+    design = None
+    if run_mode is RunKind.TEST:
+        design = _run_design(sizing_resolution, baseline_context)
     if html_report is not None and run_mode is not RunKind.TEST:
         raise ContractConfigurationError(
             "the HTML report is the probabilistic-test summary and applies to test "
@@ -133,7 +149,7 @@ def run(
     )
 
     if verdict_dir is not None and run_mode is RunKind.TEST:
-        verdict_path = write_verdict_record(result, Path(verdict_dir))
+        verdict_path = write_verdict_record(result, Path(verdict_dir), design)
         if emit:
             print(f"  verdict record written: {verdict_path.as_posix()}")
 
@@ -153,16 +169,60 @@ def run(
         # The one rendering path: the report is rendered from the persisted
         # verdict record's content, so an inline report and a post-hoc
         # `basel report test` over the same run are identical.
-        verdict_record = parse_verdict_record(render_verdict_record(result))
+        verdict_record = parse_verdict_record(render_verdict_record(result, design))
         report_path = Path(html_report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(render_test_report([verdict_record]), encoding="utf-8")
+        report_path.write_text(
+            render_test_report([verdict_record], [sizing_disclosure(verdict_record)]),
+            encoding="utf-8",
+        )
 
     if emit:
         for name, reason in skipped:
             print(f"note: empirical criterion {name}: {reason}")
         print(render_run(result, baseline_path=baseline_path))
     return result
+
+
+def _run_design(
+    sizing_resolution: ResolvedSizing | None,
+    baseline_context: BaselineContext | None,
+) -> RunDesign:
+    """The recorded design facts a test's verdict record carries.
+
+    The approach comes from the sizing conversation when one happened;
+    otherwise it is the design fact the instantiation itself establishes —
+    empirical criteria mean the size came first and the bar was derived at
+    it (sample-size-first), declared bars alone are threshold-first.
+    """
+    approach = sizing_resolution.approach if sizing_resolution is not None else None
+    if approach is None:
+        approach = "sample-size-first" if baseline_context is not None else "threshold-first"
+    claims: tuple[ClaimDisclosure, ...] = ()
+    governing = None
+    if sizing_resolution is not None and approach == RISK_DRIVEN_APPROACH:
+        governing = sizing_resolution.governing
+        claims = tuple(
+            ClaimDisclosure(
+                criterion=claim.criterion,
+                baseline_rate=claim.baseline_rate,
+                tolerated_rate=claim.tolerated_rate,
+                confidence=claim.confidence,
+                target_power=claim.target_power,
+                required_n=claim.required_n,
+            )
+            for claim in sizing_resolution.claims
+        )
+    baseline = None
+    if baseline_context is not None:
+        baseline = BaselineDisclosure(
+            source_file=baseline_context.source_file,
+            generated_at=baseline_context.generated_at,
+            samples=baseline_context.samples,
+            baseline_rate=baseline_context.weakest_effective_rate,
+            derived_threshold=baseline_context.weakest_threshold,
+        )
+    return RunDesign(approach=approach, claims=claims, governing=governing, baseline=baseline)
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,7 +359,8 @@ def report(
             )
         for name in sweep.skipped:
             print(f"note: skipped unparseable verdict record {name}", file=sys.stderr)
-        content = render_test_report(list(sweep.records))
+        records = list(sweep.records)
+        content = render_test_report(records, [sizing_disclosure(r) for r in records])
         target = Path(out) if out is not None else DEFAULT_REPORTS_DIR / "test.html"
     else:
         root = Path(explorations_dir)
