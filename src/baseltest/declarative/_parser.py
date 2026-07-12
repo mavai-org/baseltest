@@ -63,6 +63,8 @@ _CRITERION_KEYS = {
     "threshold",
     "threshold-origin",
     "contract-ref",
+    "tolerate",
+    "confidence",
     "postconditions",
     "equals",
     "one-of",
@@ -91,13 +93,23 @@ class FormDeclaration:
 
 @dataclass(frozen=True, slots=True)
 class CriterionDeclaration:
-    """One criterion entry as declared in the file."""
+    """One criterion entry as declared in the file.
+
+    ``tolerate`` is an empirical criterion's sizing claim: the worst
+    acceptable true pass rate, versioned with the claim it protects. It
+    feeds risk-driven run sizing at test time and is meaningless alongside
+    a declared ``threshold`` (a stipulated bar carries no baseline claim).
+    ``confidence`` overrides the contract-level confidence for this
+    criterion's derivation and judgement.
+    """
 
     name: str
     forms: tuple[FormDeclaration, ...]
     threshold: float | None
     threshold_origin: str | None
     contract_ref: str | None
+    tolerate: float | None = None
+    confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,6 +308,28 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
             raise _fail(f"{where}: `threshold:` must be a number in (0, 1)")
         threshold = float(threshold)
 
+    tolerate = data.get("tolerate")
+    if tolerate is not None:
+        if threshold is not None:
+            raise _fail(
+                f"{where}: `tolerate:` declares how far below the measured baseline "
+                "a true rate may drop, so it belongs on an empirical criterion — a "
+                "criterion with a declared `threshold:` has no baseline claim to "
+                "protect; drop one of the two keys"
+            )
+        if not isinstance(tolerate, int | float) or not 0 < float(tolerate) < 1:
+            raise _fail(f"{where}: `tolerate:` must be a number in (0, 1)")
+        tolerate = float(tolerate)
+
+    criterion_confidence = data.get("confidence")
+    if criterion_confidence is not None:
+        if (
+            not isinstance(criterion_confidence, int | float)
+            or not 0 < float(criterion_confidence) < 1
+        ):
+            raise _fail(f"{where}: `confidence:` must be a number in (0, 1)")
+        criterion_confidence = float(criterion_confidence)
+
     forms: list[FormDeclaration] = []
     for form in _FORM_KEYS:
         if form in data:
@@ -320,6 +354,8 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
         threshold=threshold,
         threshold_origin=data.get("threshold-origin"),
         contract_ref=data.get("contract-ref"),
+        tolerate=tolerate,
+        confidence=criterion_confidence,
     )
 
 

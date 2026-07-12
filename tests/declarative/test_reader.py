@@ -265,6 +265,34 @@ inputs:
         with pytest.raises(InfeasibleRunError):
             run(write_contract(tmp_path, contract), samples=30)
 
+    def test_tolerate_alongside_threshold_is_refused(self) -> None:
+        contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.5\n    tolerate: 0.4")
+        with pytest.raises(ContractConfigurationError, match="empirical criterion"):
+            parse_contract(contract)
+
+    def test_tolerate_must_be_a_rate_in_the_unit_interval(self) -> None:
+        for bad in ("0", "1", "1.2", '"84"'):
+            contract = GREETING_CONTRACT.replace(
+                "threshold: 0.5", f"name: keeps-up\n    tolerate: {bad}"
+            )
+            with pytest.raises(ContractConfigurationError, match="tolerate"):
+                parse_contract(contract)
+
+    def test_criterion_confidence_must_be_in_the_unit_interval(self) -> None:
+        contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.5\n    confidence: 95")
+        with pytest.raises(ContractConfigurationError, match="confidence"):
+            parse_contract(contract)
+
+    def test_tolerate_and_criterion_confidence_parse_onto_the_declaration(self) -> None:
+        contract = GREETING_CONTRACT.replace(
+            "threshold: 0.5", "name: keeps-up\n    tolerate: 0.84\n    confidence: 0.99"
+        )
+        declaration = parse_contract(contract)
+        (criterion,) = declaration.criteria
+        assert criterion.tolerate == 0.84
+        assert criterion.confidence == 0.99
+        assert criterion.threshold is None
+
 
 class TestViewsEndToEnd:
     def test_views_and_paths(self, tmp_path: Path) -> None:
@@ -495,6 +523,25 @@ inputs: ["a", "b"]
                 mode="test",
                 baseline_dir=tmp_path / "nowhere",
             )
+
+    def test_criterion_confidence_overrides_the_contract_level_for_derivation(
+        self, tmp_path: Path
+    ) -> None:
+        self._bind()
+        contract = write_contract(
+            tmp_path,
+            self.CONTRACT.replace("name: keeps-up", "name: keeps-up\n    confidence: 0.99"),
+        )
+        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
+        result = run(
+            contract, mode="test", samples=200, baseline_dir=tmp_path / "baselines", emit=False
+        )
+        judged = result.criterion_results[0]
+        assert judged.criterion.confidence == 0.99
+        from baseltest.statistics import derive_sample_size_first
+
+        expected = derive_sample_size_first(200, 200, 200, 0.99).min_pass_rate
+        assert judged.criterion.threshold == pytest.approx(expected)
 
     def test_mixed_contract_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
         self._bind()

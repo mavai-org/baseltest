@@ -175,7 +175,8 @@ def _build_criterion(
         name=declaration.name,
         postconditions=tuple(postconditions),
         threshold=declaration.threshold,
-        confidence=confidence,
+        # A criterion-level `confidence:` overrides the contract-level one.
+        confidence=declaration.confidence if declaration.confidence is not None else confidence,
         provenance=provenance,
     )
 
@@ -557,13 +558,13 @@ def instantiate(
                         )
                     )
                     continue
+                built = _build_criterion(entry, declaration.confidence, expected, transforms)
                 derivation = derive_sample_size_first(
                     evidence.successes,
                     evidence.trials,
                     sizing.samples,
-                    declaration.confidence,
+                    built.confidence,
                 )
-                built = _build_criterion(entry, declaration.confidence, expected, transforms)
                 empirical.append(
                     _replace(
                         built,
