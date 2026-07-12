@@ -366,7 +366,7 @@ class _Interaction:
     """How the sizing conversation talks: injectable for tests."""
 
     interactive: bool
-    assume_yes: bool
+    accept_weak_design: bool
     force: bool
     emit_json: bool
     ask: Callable[[str], str]
@@ -475,7 +475,7 @@ def _explicit_samples_mode(
     several = len(criteria) > 1
     claims: list[SizingClaim] = []
     weak_lines: list[str] = []
-    interaction.say(f"\nYou asked to run {samples} tests.\n\nWhat this means:")
+    interaction.say(f"\nYou asked to run {samples} samples.\n\nWhat this means:")
     for criterion in criteria:
         if criterion.tolerated_rate is not None:
             claim = _priced_claim(criterion, target_power)
@@ -514,15 +514,15 @@ def _explicit_samples_mode(
                     f"{_percent(criterion.baseline_rate)}."
                 )
         claims.append(claim)
-    if weak_lines and not (interaction.assume_yes or interaction.force):
+    if weak_lines and not (interaction.accept_weak_design or interaction.force):
         interaction.say("\nwarning: this is a weak test.")
         for line in weak_lines:
             interaction.say(f"  {line}")
         if not interaction.interactive:
             raise SizingRefusalError(
-                "a weak test design needs an explicit go-ahead: re-run with --yes to "
-                "confirm it, raise --samples, or declare what the test must catch "
-                "with --tolerate"
+                "a weak test design needs an explicit go-ahead: re-run with "
+                "--accept-weak-design to confirm it, raise --samples, or declare "
+                "what the test must catch with --tolerate"
             )
         if not interaction.confirm("Continue anyway?", default_yes=False):
             raise SizingRefusalError("run declined — no samples were taken")
@@ -559,7 +559,7 @@ def _risk_driven_mode(
             json.dumps(_json_payload(claims, samples, governing, explanations), indent=2)
         )
     else:
-        interaction.say(f"\nYou need to run {samples} tests.\n\nWhat this means:")
+        interaction.say(f"\nThis test needs {samples} samples.\n\nWhat this means:")
         for line in explanations:
             interaction.say(line)
         if samples > LARGE_RUN_NOTE_LIMIT:
@@ -570,7 +570,7 @@ def _risk_driven_mode(
             )
     if (
         prompted
-        and not interaction.assume_yes
+        and not interaction.accept_weak_design
         and not interaction.confirm(f"\nRun {samples} tests now?", default_yes=True)
     ):
         raise SizingRefusalError("run declined — no samples were taken")
@@ -592,7 +592,7 @@ def resolve_test_sizing(
     tolerate: list[str] | None,
     confidence: str | None,
     power: str | None,
-    assume_yes: bool,
+    accept_weak_design: bool,
     emit_json: bool,
     force: bool,
     ask: Callable[[str], str] | None = None,
@@ -614,7 +614,7 @@ def resolve_test_sizing(
     _refuse_contradictory_sizing_flags(samples, tolerate, power, force)
     interaction = _Interaction(
         interactive=sys.stdin.isatty() and not emit_json,
-        assume_yes=assume_yes,
+        accept_weak_design=accept_weak_design,
         force=force,
         emit_json=emit_json,
         # Resolved at call time so a test harness's stand-ins apply.

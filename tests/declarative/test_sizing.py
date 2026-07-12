@@ -95,7 +95,7 @@ class TestFullySpecified:
         )
         assert code == 0
         out = capsys.readouterr().out
-        assert f"You need to run {REQUIRED_FOR_MAIN_CLAIM} tests." in out
+        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
         assert f"n = {REQUIRED_FOR_MAIN_CLAIM} (risk-driven" in out
         assert "confident the true pass rate is at least" in out
         assert "catch a genuine drop to 84% about 80% of the time" in out
@@ -107,7 +107,7 @@ class TestFullySpecified:
             ONE_CRITERION.replace("name: keeps-up", "name: keeps-up\n    tolerate: 0.84"),
         )
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
-        assert f"You need to run {REQUIRED_FOR_MAIN_CLAIM} tests." in capsys.readouterr().out
+        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in capsys.readouterr().out
 
     def test_flag_overrides_the_contract_key(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(
@@ -117,7 +117,7 @@ class TestFullySpecified:
         )
         assert main(["test", str(contract), "--tolerate", "0.84", "--no-verdict-xml"]) == 0
         # The flag's tighter tolerance governs, not the key's cheaper one.
-        assert f"You need to run {REQUIRED_FOR_MAIN_CLAIM} tests." in capsys.readouterr().out
+        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in capsys.readouterr().out
 
     def test_statistical_jargon_stays_out_of_the_output(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
@@ -145,7 +145,7 @@ class TestMultiCriterion:
         )
         assert code == 0
         out = capsys.readouterr().out
-        assert f"You need to run {REQUIRED_FOR_MAIN_CLAIM} tests." in out
+        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
         assert "criterion keeps-up:" in out and "criterion stays-rich:" in out
         assert "(this criterion set the run size)" in out
 
@@ -173,7 +173,7 @@ class TestInteractiveMode:
         out = capsys.readouterr().out
         assert "proven baseline pass rate for criterion keeps-up is 90%" in out
         assert "How sure do you want to be" in out
-        assert f"You need to run {REQUIRED_FOR_MAIN_CLAIM} tests." in out
+        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
 
     def test_invalid_answers_are_re_asked(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
@@ -231,7 +231,7 @@ class TestExplicitSamples:
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
         assert main(["test", str(contract), "--samples", "400", "--no-verdict-xml"]) == 0
         out = capsys.readouterr().out
-        assert "You asked to run 400 tests." in out
+        assert "You asked to run 400 samples." in out
         assert "confident the true pass rate is at least" in out
         assert "warning" not in out.lower()
 
@@ -240,12 +240,14 @@ class TestExplicitSamples:
         assert main(["test", str(contract), "--samples", "30"]) == 2
         captured = capsys.readouterr()
         assert "weak test" in captured.out
-        assert "--yes" in captured.err
+        assert "--accept-weak-design" in captured.err
         assert not list((tmp_path / "_baseltest" / "verdicts").glob("*.xml"))
 
     def test_yes_restores_full_automation_for_a_weak_size(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
-        code = main(["test", str(contract), "--samples", "30", "--yes", "--no-verdict-xml"])
+        code = main(
+            ["test", str(contract), "--samples", "30", "--accept-weak-design", "--no-verdict-xml"]
+        )
         assert code in (0, 1)  # judged honestly at the weak size
         assert "only catch a genuine drop" in capsys.readouterr().out
 
@@ -274,7 +276,7 @@ class TestExplicitSamples:
         code = main(["test", str(contract), "--samples", "400", "--no-verdict-xml"])
         assert code in (0, 1)
         out = capsys.readouterr().out
-        assert "You asked to run 400 tests." in out
+        assert "You asked to run 400 samples." in out
         assert "confident the true pass rate is at least" in out
 
     def test_interactive_confirmation_lets_a_weak_run_proceed(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -337,7 +339,7 @@ class TestOverReach:
         assert code in (0, 1)
         out = capsys.readouterr().out
         assert "more than the evidence supports" in out
-        assert "You asked to run 50 tests." in out
+        assert "You asked to run 50 samples." in out
 
     def test_interactive_over_reach_confirm_defaults_to_no(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
@@ -358,7 +360,7 @@ class TestReportDisclosures:
                 str(contract),
                 "--samples",
                 "50",
-                "--yes",
+                "--accept-weak-design",
                 "--html-report",
                 str(report),
             ]
@@ -390,7 +392,15 @@ class TestReportDisclosures:
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
         inline = tmp_path / "inline.html"
         assert main(
-            ["test", str(contract), "--samples", "50", "--yes", "--html-report", str(inline)]
+            [
+                "test",
+                str(contract),
+                "--samples",
+                "50",
+                "--accept-weak-design",
+                "--html-report",
+                str(inline),
+            ]
         ) in (0, 1)
         assert main(["report", "test"]) == 0
         post_hoc = (tmp_path / "_baseltest" / "reports" / "test.html").read_text(encoding="utf-8")

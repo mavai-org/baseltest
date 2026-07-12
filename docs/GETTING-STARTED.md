@@ -141,13 +141,13 @@ Declare the claim wherever it belongs:
 Every mode prints the **explanation sentence**, computed from the n that actually runs:
 
 ```
-You need to run 214 tests.
+This test needs 214 samples.
 
 What this means:
 If this test passes, you can be 95% confident the true pass rate is at least 85%. This design will catch a genuine drop to 84% about 80% of the time.
 ```
 
-`--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--yes` restores automation). A tolerance **at or above** the proven baseline is over-reach — a test designed to fail, which more samples only make worse — so no size is computed: re-measure and set the tolerance against the new proven rate, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a wider tolerance or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
+`--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--accept-weak-design` restores automation). A tolerance **at or above** the proven baseline is over-reach — a test designed to fail, which more samples only make worse — so no size is computed: re-measure and set the tolerance against the new proven rate, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a wider tolerance or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
 
 The decision rule is untouched — risk-driven sizing only chooses *how many* samples feed the same empirical derivation and judgement. The HTML report's **Run design** block records the deal: the approach (`confidence-first (risk-driven)` or `sample-size-first`), the claims and computed size, and — for a run smaller than its baseline's measurement — the drop it could actually catch and the estimated time saving.
 
