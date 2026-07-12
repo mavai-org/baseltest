@@ -285,7 +285,7 @@ class TestExplicitSamples:
         code = main(["test", str(contract), "--samples", "100"])
         assert code == 2
         out = capsys.readouterr().out
-        assert f"you would need about {REQUIRED_FOR_MAIN_CLAIM} tests" in out
+        assert f"you would need about {REQUIRED_FOR_MAIN_CLAIM} samples" in out
 
     def test_contract_keys_with_explicit_samples_run_at_the_chosen_size(
         self, tmp_path, monkeypatch, capsys

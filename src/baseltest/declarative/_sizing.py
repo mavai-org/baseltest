@@ -280,7 +280,7 @@ def _over_reach_message(criterion: _EmpiricalCriterion) -> str:
         "\n"
         "Unless the system has genuinely improved since that run, this test is very "
         "likely to fail: it must prove the system is better than your own best "
-        "measurement showed. Running more tests will not rescue it — a larger sample "
+        "measurement showed. Running more samples will not rescue it — a larger sample "
         f"pins the result more tightly around the true ~{baseline}, making a pass even "
         "less likely. Only a small, lucky sample could clear the bar.\n"
         "\n"
@@ -452,7 +452,7 @@ def _prompt_confidence(interaction: _Interaction) -> float:
     interaction.say(
         "\nHow sure do you want to be that a PASS is trustworthy?\n"
         "  [1] Standard - 95% sure  (recommended)\n"
-        "  [2] High     - 99% sure  (more careful, needs more tests)\n"
+        "  [2] High     - 99% sure  (more careful, needs more samples)\n"
         "  [3] Custom"
     )
     while True:
@@ -524,7 +524,7 @@ def _explicit_samples_mode(
             if weak:
                 weak_lines.append(
                     f"To reliably catch a drop to {_percent(claim.tolerated_rate)} on "
-                    f"criterion {claim.criterion}, you would need about {required} tests."
+                    f"criterion {claim.criterion}, you would need about {required} samples."
                 )
         else:
             catchable = detectable_rate(
@@ -751,7 +751,7 @@ def resolve_test_sizing(
     ]
     if over:  # unreachable via prompt validation, reachable via keys+prompt mixes
         return _over_reach_mode(resolved, over[0], samples, target_power, interaction)
-    interaction.say("\nCalculating the number of tests needed...")
+    interaction.say("\nCalculating the number of samples needed...")
     return _risk_driven_mode(resolved, declaration, target_power, interaction, prompted=True)
 
 
@@ -782,8 +782,8 @@ def _over_reach_mode(
             raise SizingRefusalError("run declined — no samples were taken")
     if samples is None:
         raise SizingRefusalError(
-            "no number of tests can be computed for a tolerance at or above the "
-            "proven baseline (more tests only make a pass less likely) — choose "
+            "no number of samples can be computed for a tolerance at or above the "
+            "proven baseline (more samples only make a pass less likely) — choose "
             "the size yourself with --samples N"
         )
     # The over-reaching claim prices nothing; explain what the chosen size
