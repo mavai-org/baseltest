@@ -211,11 +211,11 @@ def render_run_plan(
     provenance forms — ``derived`` (the thresholds set the minimum),
     ``explicit`` (a flag sized the run), or ``default`` (the verb's fixed
     default, with the flag named for when the developer wants to size it).
+    A risk-driven run does not use this line: its sizing block's title
+    already states n and where it came from.
     """
     unit = " per configuration" if per_configuration else ""
     flag = "--samples-per-config" if per_configuration else "--samples"
-    if provenance == "risk-driven":
-        return f"n = {samples}{unit} (risk-driven: computed from your declared tolerance)"
     if provenance == "derived":
         detail = f"derived: threshold {threshold} requires at least {samples} samples"
         if demanded_by is not None:

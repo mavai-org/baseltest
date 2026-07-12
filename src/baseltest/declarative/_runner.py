@@ -130,7 +130,9 @@ def run(
             "the HTML report is the probabilistic-test summary and applies to test "
             "runs only — a measure run's product is its baseline artefact"
         )
-    if emit:
+    # A risk-driven run already opened with the sizing block, whose title
+    # line states n and its provenance — no separate run-plan line.
+    if emit and sizing.provenance != "risk-driven":
         print(
             render_run_plan(
                 sizing.samples,

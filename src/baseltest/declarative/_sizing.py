@@ -309,6 +309,43 @@ def _explanation(
     )
 
 
+def _sizing_table(claims: list[SizingClaim], samples: int, governing: str) -> list[str]:
+    """The multi-criterion sizing block as one aligned table: a row per
+    claim, priced at the governing run size, the governing row marked."""
+    headers = (
+        "criterion",
+        "tolerates",
+        "confidence",
+        "drop caught",
+        "a pass proves",
+        "needs alone",
+    )
+    rows = []
+    for claim in claims:
+        floor = wilson_lower_bound_from_rate(claim.baseline_rate, samples, claim.confidence)
+        power = power_at(samples, claim.baseline_rate, claim.tolerated_rate, claim.confidence)
+        rows.append(
+            (
+                claim.criterion,
+                _percent(claim.tolerated_rate),
+                _percent(claim.confidence),
+                f"about {_percent(power)}",
+                f"at least {_percent(floor)}",
+                str(claim.required_n or 0),
+            )
+        )
+    widths = [max(len(header), *(len(row[i]) for row in rows)) for i, header in enumerate(headers)]
+    lines = ["  " + "  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True)).rstrip()]
+    for claim, row in zip(claims, rows, strict=True):
+        cells = [row[0].ljust(widths[0])]
+        cells.extend(row[i].rjust(widths[i]) for i in range(1, len(headers)))
+        line = "  " + "  ".join(cells)
+        if claim.criterion == governing:
+            line += "  ← sets the run size"
+        lines.append(line.rstrip())
+    return lines
+
+
 def _governing_samples(claims: list[SizingClaim], normative_minimum: int) -> tuple[int, str]:
     """The run size: the largest per-criterion requirement, floored by the
     normative criteria's feasibility minimum."""
@@ -559,19 +596,26 @@ def _risk_driven_mode(
             json.dumps(_json_payload(claims, samples, governing, explanations), indent=2)
         )
     else:
-        interaction.say(f"\nThis test needs {samples} samples.\n\nWhat this means:")
-        for line in explanations:
-            interaction.say(line)
+        qualifier = "tolerances" if several else "tolerance"
+        interaction.say(
+            f"\nThis test needs {samples} samples (computed from your declared {qualifier})."
+        )
+        if several:
+            interaction.say("")
+            for line in _sizing_table(claims, samples, governing):
+                interaction.say(line)
+        else:
+            interaction.say(explanations[0])
         if samples > LARGE_RUN_NOTE_LIMIT:
             interaction.say(
-                f"\nnote: {samples} tests is the honest cost of the confidence and "
-                "tolerance you asked for. To spend less, tolerate a larger drop "
+                f"\nnote: a run of {samples} samples is the honest cost of the confidence "
+                "and tolerance you asked for. To spend less, tolerate a larger drop "
                 "(--tolerate) or accept a lower confidence (--confidence)."
             )
     if (
         prompted
         and not interaction.accept_weak_design
-        and not interaction.confirm(f"\nRun {samples} tests now?", default_yes=True)
+        and not interaction.confirm(f"\nRun {samples} samples now?", default_yes=True)
     ):
         raise SizingRefusalError("run declined — no samples were taken")
     return ResolvedSizing(

@@ -95,8 +95,12 @@ class TestFullySpecified:
         )
         assert code == 0
         out = capsys.readouterr().out
-        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
-        assert f"n = {REQUIRED_FOR_MAIN_CLAIM} (risk-driven" in out
+        assert (
+            f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
+            "(computed from your declared tolerance)." in out
+        )
+        # The title line carries n and its provenance; no separate run-plan line.
+        assert f"n = {REQUIRED_FOR_MAIN_CLAIM}" not in out
         assert "confident the true pass rate is at least" in out
         assert "catch a genuine drop to 84% about 80% of the time" in out
 
@@ -107,7 +111,10 @@ class TestFullySpecified:
             ONE_CRITERION.replace("name: keeps-up", "name: keeps-up\n    tolerate: 0.84"),
         )
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
-        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in capsys.readouterr().out
+        assert (
+            f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
+            "(computed from your declared tolerance)." in capsys.readouterr().out
+        )
 
     def test_flag_overrides_the_contract_key(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(
@@ -117,7 +124,10 @@ class TestFullySpecified:
         )
         assert main(["test", str(contract), "--tolerate", "0.84", "--no-verdict-xml"]) == 0
         # The flag's tighter tolerance governs, not the key's cheaper one.
-        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in capsys.readouterr().out
+        assert (
+            f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
+            "(computed from your declared tolerance)." in capsys.readouterr().out
+        )
 
     def test_statistical_jargon_stays_out_of_the_output(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
@@ -145,9 +155,18 @@ class TestMultiCriterion:
         )
         assert code == 0
         out = capsys.readouterr().out
-        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
-        assert "criterion keeps-up:" in out and "criterion stays-rich:" in out
-        assert "(this criterion set the run size)" in out
+        assert (
+            f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
+            "(computed from your declared tolerances)." in out
+        )
+        # The sizing table: header, one row per criterion, governing marked.
+        assert "tolerates" in out and "a pass proves" in out and "needs alone" in out
+        lines = out.splitlines()
+        governing_row = next(line for line in lines if "keeps-up" in line and "←" in line)
+        assert "84%" in governing_row
+        assert governing_row.endswith("← sets the run size")
+        other_row = next(line for line in lines if "stays-rich" in line and "%" in line)
+        assert "70%" in other_row and "←" not in other_row
 
     def test_bare_tolerate_against_several_criteria_is_refused_naming_them(
         self, tmp_path, monkeypatch, capsys
@@ -173,7 +192,10 @@ class TestInteractiveMode:
         out = capsys.readouterr().out
         assert "proven baseline pass rate for criterion keeps-up is 90%" in out
         assert "How sure do you want to be" in out
-        assert f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples." in out
+        assert (
+            f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
+            "(computed from your declared tolerance)." in out
+        )
 
     def test_invalid_answers_are_re_asked(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
