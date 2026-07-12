@@ -604,8 +604,10 @@ def _risk_driven_mode(
             interaction.say("")
             for line in _sizing_table(claims, samples, governing):
                 interaction.say(line)
+            interaction.say("")
         else:
             interaction.say(explanations[0])
+            interaction.say("")
         if samples > LARGE_RUN_NOTE_LIMIT:
             interaction.say(
                 f"\nnote: a run of {samples} samples is the honest cost of the confidence "

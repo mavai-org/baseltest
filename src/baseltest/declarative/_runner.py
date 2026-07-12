@@ -59,13 +59,13 @@ def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
     def on_sample(completed: int, total: int) -> None:
         if completed < total:
             print(
-                f"  sampling {label}: {completed}/{total}",
+                f"sampling {label}: {completed}/{total}",
                 end="\r",
                 file=sys.stderr,
                 flush=True,
             )
         else:
-            print(f"\r\033[K  sampled {label}: {total}/{total}", file=sys.stderr)
+            print(f"\r\033[Ksampled {label}: {total}/{total}", file=sys.stderr)
 
     return on_sample
 
@@ -153,7 +153,7 @@ def run(
     if verdict_dir is not None and run_mode is RunKind.TEST:
         verdict_path = write_verdict_record(result, Path(verdict_dir), design)
         if emit:
-            print(f"  verdict record written: {verdict_path.as_posix()}")
+            print(f"verdict record written: {verdict_path.as_posix()}\n")
 
     baseline_path: str | None = None
     if run_mode is RunKind.MEASURE:
