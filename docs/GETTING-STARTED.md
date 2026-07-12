@@ -138,14 +138,31 @@ Declare the claim wherever it belongs:
 - **On the command line** — `--tolerate 84 --confidence 95` (rates or percentages); a flag overrides the contract key. Against several empirical criteria, name each claim: `--tolerate keeps-up=0.84 --tolerate stays-polite=0.9` (the bare form is refused). The largest requirement governs the run; the output marks which criterion set it.
 - **Interactively** — with no claim declared and a terminal attached, the test asks, shows each criterion's proven baseline rate, and confirms before running. With no terminal it refuses: exit 2, zero invocations, the exact flags named.
 
-Every mode prints the **explanation sentence**, computed from the n that actually runs:
+Every mode explains the n that actually runs. One claim gets a sentence:
 
 ```
-This test needs 214 samples.
-
-What this means:
+This test needs 214 samples (computed from your declared tolerance).
 If this test passes, you can be 95% confident the true pass rate is at least 85%. This design will catch a genuine drop to 84% about 80% of the time.
 ```
+
+Several claims get a table, one row per claim:
+
+```
+This test needs 563 samples (computed from your declared tolerances).
+
+  criterion             tolerates  confidence  drop caught  a pass proves  needs alone
+  fortune-is-delivered        84%         95%   about 100%   at least 89%          134
+  spirits-stay-polite         97%         95%    about 80%   at least 98%          563  ← sets the run size
+```
+
+Reading the columns:
+
+- **criterion** — the promise being priced; one row per empirical criterion with a declared tolerance.
+- **tolerates** — the worst true success rate you said you can live with: your `tolerate:` value.
+- **confidence** — how sure a verdict must be before it counts; the same confidence the pass bar is built at.
+- **drop caught** — if the service really has fallen to the tolerated rate, how often a run of this size will catch it.
+- **a pass proves** — what passing entitles you to claim: the true rate is at least this, at the stated confidence.
+- **needs alone** — the samples this claim would need by itself. The largest number wins the run size; `←` marks the claim that set it, and every other claim gets caught more often than it asked for.
 
 `--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--accept-weak-design` restores automation). A tolerance **at or above** the proven baseline is over-reach — a test designed to fail, which more samples only make worse — so no size is computed: re-measure and set the tolerance against the new proven rate, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a wider tolerance or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
 
