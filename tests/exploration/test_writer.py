@@ -73,8 +73,9 @@ class TestStems:
 class TestRendering:
     def test_family_schema_shape(self) -> None:
         data = parse_yaml(render_exploration(record()))
-        assert data["schemaVersion"] == "punit-spec-1"
-        assert data["useCaseId"] == "support-agent-tuning"
+        assert data["schemaVersion"] == "mavai-explore-1"
+        assert data["serviceContractId"] == "support-agent-tuning"
+        assert data["configuration"] == "temperature-0.7"
         assert data["factors"] == {"temperature": 0.7}
         assert data["execution"] == {
             "samplesPlanned": 5,
@@ -132,10 +133,12 @@ class TestWriting:
         differing = [
             (a, b) for a, b in zip(low.splitlines(), high.splitlines(), strict=True) if a != b
         ]
-        # Same line count, and the differing lines are exactly the factor
-        # values and the statistics that depend on them.
+        # Same line count, and the differing lines are exactly the
+        # configuration name, the factor values, and the statistics that
+        # depend on them.
         keys = {line_a.split(":")[0].strip().strip('"') for line_a, _ in differing}
         assert keys == {
+            "configuration",
             "temperature",
             "observed",
             "successes",
