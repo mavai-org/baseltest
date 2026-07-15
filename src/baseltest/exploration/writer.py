@@ -1,4 +1,4 @@
-"""The exploration writer: the family's ``punit-spec-1`` schema, one file per configuration.
+"""The exploration writer: the family's ``mavai-explore-1`` schema, one file per configuration.
 
 Emission is deterministic (fixed key order, JSON-quoted strings — a JSON
 string is a valid YAML flow scalar, and numbers keep their native YAML
@@ -8,14 +8,16 @@ are exactly the factor values and statistics that differ.
 Filenames are human-readable stems derived from the configuration's
 discriminating factor values — the developer reads the directory listing,
 picks a pair, and diffs — with long values truncated and disambiguated by
-a short content-hash suffix.
+a short content-hash suffix. The same stem travels in the body as the
+``configuration:`` display name, so consumers never parse filenames.
 
 Illustrative artefact:
 
 .. code-block:: yaml
 
-    schemaVersion: "punit-spec-1"
-    useCaseId: "support-agent-tuning"
+    schemaVersion: "mavai-explore-1"
+    serviceContractId: "support-agent-tuning"
+    configuration: "model-small-model_temperature-0.7"
     generatedAt: "2026-07-07T12:00:00+00:00"
     factors:
       "model": "small-model"
@@ -60,7 +62,7 @@ Illustrative artefact:
 
 The ``latency:`` block appears when at least one sample passed and
 carries only the percentiles its contributing-sample count can support
-(p50 needs 1, p90 needs 10, p95 needs 20, p99 needs 100), followed by
+(p50 needs 5, p90 needs 10, p95 needs 20, p99 needs 100), followed by
 the full ascending vector of passing-sample durations. The
 ``resultProjection:`` block records every sample — input index,
 per-postcondition status (passed/failed/skipped), invocation duration,
@@ -77,7 +79,7 @@ from typing import Any
 
 from .record import ExplorationRecord
 
-SCHEMA_VERSION = "punit-spec-1"
+SCHEMA_VERSION = "mavai-explore-1"
 
 # Filename-stem rules: characters outside this set become underscores, and a
 # value whose sanitised form exceeds the cap is truncated and suffixed with
@@ -146,10 +148,18 @@ def _scalar(value: Any) -> str:
 
 # javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
 def render_exploration(record: ExplorationRecord) -> str:
-    """Serialise one configuration's record to the family schema, deterministically."""
+    """Serialise one configuration's record to the family schema, deterministically.
+
+    Raises:
+        ValueError: On a record with no criteria — a run always evaluates
+            at least one criterion, and the schema binds the block.
+    """
+    if not record.criteria:
+        raise ValueError("an exploration record carries at least one criterion")
     lines = [
         f"schemaVersion: {_quote(SCHEMA_VERSION)}",
-        f"useCaseId: {_quote(record.contract_id)}",
+        f"serviceContractId: {_quote(record.contract_id)}",
+        f"configuration: {_quote(exploration_stem(record.factors))}",
         f"generatedAt: {_quote(record.generated_at.isoformat())}",
     ]
     rendered_factors = record.configuration or record.factors
@@ -176,18 +186,17 @@ def render_exploration(record: ExplorationRecord) -> str:
         lines.append("  failureDistribution:")
         for reason in sorted(record.failure_distribution):
             lines.append(f"    {_quote(reason)}: {record.failure_distribution[reason]}")
-    if record.criteria:
-        lines.append("  criteria:")
-        for name, statistics in record.criteria.items():
-            lines.extend(
-                [
-                    f"    {_quote(name)}:",
-                    f"      observedPassRate: {statistics.observed_rate:.6f}",
-                    f"      pass: {statistics.passes}",
-                    f"      fail: {statistics.fails}",
-                    "      inconclusive: 0",
-                ]
-            )
+    lines.append("  criteria:")
+    for name, statistics in record.criteria.items():
+        lines.extend(
+            [
+                f"    {_quote(name)}:",
+                f"      observedPassRate: {statistics.observed_rate:.6f}",
+                f"      pass: {statistics.passes}",
+                f"      fail: {statistics.fails}",
+                "      inconclusive: 0",
+            ]
+        )
     average = (
         round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
     )

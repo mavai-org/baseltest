@@ -1,7 +1,7 @@
 """The exploration comparison report: variants of each contract, side by side.
 
 Reads the exploration artefacts (one YAML per configuration, the family's
-exploration schema) and renders a single self-contained page: an overview,
+``mavai-explore-1`` interchange schema) and renders a single self-contained page: an overview,
 a per-contract leaderboard ranked by overall pass rate then median latency
 then average cost, a per-criterion matrix over the union of criteria, and
 per-variant latency-distribution strips as dependency-free inline SVG.
@@ -111,7 +111,10 @@ def _variant(data: dict[str, Any], stem: str, differing: list[str]) -> Variant:
     factor_map = dict(data.get("factors") or {})
     factors = tuple(factor_map.items())
     labelled = [(k, factor_map[k]) for k in differing if k in factor_map]
-    label = ", ".join(f"{k}={v}" for k, v in labelled) if labelled else stem
+    # The artefact body names its configuration; the filename stem is only
+    # a legacy fallback — consumers never parse filenames.
+    fallback = str(data.get("configuration") or stem)
+    label = ", ".join(f"{k}={v}" for k, v in labelled) if labelled else fallback
     criteria = tuple(
         (name, float(body.get("observedPassRate", 0.0)))
         for name, body in (statistics.get("criteria") or {}).items()

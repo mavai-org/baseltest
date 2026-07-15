@@ -9,8 +9,9 @@ from baseltest.declarative._cli import main
 from baseltest.declarative._registry import clear_registries
 
 _EXPLORATION = """\
-schemaVersion: "punit-spec-1"
-useCaseId: "svc"
+schemaVersion: "mavai-explore-1"
+serviceContractId: "svc"
+configuration: "model-{model}"
 generatedAt: "2026-07-09T12:00:00+00:00"
 factors:
   "model": "{model}"

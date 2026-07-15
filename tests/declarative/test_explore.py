@@ -204,7 +204,7 @@ class TestExploreRuns:
         )
         for entry in explored:
             text = entry.path.read_text(encoding="utf-8")
-            assert '"punit-spec-1"' in text
+            assert '"mavai-explore-1"' in text
             for word in ("verdict", "threshold", "confidence", "bound"):
                 assert word not in text
 
