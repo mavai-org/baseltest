@@ -4,10 +4,12 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from baseltest.baseline import BaselineRecord, write_baseline
-from baseltest.engine import RunKind, RunResult, execute
+from baseltest.engine import RunKind, RunResult, execute, latency_block
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
+from baseltest.optimization import IterationCapture, OptimizationRecord, write_optimization
 from baseltest.reporting import (
     RISK_DRIVEN_APPROACH,
     BaselineDisclosure,
@@ -16,6 +18,7 @@ from baseltest.reporting import (
     parse_verdict_record,
     read_verdict_directory,
     render_explorations,
+    render_optimization_run,
     render_run,
     render_run_plan,
     render_test_report,
@@ -30,11 +33,23 @@ from ._instantiate import (
     _validate_inputs,
     instantiate,
     instantiate_explore,
+    instantiate_optimize_point,
+    optimize_definition,
 )
-from ._parser import FORMAT_IDENTIFIER, load_contract
+from ._optimize import OptimizationDeclaration
+from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, load_contract
 from ._registrations import discover_registrations
-from ._services import discover_services
+from ._services import ServiceDefinition, discover_services
+from ._services import _resolved_point as _configuration_identity
 from ._sizing import ResolvedSizing
+from ._steppers import (
+    FailureDetail,
+    FailureExemplar,
+    IterationResult,
+    IterationSummary,
+    LatencySummary,
+    OptimizeContext,
+)
 
 # Every baseltest-generated artefact lives under one visible parent in the
 # working directory: one root entry, one .gitignore line, one `rm -rf` for a
@@ -44,7 +59,12 @@ ARTEFACT_ROOT = Path("_baseltest")
 DEFAULT_BASELINE_DIR = ARTEFACT_ROOT / "baselines"
 DEFAULT_VERDICT_DIR = ARTEFACT_ROOT / "verdicts"
 DEFAULT_EXPLORATIONS_DIR = ARTEFACT_ROOT / "explorations"
+DEFAULT_OPTIMIZATIONS_DIR = ARTEFACT_ROOT / "optimizations"
 DEFAULT_REPORTS_DIR = ARTEFACT_ROOT / "reports"
+
+# The catalog's Optimize experiment default: sensible for typical LLM
+# tuning scenarios, sized by --samples-per-iteration when deliberate.
+DEFAULT_SAMPLES_PER_ITERATION = 20
 
 # Rendering exploration comparisons is the shared family tool's job; this
 # framework's half of that split is emitting the canonical artefacts. The
@@ -326,6 +346,292 @@ def explore(
     return tuple(explored)
 
 
+@dataclass(frozen=True, slots=True)
+class OptimizationOutcome:
+    """One executed optimize run: its record and its artefact path."""
+
+    run_id: str
+    record: OptimizationRecord
+    path: Path
+
+
+# javai-ref: JVI-PS5XC2C — do not remove (resolves in javai-orchestrator)
+def optimize(
+    path: str | Path,
+    *,
+    run_id: str | None = None,
+    all_entries: bool = False,
+    samples_per_iteration: int | None = None,
+    optimizations_dir: str | Path = DEFAULT_OPTIMIZATIONS_DIR,
+    emit: bool = True,
+) -> tuple[OptimizationOutcome, ...]:
+    """Run the contract's Optimize experiments: iterate, score, persist the history.
+
+    Per selected ``optimizations:`` entry this drives the settled loop:
+    iteration 0 is the baseline configuration with the entry's ``initial:``
+    overlay applied; each subsequent iteration's configuration is the
+    stepper's proposal over the whole current configuration. Every
+    iteration is a measure run in miniature with the explore verb's
+    descriptive posture — no thresholds consulted, no verdict rendered —
+    scored by the entry's scorer, with best-tracking in the entry's
+    objective direction. The run stops at the iteration cap, on the
+    plateau window, or when the stepper stops; one artefact per run
+    records the full history.
+
+    Args:
+        path: The contract file.
+        run_id: The single entry to run. With several entries declared and
+            neither this nor ``all_entries``, the selection is refused —
+            never guessed.
+        all_entries: Run every declared entry.
+        samples_per_iteration: Samples per iteration; omitted, the
+            catalog's default applies.
+        optimizations_dir: The artefact directory; one subdirectory per
+            contract, one file per run id.
+        emit: Whether to print the rendered summary.
+
+    Returns:
+        One outcome per executed run, in declaration order.
+
+    Raises:
+        ContractConfigurationError: The file (or its registrations) is not
+            runnable as declared, the selection is ambiguous, or a stepper
+            mid-run returns a configuration the service type refuses (or
+            the current one unchanged).
+    """
+    contract_path = Path(path)
+    declaration = load_contract(contract_path)
+    discover_registrations(contract_path)
+    services = discover_services(contract_path)
+    definition = optimize_definition(declaration, services)
+    entries = _select_entries(definition, run_id, all_entries)
+    samples = (
+        samples_per_iteration
+        if samples_per_iteration is not None
+        else DEFAULT_SAMPLES_PER_ITERATION
+    )
+    if emit:
+        provenance = "explicit" if samples_per_iteration is not None else "default"
+        print(render_run_plan(samples, provenance, per_iteration=True))
+
+    outcomes: list[OptimizationOutcome] = []
+    for entry in entries:
+        if emit:
+            for note in entry.notes:
+                print(f"note: {note}")
+        outcomes.append(
+            _drive_optimization(
+                declaration, definition, entry, samples, Path(optimizations_dir), emit
+            )
+        )
+    return tuple(outcomes)
+
+
+def _drive_optimization(
+    declaration: ContractDeclaration,
+    definition: ServiceDefinition,
+    entry: OptimizationDeclaration,
+    samples: int,
+    optimizations_dir: Path,
+    emit: bool,
+) -> OptimizationOutcome:
+    """One entry's full loop: iterate, score, track the best, persist."""
+    history: list[IterationResult] = []
+    captures: list[IterationCapture] = []
+    best: IterationResult | None = None
+    best_index = 0
+    plateau = 0
+    termination = "max-iterations"
+    parameters = entry.parameters
+    for index in range(entry.max_iterations):
+        point = instantiate_optimize_point(declaration, definition, parameters, samples)
+        label = f"{entry.run_id} iteration {index}"
+        result = execute(
+            point.contract,
+            point.plan,
+            on_sample=_tty_progress(label) if emit else None,
+            record_samples=True,  # projections and exemplars are the payload
+        )
+        summary = _iteration_summary(result)
+        score = float(entry.score(summary))
+        iteration_result = IterationResult(
+            config=dict(point.configuration), score=score, summary=summary
+        )
+        history.append(iteration_result)
+        captures.append(IterationCapture.from_run_result(index, result, point.configuration, score))
+        if best is None or _improved(score, best.score, entry.objective):
+            best = iteration_result
+            best_index = index
+            plateau = 0
+        else:
+            plateau += 1
+            if entry.no_improvement_window is not None and plateau >= entry.no_improvement_window:
+                termination = "no-improvement-window"
+                break
+        if index + 1 == entry.max_iterations:
+            break  # the cap is reached; no next configuration to propose
+        context = OptimizeContext(
+            history=tuple(history),
+            best=best,
+            iteration=index + 1,
+            iterations_remaining=entry.max_iterations - (index + 1),
+        )
+        next_parameters = _next_parameters(
+            entry, definition, context, iteration_result.config, parameters, index + 1
+        )
+        if next_parameters is None:
+            termination = "stepper-stopped"
+            break
+        parameters = next_parameters
+
+    record = OptimizationRecord(
+        contract_id=declaration.contract,
+        experiment_id=entry.run_id,
+        objective=entry.objective,
+        generated_at=captures[-1].observation.generated_at,
+        iterations=tuple(captures),
+        best_index=best_index,
+        termination=termination,
+        stepper=_stepper_block(entry),
+    )
+    artefact = write_optimization(record, optimizations_dir)
+    if emit:
+        print(
+            render_optimization_run(
+                declaration.contract,
+                entry.run_id,
+                samples,
+                [
+                    (c.index, c.score, c.observation.successes, c.observation.samples_executed)
+                    for c in captures
+                ],
+                termination,
+                best_index,
+                dict(record.best.factors),
+                artefact.as_posix(),
+            )
+        )
+    return OptimizationOutcome(run_id=entry.run_id, record=record, path=artefact)
+
+
+def _iteration_summary(result: RunResult) -> IterationSummary:
+    """One iteration's aggregate, in the shape scorers and steppers consume."""
+    exemplars: dict[str, list[FailureExemplar]] = {}
+    for sample in result.samples:
+        for name, reason in sample.failure_reasons:
+            exemplars.setdefault(name, []).append(
+                FailureExemplar(input=result.plan.inputs[sample.input_index], reason=reason)
+            )
+    failures: dict[str, FailureDetail] = {}
+    for criterion_result in result.criterion_results:
+        tally = criterion_result.tally
+        failed = tally.trials - tally.successes
+        if failed:
+            failures[criterion_result.name] = FailureDetail(
+                count=failed, exemplars=tuple(exemplars.get(criterion_result.name, ()))
+            )
+    block = latency_block(result.samples)
+    latency = None
+    if block is not None:
+        stated = dict(block.percentiles)
+        latency = LatencySummary(
+            contributing_samples=block.contributing_samples,
+            total_samples=block.total_samples,
+            p50_ms=stated.get("p50Ms"),
+            p90_ms=stated.get("p90Ms"),
+            p95_ms=stated.get("p95Ms"),
+            p99_ms=stated.get("p99Ms"),
+        )
+    return IterationSummary(
+        passes=result.overall_successes,
+        samples=result.plan.samples,
+        failures_by_criterion=failures,
+        latency=latency,
+    )
+
+
+def _select_entries(
+    definition: ServiceDefinition, run_id: str | None, all_entries: bool
+) -> tuple[OptimizationDeclaration, ...]:
+    """The entries this invocation runs — never guessed when there are several."""
+    entries = definition.optimizations
+    if run_id is not None:
+        for entry in entries:
+            if entry.run_id == run_id:
+                return (entry,)
+        available = ", ".join(entry.run_id for entry in entries)
+        raise ContractConfigurationError(
+            f"service {definition.name!r} declares no optimization with id {run_id!r} "
+            f"— declared: {available}"
+        )
+    if all_entries or len(entries) == 1:
+        return entries
+    available = ", ".join(entry.run_id for entry in entries)
+    raise ContractConfigurationError(
+        f"service {definition.name!r} declares {len(entries)} optimizations — name "
+        f"the one to run ({available}), or pass --all to run every entry (each is "
+        "an independent, potentially expensive experiment)"
+    )
+
+
+def _improved(score: float, best: float, objective: str) -> bool:
+    return score > best if objective == "maximize" else score < best
+
+
+def _stepper_block(entry: OptimizationDeclaration) -> tuple[tuple[str, object], ...]:
+    """The artefact's mutator-provenance block: name, config, runtime residue."""
+    block: list[tuple[str, object]] = [("name", entry.stepper_name)]
+    block.extend((key.replace("_", "-"), value) for key, value in entry.stepper_config.items())
+    runtime = getattr(entry.step, "provenance", None)
+    if isinstance(runtime, dict):
+        block.extend(sorted(runtime.items()))
+    return tuple(block)
+
+
+def _next_parameters(
+    entry: OptimizationDeclaration,
+    definition: ServiceDefinition,
+    context: OptimizeContext,
+    configuration: dict[str, Any],
+    current_parameters: Any,
+    iteration: int,
+) -> Any | None:
+    """One stepper call, its proposal validated into the next parameters.
+
+    Returns ``None`` when the stepper stopped the search.
+
+    Raises:
+        ContractConfigurationError: The proposal is not a configuration
+            mapping, does not fit the service type, or restates the
+            current configuration (re-measuring the same point spends
+            samples for nothing — a stepper with nothing to propose must
+            stop).
+    """
+    where = (
+        f"optimization {entry.run_id!r}: iteration {iteration} configuration "
+        f"(from stepper {entry.stepper_name!r})"
+    )
+    proposal = entry.step(dict(configuration), context)
+    if proposal is None:
+        return None
+    if not isinstance(proposal, dict):
+        raise ContractConfigurationError(
+            f"{where}: the stepper returned {type(proposal).__name__}, not a "
+            "configuration mapping — a stepper returns the whole next "
+            "configuration, or None to stop"
+        )
+    parameters = definition.type.parse(definition.name, proposal, where)
+    if _configuration_identity(definition.type, parameters) == _configuration_identity(
+        definition.type, current_parameters
+    ):
+        raise ContractConfigurationError(
+            f"{where}: the stepper returned the configuration unchanged — "
+            "re-measuring the same point spends samples for nothing; a stepper "
+            "with nothing to propose must stop (return None)"
+        )
+    return parameters
+
+
 def check(path: str | Path) -> tuple[str, ...]:
     """Validate a contract against its services and bindings — zero samples.
 
@@ -373,6 +679,19 @@ def check(path: str | Path) -> tuple[str, ...]:
         count = len(definition.explorations)
         entries = "entry" if count == 1 else "entries"
         facts.append(f"exploration grid: {count} {entries} constructed and joined")
+    for entry in definition.optimizations:
+        _validate_inputs(
+            declaration.service, definition.type.invoker(entry.parameters), declaration.inputs
+        )
+    if definition.optimizations:
+        count = len(definition.optimizations)
+        entries = "entry" if count == 1 else "entries"
+        facts.append(
+            f"optimizations: {count} {entries} validated — steppers constructed, iteration 0 joined"
+        )
+        # An inert plateau window is a configuration fact worth stating,
+        # though not a refusal: the run simply goes to its cap.
+        facts.extend(note for entry in definition.optimizations for note in entry.notes)
     return tuple(facts)
 
 

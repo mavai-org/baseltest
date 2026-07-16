@@ -9,7 +9,13 @@ and uses no verdict vocabulary.
 
 from baseltest.engine import bar_standing
 
-from .console import render_explorations, render_infeasible, render_run, render_run_plan
+from .console import (
+    render_explorations,
+    render_infeasible,
+    render_optimization_run,
+    render_run,
+    render_run_plan,
+)
 from .run_design import (
     RISK_DRIVEN_APPROACH,
     BaselineDisclosure,
@@ -39,6 +45,7 @@ __all__ = [
     "read_verdict_directory",
     "render_explorations",
     "render_infeasible",
+    "render_optimization_run",
     "render_run",
     "render_run_plan",
     "render_test_report",

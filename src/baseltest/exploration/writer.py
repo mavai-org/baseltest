@@ -146,6 +146,89 @@ def _scalar(value: Any) -> str:
     return _quote(json.dumps(value, sort_keys=True, ensure_ascii=False))
 
 
+def factor_lines(factors: tuple[tuple[str, Any], ...], indent: str = "") -> list[str]:
+    """The ``factors:`` block: one configuration's resolved values."""
+    if not factors:
+        return []
+    lines = [f"{indent}factors:"]
+    for key, value in factors:
+        lines.append(f"{indent}  {_quote(key)}: {_scalar(value)}")
+    return lines
+
+
+def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
+    """One configuration's descriptive observation blocks, shared by the
+    experiment emitters: execution, statistics, cost, the gated latency
+    block, and the result projection — everything downstream of the
+    factors, rendered deterministically at the given indent."""
+    lines = [
+        f"{indent}execution:",
+        f"{indent}  samplesPlanned: {record.samples_planned}",
+        f"{indent}  samplesExecuted: {record.samples_executed}",
+        f'{indent}  terminationReason: "COMPLETED"',
+        f"{indent}statistics:",
+        f"{indent}  observed: {record.observed_rate:.6f}",
+        f"{indent}  successes: {record.successes}",
+        f"{indent}  failures: {record.samples_executed - record.successes}",
+    ]
+    if record.failure_distribution:
+        lines.append(f"{indent}  failureDistribution:")
+        for reason in sorted(record.failure_distribution):
+            lines.append(f"{indent}    {_quote(reason)}: {record.failure_distribution[reason]}")
+    lines.append(f"{indent}  criteria:")
+    for name, statistics in record.criteria.items():
+        lines.extend(
+            [
+                f"{indent}    {_quote(name)}:",
+                f"{indent}      observedPassRate: {statistics.observed_rate:.6f}",
+                f"{indent}      pass: {statistics.passes}",
+                f"{indent}      fail: {statistics.fails}",
+                f"{indent}      inconclusive: 0",
+            ]
+        )
+    average = (
+        round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
+    )
+    lines.extend(
+        [
+            f"{indent}cost:",
+            f"{indent}  totalTimeMs: {record.total_time_ms}",
+            f"{indent}  avgTimePerSampleMs: {average}",
+        ]
+    )
+    if record.latency is not None:
+        lines.extend(
+            [
+                f"{indent}latency:",
+                f"{indent}  basis: {_quote(record.latency.basis)}",
+                f"{indent}  contributingSamples: {record.latency.contributing_samples}",
+                f"{indent}  totalSamples: {record.latency.total_samples}",
+            ]
+        )
+        for key, value in record.latency.percentiles:
+            lines.append(f"{indent}  {key}: {value}")
+        if record.latency.sorted_passing_latencies_ms:
+            lines.append(f"{indent}  sortedPassingLatenciesMs:")
+            for duration in record.latency.sorted_passing_latencies_ms:
+                lines.append(f"{indent}    - {duration}")
+    if record.samples:
+        lines.append(f"{indent}resultProjection:")
+        for index, sample in enumerate(record.samples):
+            # Content-deterministic diff anchor: same sample position and
+            # input index → same anchor, so a diff between two artefacts of
+            # one grid aligns at sample boundaries.
+            anchor = hashlib.sha256(f"{index}:{sample.input_index}".encode()).hexdigest()[:8]
+            lines.append(f"{indent}  # ────── anchor:{anchor} ──────")
+            lines.append(f'{indent}  "sample[{index}]":')
+            lines.append(f"{indent}    inputIndex: {sample.input_index}")
+            lines.append(f"{indent}    postconditions:")
+            for name, status in sample.postconditions:
+                lines.append(f"{indent}      {_quote(name)}: {_quote(status)}")
+            lines.append(f"{indent}    executionTimeMs: {sample.execution_time_ms}")
+            lines.append(f"{indent}    content: {_quote(sample.content)}")
+    return lines
+
+
 # javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
 def render_exploration(record: ExplorationRecord) -> str:
     """Serialise one configuration's record to the family schema, deterministically.
@@ -162,81 +245,11 @@ def render_exploration(record: ExplorationRecord) -> str:
         f"configuration: {_quote(exploration_stem(record.factors))}",
         f"generatedAt: {_quote(record.generated_at.isoformat())}",
     ]
-    rendered_factors = record.configuration or record.factors
-    if rendered_factors:
-        # The block carries the full resolved configuration (constants
-        # included) so one artefact tells the whole story; the filename
-        # stem still derives from the discriminating factors alone.
-        lines.append("factors:")
-        for key, value in rendered_factors:
-            lines.append(f"  {_quote(key)}: {_scalar(value)}")
-    lines.extend(
-        [
-            "execution:",
-            f"  samplesPlanned: {record.samples_planned}",
-            f"  samplesExecuted: {record.samples_executed}",
-            '  terminationReason: "COMPLETED"',
-            "statistics:",
-            f"  observed: {record.observed_rate:.6f}",
-            f"  successes: {record.successes}",
-            f"  failures: {record.samples_executed - record.successes}",
-        ]
-    )
-    if record.failure_distribution:
-        lines.append("  failureDistribution:")
-        for reason in sorted(record.failure_distribution):
-            lines.append(f"    {_quote(reason)}: {record.failure_distribution[reason]}")
-    lines.append("  criteria:")
-    for name, statistics in record.criteria.items():
-        lines.extend(
-            [
-                f"    {_quote(name)}:",
-                f"      observedPassRate: {statistics.observed_rate:.6f}",
-                f"      pass: {statistics.passes}",
-                f"      fail: {statistics.fails}",
-                "      inconclusive: 0",
-            ]
-        )
-    average = (
-        round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
-    )
-    lines.extend(
-        [
-            "cost:",
-            f"  totalTimeMs: {record.total_time_ms}",
-            f"  avgTimePerSampleMs: {average}",
-        ]
-    )
-    if record.latency is not None:
-        lines.extend(
-            [
-                "latency:",
-                f"  basis: {_quote(record.latency.basis)}",
-                f"  contributingSamples: {record.latency.contributing_samples}",
-                f"  totalSamples: {record.latency.total_samples}",
-            ]
-        )
-        for key, value in record.latency.percentiles:
-            lines.append(f"  {key}: {value}")
-        if record.latency.sorted_passing_latencies_ms:
-            lines.append("  sortedPassingLatenciesMs:")
-            for duration in record.latency.sorted_passing_latencies_ms:
-                lines.append(f"    - {duration}")
-    if record.samples:
-        lines.append("resultProjection:")
-        for index, sample in enumerate(record.samples):
-            # Content-deterministic diff anchor: same sample position and
-            # input index → same anchor, so a diff between two artefacts of
-            # one grid aligns at sample boundaries.
-            anchor = hashlib.sha256(f"{index}:{sample.input_index}".encode()).hexdigest()[:8]
-            lines.append(f"  # ────── anchor:{anchor} ──────")
-            lines.append(f'  "sample[{index}]":')
-            lines.append(f"    inputIndex: {sample.input_index}")
-            lines.append("    postconditions:")
-            for name, status in sample.postconditions:
-                lines.append(f"      {_quote(name)}: {_quote(status)}")
-            lines.append(f"    executionTimeMs: {sample.execution_time_ms}")
-            lines.append(f"    content: {_quote(sample.content)}")
+    # The block carries the full resolved configuration (constants
+    # included) so one artefact tells the whole story; the filename
+    # stem still derives from the discriminating factors alone.
+    lines.extend(factor_lines(record.configuration or record.factors))
+    lines.extend(observation_lines(record))
     return "\n".join(lines) + "\n"
 
 

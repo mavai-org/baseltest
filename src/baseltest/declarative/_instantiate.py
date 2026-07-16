@@ -57,12 +57,13 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
-from ._registry import _value_fits, resolve_check, resolve_transform
+from ._registry import resolve_check, resolve_transform
 from ._services import (
     ServiceDefinition,
     configuration_values,
     factor_values,
 )
+from ._signatures import value_fits as _value_fits
 from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
 from ._structured import compile_jsonpath, compile_xpath, path_qualified
 from ._types import find_type
@@ -550,6 +551,97 @@ def instantiate_explore(
             )
         )
     return tuple(configurations), sizing, tuple(notes)
+
+
+@dataclass(frozen=True, slots=True)
+class OptimizePoint:
+    """One optimize iteration's configuration, ready to run.
+
+    ``configuration`` is the full resolved map the iteration runs under —
+    what the stepper receives as ``current``, and what the artefact's
+    iteration entry records.
+    """
+
+    parameters: Any
+    configuration: dict[str, Any]
+    contract: ServiceContract
+    plan: RunPlan
+
+
+def optimize_definition(
+    declaration: ContractDeclaration,
+    services: dict[str, ServiceDefinition] | None = None,
+) -> ServiceDefinition:
+    """The service definition an optimize run drives — refused when there is none.
+
+    An optimize run, like an explore run, requires a service declared in
+    the services file: a bare binding carries no configuration for a
+    stepper to move.
+    """
+    definition = (services or {}).get(declaration.service)
+    if definition is None:
+        if find_type(declaration.service) is not None:
+            raise ContractConfigurationError(
+                f"optimize requires a declared service: {declaration.service!r} is a "
+                "registered type with no services-file entry, so it carries no "
+                "configuration for a stepper to move — declare a service of this "
+                "type (and its `optimizations:` entries) in the services file"
+            )
+        _resolve_service(declaration.service, {})  # raises the standard refusal
+        raise AssertionError("unreachable: unresolvable services are refused above")
+    if not definition.optimizations:
+        raise ContractConfigurationError(
+            f"service {declaration.service!r} declares no `optimizations:` section — "
+            "add one entry per optimize run (a stepper, `max-iterations`, and "
+            "optionally an `initial:` overlay) in the services file"
+        )
+    return definition
+
+
+def instantiate_optimize_point(
+    declaration: ContractDeclaration,
+    definition: ServiceDefinition,
+    parameters: Any,
+    samples: int,
+) -> OptimizePoint:
+    """Instantiate one optimize iteration's runnable configuration.
+
+    The posture is explore's: every criterion participates descriptively —
+    no thresholds are consulted, no verdict rendered — at whatever sample
+    count the invocation chose. The invoker is the strict one measure and
+    test use: an optimize run's iterations must stay comparable, so a
+    configuration the service type cannot honour is refused, not degraded.
+    """
+    per_sample = definition.type.invoker(parameters)
+    _validate_inputs(declaration.service, per_sample, declaration.inputs)
+    transforms = declaration.transforms
+    views = _build_views(declaration)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms)
+    criteria = tuple(
+        _replace(
+            _build_criterion(entry, declaration.confidence, expected, transforms),
+            threshold=None,
+        )
+        for entry in declaration.criteria
+    )
+    contract = ServiceContract(
+        contract_id=declaration.contract,
+        invoke=_instrumented_invoke(per_sample),
+        criteria=criteria,
+        views=views,
+    )
+    plan = RunPlan(
+        samples=samples,
+        inputs=declaration.inputs,
+        kind=RunKind.OPTIMIZE,
+        intent=Intent.SMOKE,
+    )
+    return OptimizePoint(
+        parameters=parameters,
+        configuration=configuration_values(definition, parameters),
+        contract=contract,
+        plan=plan,
+    )
 
 
 def _resolve_matching_baseline(

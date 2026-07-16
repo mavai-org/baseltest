@@ -1,7 +1,7 @@
 """Console rendering of run results, in the contract format's own vocabulary."""
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from baseltest.engine import (
     CriterionResult,
@@ -228,6 +228,7 @@ def render_run_plan(
     demanded_by: str | None = None,
     threshold: float | None = None,
     per_configuration: bool = False,
+    per_iteration: bool = False,
 ) -> str:
     """The run-plan line: every run states its N and where the value came from.
 
@@ -238,8 +239,12 @@ def render_run_plan(
     A risk-driven run does not use this line: its sizing block's title
     already states n and where it came from.
     """
-    unit = " per configuration" if per_configuration else ""
-    flag = "--samples-per-config" if per_configuration else "--samples"
+    unit = ""
+    flag = "--samples"
+    if per_configuration:
+        unit, flag = " per configuration", "--samples-per-config"
+    elif per_iteration:
+        unit, flag = " per iteration", "--samples-per-iteration"
     if provenance == "derived":
         detail = f"derived: threshold {threshold} requires at least {samples} samples"
         if demanded_by is not None:
@@ -288,6 +293,55 @@ def render_explorations(
             lines.append(f"    most common failure: {count}× {reason}")
         lines.append(f"    artefact: {path}")
     lines.append("  compare configurations by diffing their artefacts")
+    return "\n".join(lines)
+
+
+_TERMINATION_PHRASES = {
+    "max-iterations": "iteration cap reached",
+    "no-improvement-window": "no improvement within the window",
+    "stepper-stopped": "the stepper stopped the search",
+}
+
+
+def render_optimization_run(
+    contract_id: str,
+    run_id: str,
+    samples_per_iteration: int,
+    iterations: Sequence[tuple[int, float, int, int]],
+    termination: str,
+    best_index: int,
+    best_factors: Mapping[str, object],
+    artefact_path: str,
+) -> str:
+    """Render one optimize run's summary: descriptive, one line per iteration.
+
+    Each iterations entry is ``(index, score, successes, samples)``. No
+    verdict vocabulary appears anywhere: an optimize run records what each
+    configuration scored; judging the winner is a test's job — after the
+    winning values are folded into the baseline and re-measured.
+    """
+    count = len(iterations)
+    plural = "" if count == 1 else "s"
+    lines = [
+        f"contract {contract_id}: optimization {run_id!r} ran {count} "
+        f"iteration{plural}, {samples_per_iteration} sample(s) each "
+        "(descriptive — an optimize run renders no verdict)"
+    ]
+    for index, score, successes, samples in iterations:
+        marker = "  ← best" if index == best_index else ""
+        lines.append(
+            f"  iteration {index}: score {score:.4f} "
+            f"({successes} of {samples} responses met expectations){marker}"
+        )
+    lines.append(f"  stopped: {_TERMINATION_PHRASES.get(termination, termination)}")
+    lines.append(f"  best factors (iteration {best_index}):")
+    for key, value in best_factors.items():
+        lines.append(f"    {key}: {value}")
+    lines.append(f"  artefact: {artefact_path}")
+    lines.append(
+        "  promote the winner by folding its values into the `configuration:` "
+        "block, then re-measure"
+    )
     return "\n".join(lines)
 
 
