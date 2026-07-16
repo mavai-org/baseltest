@@ -57,7 +57,13 @@ from ._parser import (
     FormDeclaration,
 )
 from ._providers import resolve_provider
-from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
+from ._registry import (
+    binding_covariates,
+    has_binding,
+    resolve_binding,
+    resolve_check,
+    resolve_transform,
+)
 from ._services import (
     LanguageModelParameters,
     ServiceDefinition,
@@ -201,7 +207,7 @@ def _resolve_service(
     if defined:
         parameters = services[reference].configuration
         return language_model_invoker(parameters), resolved_provenance(parameters)
-    return resolve_binding(reference), {}
+    return resolve_binding(reference), binding_covariates(reference)
 
 
 # Sample sizing is decided at invocation, never in the file: the contract

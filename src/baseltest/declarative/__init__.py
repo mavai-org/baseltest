@@ -8,7 +8,8 @@ hand-authored contract uses.
 Its public Python surface is deliberately tiny — three registration
 decorators and one entry point:
 
-- :func:`binding` registers the code that invokes your service by name.
+- :func:`binding` registers the code that invokes your service by name,
+  optionally declaring the covariates that make up its computed identity.
 - :func:`check` registers a named predicate for the ``satisfies:`` form.
 - :func:`transform` registers a named transformation for the ``transform:``
   key.
