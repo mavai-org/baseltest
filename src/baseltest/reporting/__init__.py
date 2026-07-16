@@ -10,12 +10,6 @@ and uses no verdict vocabulary.
 from baseltest.engine import bar_standing
 
 from .console import render_explorations, render_infeasible, render_run, render_run_plan
-from .explore_report import (
-    ContractComparison,
-    ExplorationSweep,
-    read_exploration_directory,
-    render_exploration_report,
-)
 from .run_design import (
     RISK_DRIVEN_APPROACH,
     BaselineDisclosure,
@@ -36,18 +30,14 @@ __all__ = [
     "RISK_DRIVEN_APPROACH",
     "BaselineDisclosure",
     "ClaimDisclosure",
-    "ContractComparison",
-    "ExplorationSweep",
     "RunDesign",
     "SizingDisclosure",
     "VerdictRecord",
     "VerdictSweep",
     "bar_standing",
     "parse_verdict_record",
-    "read_exploration_directory",
     "read_verdict_directory",
     "render_explorations",
-    "render_exploration_report",
     "render_infeasible",
     "render_run",
     "render_run_plan",

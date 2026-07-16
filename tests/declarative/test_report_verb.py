@@ -8,51 +8,6 @@ import pytest
 from baseltest.declarative._cli import main
 from baseltest.declarative._registry import clear_registries
 
-_EXPLORATION = """\
-schemaVersion: "mavai-explore-1"
-serviceContractId: "svc"
-configuration: "model-{model}"
-generatedAt: "2026-07-09T12:00:00+00:00"
-factors:
-  "model": "{model}"
-execution:
-  samplesPlanned: 5
-  samplesExecuted: 5
-  terminationReason: "COMPLETED"
-statistics:
-  observed: {rate}
-  successes: {successes}
-  failures: {failures}
-cost:
-  totalTimeMs: 2500
-  avgTimePerSampleMs: {avg}
-latency:
-  basis: "passing-samples"
-  contributingSamples: {successes}
-  totalSamples: 5
-  p50Ms: {p50}
-  sortedPassingLatenciesMs:
-{vector}
-"""
-
-
-def write_variant(root: Path, model: str, rate: float, successes: int, p50: int, avg: int) -> None:
-    latencies = [p50 - 2, p50 - 1, p50, p50 + 1, p50 + 2][:successes]
-    vector = "\n".join(f"    - {v}" for v in latencies)
-    (root / "svc").mkdir(parents=True, exist_ok=True)
-    (root / "svc" / f"model-{model}.yaml").write_text(
-        _EXPLORATION.format(
-            model=model,
-            rate=rate,
-            successes=successes,
-            failures=5 - successes,
-            avg=avg,
-            p50=p50,
-            vector=vector,
-        ),
-        encoding="utf-8",
-    )
-
 
 @pytest.fixture(autouse=True)
 def fresh_registries() -> Any:
@@ -95,16 +50,26 @@ class TestReportVerb:
         html = (tmp_path / "_baseltest" / "reports" / "test.html").read_text(encoding="utf-8")
         assert "basel Test Report" in html and "reportable" in html
 
-    def test_report_explore_renders_from_artefacts(self, tmp_path: Path, monkeypatch: Any) -> None:
+    def test_report_explore_points_to_the_family_tool(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
         monkeypatch.chdir(tmp_path)
-        root = tmp_path / "_baseltest" / "explorations"
-        write_variant(root, "a", rate=1.0, successes=5, p50=100, avg=100)
-        write_variant(root, "b", rate=0.8, successes=4, p50=200, avg=210)
-        assert main(["report", "explore"]) == 0
-        html = (tmp_path / "_baseltest" / "reports" / "explorations.html").read_text(
-            encoding="utf-8"
-        )
-        assert "basel Exploration Comparison" in html and "Leaderboard" in html
+        assert main(["report", "explore"]) == 2
+        err = capsys.readouterr().err
+        assert "mavai explore <dir> [-o report.html]" in err
+        assert "https://github.com/mavai-org/mavai/releases" in err
+        assert not (tmp_path / "_baseltest" / "reports").exists()
+
+    def test_explore_html_report_flag_points_to_the_family_tool(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_contract(tmp_path)
+        assert main(["explore", str(contract), "--html-report", "comparison.html"]) == 2
+        err = capsys.readouterr().err
+        assert "mavai explore <dir> [-o report.html]" in err
+        assert not (tmp_path / "comparison.html").exists()
+        assert not (tmp_path / "_baseltest" / "explorations").exists()  # refused before sampling
 
     def test_report_measure_is_reserved(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
@@ -120,8 +85,6 @@ class TestReportVerb:
         assert main(["report", "test"]) == 2
         err = capsys.readouterr().err
         assert "no verdict records found" in err and "basel test" in err
-        assert main(["report", "explore"]) == 2
-        assert "no exploration artefacts found" in capsys.readouterr().err
         assert not (tmp_path / "_baseltest" / "reports").exists()
 
     def test_out_option_relocates_the_report(self, tmp_path: Path, monkeypatch: Any) -> None:
