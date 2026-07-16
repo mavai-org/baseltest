@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from baseltest.baseline import StoredBaseline, resolve_baseline
+from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
 from baseltest.engine import inputs_fingerprint
 from baseltest.statistics import (
     check_feasibility,
@@ -197,12 +197,13 @@ def resolve_contract_baseline(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition],
     baseline_dir: Path,
-) -> "StoredBaseline | None":
-    """The baseline the empirical criteria would resolve, or ``None``.
+) -> BaselineResolution:
+    """The resolution of the baseline the empirical criteria would judge against.
 
     Mirrors the instantiation-time resolution (same identity keys), so the
     sizing conversation prices exactly the baseline the run will judge
-    against.
+    against — and a non-match carries the honest reason (a drifted
+    covariate is named, never flattened into "no baseline").
     """
     definition = services.get(declaration.service)
     if definition is not None:
@@ -211,7 +212,7 @@ def resolve_contract_baseline(
         service_provenance = binding_covariates(declaration.service)
     else:
         service_provenance = {}
-    resolution = resolve_baseline(
+    return resolve_baseline(
         baseline_dir,
         declaration.contract,
         inputs_fingerprint(declaration.inputs),
@@ -221,7 +222,6 @@ def resolve_contract_baseline(
             **service_provenance,
         },
     )
-    return resolution.baseline
 
 
 def _sizeable_criteria(
@@ -685,12 +685,14 @@ def resolve_test_sizing(
         return ResolvedSizing(samples=samples, approach="threshold-first")
     tolerate_flags = _parse_tolerate_flags(tolerate, empirical_names)
 
-    baseline = resolve_contract_baseline(declaration, services, baseline_dir)
+    resolution = resolve_contract_baseline(declaration, services, baseline_dir)
+    baseline = resolution.baseline
     if baseline is None:
         if tolerate_flags:
+            detail = f" ({resolution.reason})" if resolution.reason else ""
             raise SizingRefusalError(
-                "no matching baseline to size against — run `basel measure` first, "
-                "then declare your tolerance"
+                f"no matching baseline to size against{detail} — run `basel measure` "
+                "first, then declare your tolerance"
             )
         return ResolvedSizing(samples=samples)
 

@@ -1,10 +1,12 @@
 """Binding-declared covariates: registration, recording, and drift refusal."""
 
+import sys
 from pathlib import Path
 
 import pytest
 
 from baseltest.declarative import binding, run
+from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._registry import (
     binding_covariates,
@@ -113,3 +115,37 @@ class TestDriftRefusal:
         register_pipeline({"judge": "v2"})
         with pytest.raises(ContractConfigurationError, match="judge"):
             run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
+
+    def test_sizing_refusal_names_the_drifted_key(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        # The risk-driven sizing conversation resolves the same baseline the
+        # run would judge against; its refusal must carry the drift reason,
+        # never flatten it into a bare "no baseline".
+        bindings = """
+from baseltest.declarative import binding
+
+@binding("pipeline", covariates={"ontology": "VERSION"})
+def invoke(value: str) -> str:
+    return f"ok {value}"
+"""
+        monkeypatch.chdir(tmp_path)
+        bindings_file = tmp_path / "mavai-bindings.py"
+        bindings_file.write_text(bindings.replace("VERSION", "abc123"), encoding="utf-8")
+        contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
+        assert main(["measure", str(contract), "--samples", "50"]) == 0
+        # Simulate the next invocation under drifted covariates: fresh
+        # registries, fresh bindings import, changed ontology version.
+        clear_registries()
+        for key in [k for k in sys.modules if k.startswith("mavai_bindings:")]:
+            del sys.modules[key]
+        # A different-length value: the source-file change must defeat the
+        # bytecode cache's (mtime, size) key within this fast-running test.
+        bindings_file.write_text(bindings.replace("VERSION", "def456-drifted"), encoding="utf-8")
+        code = main(["test", str(contract), "--tolerate", "84", "--no-verdict-xml"])
+        assert code == 2
+        output = capsys.readouterr()
+        assert "differing: ontology" in output.out + output.err

@@ -115,21 +115,45 @@ def _parse_lines(lines: list[str]) -> dict[str, Any]:
             container.append(json.loads(line[2:]))
         elif isinstance(container, list):
             raise ValueError(f"malformed line inside a list: {raw!r}")
-        elif line.endswith(":"):
-            key = _parse_key(line[:-1])
-            child: dict[str, Any] = {}
-            container[key] = child
-            stack.append((indent + 2, child, container, key))
         else:
-            key_part, _, value_part = line.partition(": ")
-            if not value_part:
-                raise ValueError(f"malformed line: {raw!r}")
-            container[_parse_key(key_part)] = json.loads(value_part)
+            key, value_text = _split_entry(line)
+            if value_text is None:
+                child: dict[str, Any] = {}
+                container[key] = child
+                stack.append((indent + 2, child, container, key))
+            else:
+                container[key] = json.loads(value_text)
     return root
 
 
-def _parse_key(token: str) -> str:
-    return json.loads(token) if token.startswith('"') else token
+_DECODER = json.JSONDecoder()
+
+
+def _split_entry(line: str) -> tuple[str, str | None]:
+    """One emitted mapping line into its key and value text.
+
+    Returns ``(key, None)`` for a block-opening ``key:`` line, otherwise
+    ``(key, value_text)``. A JSON-quoted key is decoded, never searched
+    for a separator: the key itself may contain ``": "`` (a
+    failure-reason string quoting a regex, a covariate value).
+    """
+    if line.startswith('"'):
+        try:
+            key, end = _DECODER.raw_decode(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"malformed line: {line!r}") from error
+        rest = line[end:]
+        if rest == ":":
+            return str(key), None
+        if rest.startswith(": ") and rest[2:]:
+            return str(key), rest[2:]
+        raise ValueError(f"malformed line: {line!r}")
+    if line.endswith(":"):
+        return line[:-1], None
+    key, _, value_text = line.partition(": ")
+    if not value_text:
+        raise ValueError(f"malformed line: {line!r}")
+    return key, value_text
 
 
 def _parse_latency(body: dict[str, Any] | None) -> StoredLatency | None:
