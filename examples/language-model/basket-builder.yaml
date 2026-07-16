@@ -5,6 +5,22 @@
 #                                                          size it with --samples)
 #   basel measure basket-builder.yaml --samples 200 -> characterisation + baseline artefact
 #   basel explore basket-builder.yaml               -> one descriptive artefact per configuration
+#   basel optimize basket-builder.yaml prompt-tuning --samples-per-iteration 30
+#                                                    -> a meta-LLM engineers the prompt (see README)
+#
+# The contract encodes HOUSE CONVENTIONS the baseline system prompt does
+# not state — a bare model cannot guess them, so an optimize run starts
+# low and climbs as the prompt engineer learns each rule from the
+# failure exemplars:
+#   1. names are canonical: lowercase, singular
+#   2. number words become integer quantities ("a dozen" -> 12)
+#   3. quantities count items, never weights (500g of butter -> one butter)
+#   4. an item mentioned without a count means quantity 1
+#   5. the basket holds only what was asked for - nothing invented
+# The inputs are ordered by rule; exemplars surface in input order, so
+# the meta-LLM meets the rules as a curriculum, roughly one per
+# iteration. Naming comes first because it is cross-cutting: learned on
+# inputs where it is the only defect, it stops masking the later rules.
 format: mavai-contract/1
 contract: basket-builder-returns-valid-baskets
 service: basket-builder
@@ -32,18 +48,99 @@ inputs:
   # capital of France?") belong to a different population with its own
   # criteria — the format reserves a facets: section for exactly that
   # partition; until it lands, keep each contract file to one input class.
-  - input: "place 6 eggs in the basket"
-    expected:                          # input-specific expectations
+  #
+  # A filter selector pins one item among several — and because an empty
+  # selection is a per-trial failure, the filter asserts the item's
+  # presence (under its canonical name) for free.
+  #
+  # Check ORDER is deliberate: a trial's failure reason is the FIRST
+  # failing check's, so each name check precedes its quantity check —
+  # a wrong name reads "does not equal 'egg'" (the naming lesson)
+  # rather than the quantity filter's opaque "selected nothing".
+
+  # -- rule 1: names are canonical: lowercase, singular -----------------
+  - input: "Two Bottles of MILK"
+    expected:
+      - in: basket                     # NB: a path check judges EVERY selected
+        path: "$.items[*].name"        # value — every name, not just milk's
+        equals: "milk"
+      - in: basket
+        path: "$.items[?@.name == 'milk'].quantity"
+        equals: "2"
+  - input: "add three cans of CHOPPED TOMATOES"
+    expected:
       - in: basket
         path: "$.items[*].name"
-        contains: "egg"
-  - input: "three cans of chopped tomatoes and a bag of basmati rice"
-    expected:                          # NB: a path check judges EVERY selected
-      - in: basket                     # value — so expect on the names (each
-        path: "$.items[*].name"        # must be wordy), not the quantities
-        matches: '\w{3,}'              # (the rice's quantity 1 contains no 3)
-  - "two bottles of milk and a loaf of bread"
-  - "a dozen eggs, please"
-  - "500g of butter, a jar of honey, and two lemons"
-  - "add one bar of dark chocolate"
-  - "I need coffee beans and oat milk for the office - enough for a week"
+        equals: "chopped tomato"
+      - in: basket
+        path: "$.items[?@.name == 'chopped tomato'].quantity"
+        equals: "3"
+
+  # -- rule 2: number words become integer quantities ------------------
+  - input: "a dozen eggs, please"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "egg"
+      - in: basket
+        path: "$.items[?@.name == 'egg'].quantity"
+        equals: "12"
+  - input: "a couple of lemons"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "lemon"
+      - in: basket
+        path: "$.items[?@.name == 'lemon'].quantity"
+        equals: "2"
+
+  # -- rule 3: quantities count items, never weights --------------------
+  - input: "500g of butter"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "butter"
+      - in: basket
+        path: "$.items[?@.name == 'butter'].quantity"
+        equals: "1"
+  - input: "add 250g of parmesan"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "parmesan"
+      - in: basket
+        path: "$.items[?@.name == 'parmesan'].quantity"
+        equals: "1"
+
+  # -- rule 4: an item mentioned without a count means quantity 1 -------
+  - input: "add a loaf of bread"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "bread"
+      - in: basket
+        path: "$.items[?@.name == 'bread'].quantity"
+        equals: "1"
+  - input: "I need coffee for the office - enough for a week"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "coffee"
+      - in: basket
+        path: "$.items[?@.name == 'coffee'].quantity"
+        equals: "1"
+
+  # -- rule 5: only what was asked for - nothing invented ---------------
+  - input: "olive oil and a sponge"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        one-of: ["olive oil", "sponge"]
+      - in: basket
+        path: "$.items[?@.name == 'sponge'].quantity"
+        equals: "1"
+  - input: "ingredients for a simple tomato pasta: pasta, tomatoes, garlic"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        one-of: ["pasta", "tomato", "garlic"]

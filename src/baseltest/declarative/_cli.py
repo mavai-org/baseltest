@@ -14,10 +14,12 @@ from ._registrations import discover_registrations
 from ._runner import (
     DEFAULT_BASELINE_DIR,
     DEFAULT_EXPLORATIONS_DIR,
+    DEFAULT_OPTIMIZATIONS_DIR,
     DEFAULT_VERDICT_DIR,
     MAVAI_EXPLORE_POINTER,
     check,
     explore,
+    optimize,
     report,
     run,
 )
@@ -164,6 +166,43 @@ def main(argv: list[str] | None = None) -> int:
             "the family's mavai tool (mavai explore <dir> -o report.html)"
         ),
     )
+    optimize_parser = subparsers.add_parser(
+        "optimize",
+        help=(
+            "run one declared optimization: iterative configuration search, "
+            "scored per iteration, full history persisted — descriptive, "
+            "never a verdict"
+        ),
+    )
+    optimize_parser.add_argument("contract_file", type=Path, help="path to the contract file")
+    optimize_parser.add_argument(
+        "run_id",
+        nargs="?",
+        default=None,
+        metavar="id",
+        help=(
+            "the optimization entry to run; required when the service declares "
+            "several (a lone entry runs without it)"
+        ),
+    )
+    optimize_parser.add_argument(
+        "--all",
+        dest="all_entries",
+        action="store_true",
+        help="run every declared optimization entry — each is an independent experiment",
+    )
+    optimize_parser.add_argument(
+        "--samples-per-iteration",
+        type=int,
+        default=None,
+        help="samples per iteration (default: 20)",
+    )
+    optimize_parser.add_argument(
+        "--optimizations-dir",
+        type=Path,
+        default=DEFAULT_OPTIMIZATIONS_DIR,
+        help="directory optimization artefacts are written into (one file per run id)",
+    )
     check_parser = subparsers.add_parser(
         "check",
         help=(
@@ -236,6 +275,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
+        if arguments.command == "optimize":
+            if arguments.run_id is not None and arguments.all_entries:
+                print(
+                    "optimize: name one entry or pass --all, not both",
+                    file=sys.stderr,
+                )
+                return 2
+            optimize(
+                arguments.contract_file,
+                run_id=arguments.run_id,
+                all_entries=arguments.all_entries,
+                samples_per_iteration=arguments.samples_per_iteration,
+                optimizations_dir=arguments.optimizations_dir,
+            )
+            return 0
         if arguments.command == "explore":
             if arguments.html_report is not None:
                 print(MAVAI_EXPLORE_POINTER, file=sys.stderr)

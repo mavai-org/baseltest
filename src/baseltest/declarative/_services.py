@@ -32,6 +32,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from ._errors import ContractConfigurationError
+from ._optimize import OptimizationDeclaration, parse_optimizations
 from ._providers import (
     ANTHROPIC_REQUIRED_MAX_TOKENS,
     ENV_MODEL,
@@ -49,7 +50,7 @@ from ._types import (
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
-_DEFINITION_KEYS = {"type", "configuration", "explorations"}
+_DEFINITION_KEYS = {"type", "configuration", "explorations", "optimizations"}
 _CONFIGURATION_KEYS = {"system-prompt", "provider", "model", "temperature", "response-schema"}
 # Canonical parameter order: stems and factor blocks list swept covariates
 # in this order so artefacts from one grid stay field-for-field diffable.
@@ -82,6 +83,10 @@ class ServiceDefinition:
             Empty unless the definition declares an ``explorations:`` section.
         swept_keys: The configuration keys any exploration entry replaces,
             in the type's canonical order — the grid's discriminating factors.
+        optimizations: The resolved ``optimizations:`` entries, in
+            declaration order — one Optimize experiment each. Only the
+            ``optimize`` verb runs them; ``test`` and ``measure`` never
+            read them.
     """
 
     name: str
@@ -89,6 +94,7 @@ class ServiceDefinition:
     configuration: Any
     explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
+    optimizations: tuple[OptimizationDeclaration, ...] = ()
 
     @property
     def grid(self) -> tuple[Any, ...]:
@@ -224,12 +230,18 @@ def _parse_definition(
         explorations, swept_keys = _parse_explorations(
             name, data["explorations"], configuration, type_contract
         )
+    optimizations: tuple[OptimizationDeclaration, ...] = ()
+    if "optimizations" in data:
+        optimizations = parse_optimizations(
+            name, data["optimizations"], configuration, type_contract
+        )
     return ServiceDefinition(
         name=name,
         type=type_contract,
         configuration=parameters,
         explorations=explorations,
         swept_keys=swept_keys,
+        optimizations=optimizations,
     )
 
 

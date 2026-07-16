@@ -34,6 +34,7 @@ class RunKind(Enum):
     TEST = "test"
     MEASURE = "measure"
     EXPLORE = "explore"
+    OPTIMIZE = "optimize"
 
 
 class Intent(Enum):
@@ -129,6 +130,9 @@ class SampleRecord:
             only — evaluation and bookkeeping are excluded.
         content: The service's response, verbatim.
         passed: Whether every criterion passed this sample.
+        failure_reasons: ``(criterion name, reason)`` pairs for the
+            criteria this sample failed with a stated reason — the raw
+            material of failure exemplars.
     """
 
     input_index: int
@@ -136,6 +140,7 @@ class SampleRecord:
     execution_time_ms: int
     content: str
     passed: bool
+    failure_reasons: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,11 +372,14 @@ def execute(
         views = TrialViews(response, contract.views)  # one cache per trial, all criteria
         trial_passed = True
         outcomes: list[tuple[str, str]] = []
+        failure_reasons: list[tuple[str, str]] = []
         for criterion in contract.criteria:
             evaluation = evaluate_trial(criterion, views)
             tallies[criterion.name].record(evaluation)
             trial_passed = trial_passed and evaluation.passed
             outcomes.extend(evaluation.outcomes)
+            if not evaluation.passed and evaluation.reason:
+                failure_reasons.append((criterion.name, evaluation.reason))
         overall_successes += int(trial_passed)
         if trial_passed:
             passing_durations_ms.append(duration_ms)
@@ -383,6 +391,7 @@ def execute(
                     execution_time_ms=duration_ms,
                     content=response,
                     passed=trial_passed,
+                    failure_reasons=tuple(failure_reasons),
                 )
             )
         if on_sample is not None:

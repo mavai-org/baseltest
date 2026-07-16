@@ -12,6 +12,12 @@ from collections.abc import Callable
 from typing import Any, TypeVar
 
 from ._errors import ContractConfigurationError
+from ._signatures import SCALAR_TYPES as _SCALAR_TYPES
+from ._signatures import kebab as _kebab
+from ._signatures import rendered_signature as _rendered_signature
+from ._signatures import snake as _snake
+from ._signatures import value_fits as _value_fits
+from ._steppers import clear_user_steppers
 from ._types import (
     ServiceTypeContract,
     clear_user_types,
@@ -175,9 +181,6 @@ def _bare_type(
     )
 
 
-_SCALAR_TYPES = (str, int, float, bool)
-
-
 def _vet_factory_signature(name: str, factory: Callable[..., Any]) -> None:
     """Every factory parameter must be reachable from a configuration key."""
     for parameter in inspect.signature(factory).parameters.values():
@@ -190,30 +193,6 @@ def _vet_factory_signature(name: str, factory: Callable[..., Any]) -> None:
                 "keyword-bindable — configuration keys bind by name, so factory "
                 "parameters must be ordinary or keyword-only"
             )
-
-
-def _snake(key: str) -> str:
-    return key.replace("-", "_")
-
-
-def _kebab(parameter_name: str) -> str:
-    return parameter_name.replace("_", "-")
-
-
-def _rendered_signature(name: str, fn: Callable[..., Any]) -> str:
-    return f"{name}{inspect.signature(fn)}"
-
-
-def _value_fits(value: Any, annotation: Any) -> bool:
-    if annotation is bool:
-        return isinstance(value, bool)
-    if annotation is int:
-        return isinstance(value, int) and not isinstance(value, bool)
-    if annotation is float:
-        return isinstance(value, int | float) and not isinstance(value, bool)
-    if annotation is str:
-        return isinstance(value, str)
-    return True
 
 
 def _factory_type(
@@ -399,5 +378,6 @@ def resolve_transform(name: str) -> Callable[[str], Any]:
 def clear_registries() -> None:
     """Reset all user registries. Test seam only."""
     clear_user_types()
+    clear_user_steppers()
     _checks.clear()
     _transforms.clear()

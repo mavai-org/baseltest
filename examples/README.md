@@ -99,7 +99,7 @@ The refusal is the feature: without the declared identity, the edited rules (or 
 
 ## `language-model/` — a real model, two files, no Python
 
-The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md): a language model given a job, its response parsed as JSON (the `transforms:` block declares the `basket` view) and judged structurally — every item named, every quantity positive, plus an input-specific expectation (eggs in the egg order). Needs a credential for the declared provider (or edit `mavai-services.yaml` to use `anthropic`, `mistral`, `ollama`, or `apertus`):
+The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md): a language model given a job, its response parsed as JSON (the `transforms:` block declares the `basket` view) and judged structurally — every item named, every quantity positive, plus per-input expectations encoding the shop's **house conventions** (canonical names, "a dozen" means 12, weights are not quantities, …) that drive the optimize walkthrough below. Needs a credential for the declared provider (or edit `mavai-services.yaml` to use `anthropic`, `mistral`, `ollama`, or `apertus`):
 
 ```bash
 export OPENAI_API_KEY=...
@@ -161,6 +161,36 @@ The services file also carries an `explorations:` grid: the same job on a differ
    A ranked leaderboard, a per-criterion matrix, and a latency profile per model. Like the artefacts it renders from, it is descriptive only — and because every framework in the family emits the same `mavai-explore-1` artefact schema, the same tool renders a punit or feotest exploration identically.
 
 6. **Promote the winner.** Fold its values into the `configuration:` block, then `basel measure` and `basel test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
+
+### Watch a meta-LLM engineer the prompt
+
+The services file's `optimizations:` section declares three searches; the `prompt-tuning` entry is the showpiece — a meta-LLM (`stepper: prompt-engineer`) reads each iteration's failures and proposes the next system prompt:
+
+```bash
+basel optimize basket-builder.yaml prompt-tuning --samples-per-iteration 30
+```
+
+A representative run (yours will differ — every number here is a stochastic observation, which is the point of the framework):
+
+```
+iteration 0: score 0.1000 (3 of 30 responses met expectations)
+iteration 1: score 0.4667 (14 of 30 responses met expectations)
+iteration 2: score 0.8000 (24 of 30 responses met expectations)
+iteration 3: score 1.0000 (30 of 30 responses met expectations)  ← best
+iteration 4: score 0.9667 (29 of 30 responses met expectations)
+iteration 5: score 0.9000 (27 of 30 responses met expectations)
+stopped: no improvement within the window
+```
+
+The staircase is engineered, and the machinery is worth reading because every part of it is an authoring surface you also have:
+
+- **The contract encodes house conventions** the baseline two-line prompt does not state — names are lowercase and singular, "a dozen" becomes 12, `500g of butter` is *one* butter, an uncounted item means quantity 1, nothing is invented. A bare model cannot guess a shop's private rulebook, so iteration 0 scores honestly low.
+- **Failure reasons carry the lesson.** Each per-input expectation is ordered so the first failing check produces a diagnosable reason (`response does not equal 'egg'` — a trial's reason is the *first* failing check's), and the meta-LLM must infer the general convention from the canonical value it quotes.
+- **`max-exemplars: 1` meters the curriculum.** Exemplars surface in input order and the inputs are grouped by rule, so the prompt engineer sees roughly one rule class per iteration instead of the whole rulebook at once — a staircase rather than a single jump.
+- **The meta prompt is itself engineered** (`stepper-config: system-prompt:`): it tells the meta-LLM to infer the convention behind the exemplar shown, add one rule with one worked example, and change nothing else. Prompt-engineering the prompt engineer is not a cheat; it is the skill the example teaches.
+- **The plateau window ends the story.** Once the score stops improving (`no-improvement-window: 2`), the run stops — with the curriculum exhausted there is nothing left to learn, and the trailing wobble (a perfect prompt "improved" into a slightly worse one) is the honest reason to stop touching a winning prompt.
+
+The artefact in `_baseltest/optimizations/` carries the full history — every prompt tried, per-iteration failure distributions, per-sample projections. Promotion is the same move as explore's: fold the winning `system-prompt` into the `configuration:` block, `basel measure`, and the drift check keeps the new identity honest.
 
 Want a third model in the comparison? Uncomment the apertus entry and `export PUBLICAI_API_KEY=...`. Apertus's hosted endpoint has no structured-output support, so `explore` runs that configuration *without* the declared `response-schema:` and says so in a console note — the system prompt still states the output shape, which keeps the comparison fair.
 
