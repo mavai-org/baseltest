@@ -308,6 +308,54 @@ diff _baseltest/explorations/basket-builder-returns-valid-baskets/model-gpt-4o-m
 
 then promote the winner by folding its values into the `configuration:` block, run `basel measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore requires a service declared in the services file — a bare `@binding` carries no configuration grid, but a `@binding_factory` type with a services-file entry explores exactly like a language model does (see *Configuring your own service* above).
 
+## Optimising a configuration
+
+Explore characterises a handful of configurations you can enumerate. Sometimes the question is a *search* instead: which temperature, which system prompt? The `optimize` verb answers that with the family's Optimize experiment — an iterative walk through the configuration space, scored per iteration, abandoned as soon as it stops paying. Its place in the workflow: **explore** finds the promising region, **optimize** hones within it, **measure** locks the winner in as a baseline, **test** asserts against it forever after.
+
+Optimisations live beside explorations in the services file, and like them are invisible to `test` and `measure`:
+
+```yaml
+    optimizations:
+      - id: prompt-tuning              # names the run and its artefact
+        stepper: prompt-engineer       # a meta-LLM proposes each next prompt
+        stepper-config: {model: gpt-4o}
+        max-iterations: 5
+        no-improvement-window: 2       # stop after 2 iterations without improvement
+
+      - id: temperature-honing         # divide and conquer: 0.0 → 0.5 → 0.25 → 0.375 …
+        stepper: bisection
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, tolerance: 0.05}
+        initial: {temperature: 0.0}
+        max-iterations: 8
+```
+
+Run one entry by name — with several declared, an unnamed selection is refused with the ids listed, never guessed (each entry is an independent, potentially expensive experiment); `--all` opts into running every entry, and a lone entry runs without a name:
+
+```bash
+basel optimize basket-builder.yaml temperature-honing --samples-per-iteration 10
+```
+
+**Iteration 0 is the baseline `configuration:` with the `initial:` overrides applied; no `initial:` means iteration 0 is the baseline itself.** The overlay is partial, with exactly an exploration entry's merge semantics, and an overlay that merely restates the baseline is refused. The two entries above illustrate both sides of the default: `prompt-tuning` omits `initial:` because iteration 0 should score the *incumbent* prompt, giving the meta-LLM's first suggestion a measured reference point; `temperature-honing` provides it because the walk should start at the interval's edge, not wherever the baseline happens to sit.
+
+Each iteration runs like a miniature measure with explore's descriptive posture — no thresholds consulted, no verdict rendered — and is scored. The default scorer is the iteration's observed pass rate, maximised; declare `scorer:` (a name registered with `@scorer` in `mavai-bindings.py`) and `objective: minimize` to override. The **stepper** then proposes the next configuration: it receives the whole current configuration mapping plus the run's context (full history with per-criterion failure breakdowns and exemplars, the best so far, the remaining iteration budget) and returns the whole next configuration — or `None` to stop. The run ends at `max-iterations`, on the `no-improvement-window` plateau, or when the stepper stops.
+
+Three steppers ship built in. `prompt-engineer` sends the previous iteration's prompt, score, and failure breakdown to a meta-LLM and treats the response as the next `system-prompt` (`target-key:` retargets it); its meta model defaults to the optimized service's own `provider:`/`model:`, so the credentials you already exported cover it and no vendor is silently pinned. `linear-sweep` walks one numeric key in fixed `step:` increments to `stop:` — a fixed grid you want fully characterised is an *exploration*; what earns the sweep a place here is the plateau window abandoning the walk early. `bisection` hones one numeric key by interval halving — it assumes the score is roughly unimodal in that key, and on a noisy or multimodal landscape it will converge confidently on nothing meaningful. Your own steppers register in `mavai-bindings.py` as factories whose parameters are the entry's `stepper-config:` schema, with any search state held in the factory's closure:
+
+```python
+from baseltest.declarative import stepper
+
+@stepper("halve-until", configuration_keys=("key",))
+def halve_until(key: str, floor: float):
+    def step(current, ctx):
+        value = current[key] / 2
+        return {**current, key: value} if value >= floor else None
+    return step
+```
+
+Everything checkable without a sample is checked at load time — unknown keys, an unresolvable stepper or scorer, a `stepper-config:` that does not fit the factory's signature, a stepper targeting a configuration key that does not exist, a no-op `initial:` — and `basel check` runs all of it for zero samples. Mid-run, a stepper that proposes an invalid configuration (or the current one unchanged — re-measuring the same point spends samples for nothing) fails the run with the iteration and offence named.
+
+One YAML artefact per run lands in `_baseltest/optimizations/{contract}/{id}.yaml`, in the family's canonical `mavai-optimize-1` schema: the **full iteration history** — every configuration tried, its score, per-criterion counts, failure distribution, gated latency, per-sample projection — plus a convergence block naming the best iteration and a record of which stepper drove the search. Descriptive throughout: an optimize run makes no inferential claim about the optimum. The console prints the trajectory and the best factors; promotion is the same manual move as explore's — fold the winning values into `configuration:`, `basel measure`, and the drift check keeps you honest along the way.
+
 ## The verdict record
 
 Every `test` run also writes its results as a **verdict record** — XML in the mavai family's canonical schema (defined by punit, namespace `http://mavai.org/verdict/1.0`), into `_baseltest/verdicts/` by default (`--verdict-dir` to move it, `--no-verdict-xml` to switch it off). The record carries the full decomposition: per-criterion verdicts with counts and thresholds, the composite, failure-reason clauses, threshold provenance (including the baseline artefact an empirical bar came from), and the run's execution facts. Because every framework in the family emits the same schema, the same downstream tooling reads them all.
@@ -326,9 +374,9 @@ The return code is the machine-readable half of the honest-output story — CI r
 
 | Code | Meaning |
 |---|---|
-| `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
+| `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). `optimize`: every selected run completed and its artefact persisted (like explore, it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a service with no services-file grid, a `basel check` join failure, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a service with no services-file grid, an optimize selection left ambiguous (or over a service with no `optimizations:` section), a stepper mid-run proposing an invalid configuration or the current one unchanged, a `basel check` join failure, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
 | `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: too few samples *passed* for an asserted latency percentile to be estimated — the composite is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.

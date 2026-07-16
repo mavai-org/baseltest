@@ -42,3 +42,23 @@ services:
         model: claude-haiku-4-5-20251001
 #      - provider: apertus          # optional third model: the fully open Swiss
 #        model: swiss-ai/Apertus-70B-Instruct-2509   # model, served by publicai.co
+    optimizations:                 # `basel optimize <contract> <id>` runs one of these;
+                                   # `test` and `measure` never read the section
+      - id: prompt-tuning              # a meta-LLM proposes each next system prompt from
+        stepper: prompt-engineer       # the previous iteration's failures; no `initial:`,
+        stepper-config: {model: gpt-4o}   # so iteration 0 scores the incumbent prompt
+        max-iterations: 5
+        no-improvement-window: 2         # stop after 2 iterations without improvement
+
+      - id: temperature-linear         # 0.0, 0.1, 0.2, … — the plateau window abandons
+        stepper: linear-sweep          # the walk as soon as it stops paying
+        stepper-config: {key: temperature, step: 0.1, stop: 1.0}
+        initial: {temperature: 0.0}    # iteration 0: the baseline with this overlaid
+        max-iterations: 11
+        no-improvement-window: 3
+
+      - id: temperature-honing         # divide and conquer: 0.0 → 0.5 → 0.25 → 0.375 …
+        stepper: bisection             # assumes the score is roughly unimodal in the key
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, tolerance: 0.05}
+        initial: {temperature: 0.0}
+        max-iterations: 8
