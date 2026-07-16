@@ -46,9 +46,27 @@ services:
                                    # `test` and `measure` never read the section
       - id: prompt-tuning              # a meta-LLM proposes each next system prompt from
         stepper: prompt-engineer       # the previous iteration's failures; no `initial:`,
-        stepper-config: {model: gpt-4o}   # so iteration 0 scores the incumbent prompt
-        max-iterations: 5
-        no-improvement-window: 2         # stop after 2 iterations without improvement
+                                       # so iteration 0 scores the incumbent prompt.
+        stepper-config:                # max-exemplars caps the example failures shown per
+          model: gpt-4o                # iteration (exemplars surface in input order, so the
+          temperature: 0.1             # meta-LLM meets the contract's house rules as a
+          max-exemplars: 1             # curriculum rather than all at once)
+          system-prompt: >             # prompt-engineering the prompt engineer: the default
+            You are a prompt engineer. The service under test converts
+            shopping instructions into a JSON basket, and is judged against
+            fixed house conventions you cannot see directly. Each failure
+            exemplar reveals part of one: the quoted expected value in the
+            reason is canonical (exact item name, exact quantity). From the
+            exemplar shown, infer the general convention behind it and add
+            it to the system prompt as one explicit rule with one worked
+            example. Address ONLY the failure shown - do not anticipate
+            other conventions, and keep every rule already present
+            unchanged. Output only the new system prompt. No commentary,
+            no preamble, no surrounding quotes.
+        max-iterations: 8
+        no-improvement-window: 2         # a plateau - two iterations without improvement -
+                                         # ends the run; with the curriculum exhausted there
+                                         # is nothing left for the meta-LLM to learn
 
       - id: temperature-linear         # 0.0, 0.1, 0.2, … — the plateau window abandons
         stepper: linear-sweep          # the walk as soon as it stops paying
