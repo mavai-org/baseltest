@@ -1,25 +1,37 @@
-"""A rule-driven service whose identity lives partly on disk.
+"""A rule-driven service whose identity lives partly on disk — and partly in YAML.
 
 The triage assistant routes support requests using the keyword rules in
-``triage-rules.txt``. That file is as much a part of the service's
-identity as this code: change one rule and yesterday's baseline describes
-a different service. Declaring the file's fingerprint as a covariate
-makes the identity explicit — ``basel measure`` records it in the
-baseline artefact, and a later ``basel test`` under edited rules is
-refused with the drifted key named, instead of judging silently against
-stale evidence.
+``triage-rules.txt``. Its identity has two feeds:
+
+- **Computed covariates**, declared here: the rules file's fingerprint and
+  the assistant version — values a services file cannot state. Change a
+  rule and yesterday's baseline describes a different service; the next
+  ``basel test`` is refused with the drifted key named.
+- **Declared configuration**, in ``mavai-services.yaml``: the factory
+  below is registered as the service *type* ``triage``, and its signature
+  is the configuration schema — ``tone`` and ``certainty`` are the
+  services file's keys. ``basel explore`` runs the whole grid; ``test``
+  and ``measure`` run the baseline configuration, whose keys join the
+  same drift-checked identity.
 
 Like the simulated-service example, the stochastic "unsure" branch is a
-simulation (true routing rate ≈ 0.9) so the example runs offline.
+simulation — ``certainty`` is the true routing rate, so exploring it
+shows honestly different observed rates, offline.
 """
 
 import hashlib
 import random
+from collections.abc import Callable
 from pathlib import Path
 
-from baseltest.declarative import binding
+from baseltest.declarative import binding_factory
 
 _RULES_FILE = Path(__file__).parent / "triage-rules.txt"
+
+_CLOSINGS = {
+    "matter-of-fact": "routed",
+    "reassuring": "we'll take good care of this",
+}
 
 
 def _parse_rules(text: str) -> dict[str, tuple[str, ...]]:
@@ -42,18 +54,23 @@ _RULES = _parse_rules(_RULES_TEXT)
 _RULES_FINGERPRINT = hashlib.sha256(_RULES_TEXT.encode("utf-8")).hexdigest()[:12]
 
 
-@binding(
-    "triage-assistant",
+@binding_factory(
+    "triage",
     covariates={
         "triage-rules": _RULES_FINGERPRINT,
-        "assistant-version": "1.0",
+        "assistant-version": "2.0",
     },
 )
-def route_request(request: str) -> str:
-    if random.random() >= 0.9:  # noqa: S311 — simulation, not cryptography
-        return "the assistant is unsure — please route manually"
-    lowered = request.lower()
-    for category, keywords in _RULES.items():
-        if any(keyword in lowered for keyword in keywords):
-            return f"category: {category}"
-    return "category: general"
+def triage(tone: str = "matter-of-fact", certainty: float = 0.9) -> Callable[[str], str]:
+    closing = _CLOSINGS.get(tone, _CLOSINGS["matter-of-fact"])
+
+    def route_request(request: str) -> str:
+        if random.random() >= certainty:  # noqa: S311 — simulation, not cryptography
+            return "the assistant is unsure — please route manually"
+        lowered = request.lower()
+        for category, keywords in _RULES.items():
+            if any(keyword in lowered for keyword in keywords):
+                return f"category: {category} — {closing}"
+        return f"category: general — {closing}"
+
+    return route_request
