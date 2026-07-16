@@ -56,24 +56,15 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
-from ._providers import resolve_provider
-from ._registry import (
-    binding_covariates,
-    has_binding,
-    resolve_binding,
-    resolve_check,
-    resolve_transform,
-)
+from ._registry import resolve_check, resolve_transform
 from ._services import (
-    LanguageModelParameters,
     ServiceDefinition,
     configuration_values,
     factor_values,
-    language_model_invoker,
-    resolved_provenance,
 )
 from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
 from ._structured import compile_jsonpath, compile_xpath, path_qualified
+from ._types import find_type
 
 _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
     "equals": lambda arg, view: equals(str(arg), view=view),
@@ -195,19 +186,36 @@ def _build_criterion(
 
 def _resolve_service(
     reference: str, services: dict[str, ServiceDefinition]
-) -> tuple[Callable[[str], str], dict[str, str]]:
-    """Resolve a service reference against both registry populations."""
-    defined = reference in services
-    registered = has_binding(reference)
-    if defined and registered:
-        raise ContractConfigurationError(
-            f"service {reference!r} is both registered in code (@binding) and defined "
-            "in the services file — one name, one owner; rename one of them"
+) -> tuple[Callable[..., str], dict[str, str]]:
+    """Resolve a service reference: definitions first, then the type registry.
+
+    Service names (services-file keys) and type names (the registry) are
+    separate namespaces. A definition is a configured instance of a type;
+    an *addressable* type — a bare ``@binding`` — is directly usable as a
+    service of the same name, the degenerate zero-configuration instance.
+    """
+    definition = services.get(reference)
+    if definition is not None:
+        return (
+            definition.type.invoker(definition.configuration),
+            definition.type.provenance(definition.configuration),
         )
-    if defined:
-        parameters = services[reference].configuration
-        return language_model_invoker(parameters), resolved_provenance(parameters)
-    return resolve_binding(reference), binding_covariates(reference)
+    type_contract = find_type(reference)
+    if type_contract is None or type_contract.builtin:
+        raise ContractConfigurationError(
+            f"service {reference!r} matches no service definition and no registered "
+            f"binding. Register the code that invokes your service with "
+            f"@binding({reference!r}) in mavai-bindings.py, or define the service in "
+            "mavai-services.yaml, before running the contract."
+        )
+    if not type_contract.addressable:
+        raise ContractConfigurationError(
+            f"service {reference!r} names a configurable type directly — a "
+            "configurable type is instantiated by a services-file entry; declare a "
+            f"service with `type: {reference}` (and its `configuration:`) in "
+            "mavai-services.yaml"
+        )
+    return type_contract.invoker(None), dict(type_contract.covariates)
 
 
 # Sample sizing is decided at invocation, never in the file: the contract
@@ -406,7 +414,7 @@ class ExploreConfiguration:
     point runs under, recorded in its artefact.
     """
 
-    parameters: LanguageModelParameters
+    parameters: Any
     factors: dict[str, Any]
     configuration: dict[str, Any]
     contract: ServiceContract
@@ -439,22 +447,21 @@ def instantiate_explore(
     ``(note, ...)`` lines the caller should surface before running.
 
     Raises:
-        ContractConfigurationError: The service resolves to a
-            code-registered binding — explore currently requires a service
-            declared in the services file, whose configuration grid is the
-            factor source.
+        ContractConfigurationError: The service resolves to a bare binding —
+            explore requires a service declared in the services file, whose
+            configuration grid is the factor source.
     """
     definition = (services or {}).get(declaration.service)
     if definition is None:
-        if has_binding(declaration.service):
+        if find_type(declaration.service) is not None:
             raise ContractConfigurationError(
-                f"explore requires a declared service: {declaration.service!r} is "
-                "registered in code (@binding), and a code binding carries no "
-                "configuration grid to explore — declare the service (and its "
-                "`explorations:` entries) in the services file"
+                f"explore requires a declared service: {declaration.service!r} is a "
+                "registered type with no services-file entry, so it carries no "
+                "configuration grid to explore — declare a service of this type "
+                "(and its `explorations:` entries) in the services file"
             )
-        resolve_binding(declaration.service)  # raises the standard unresolvable refusal
-        raise AssertionError("unreachable: resolve_binding refuses unknown names")
+        _resolve_service(declaration.service, {})  # raises the standard refusal
+        raise AssertionError("unreachable: unresolvable services are refused above")
     sizing = (
         RunSizing(samples=samples_per_config, provenance="explicit")
         if samples_per_config is not None
@@ -473,22 +480,14 @@ def instantiate_explore(
     configurations = []
     notes: list[str] = []
     for parameters in definition.grid:
-        if (
-            parameters.response_schema is not None
-            and not resolve_provider(parameters.provider).supports_response_schema
-        ):
-            # Announced degradation, never silent: the configuration that
-            # actually runs — and its artefact — carries no schema.
-            parameters = _replace(parameters, response_schema=None)
-            notes.append(
-                f"provider {parameters.provider!r} has no structured-output "
-                "support in this reader — the response-schema is not sent for "
-                "this configuration; carry the output shape in the system "
-                "prompt if the comparison should stay fair"
-            )
+        # A type's last look at its grid point (e.g. the language model's
+        # structured-output degradation): announced, never silent.
+        parameters, note = definition.type.prepare_explore_point(parameters)
+        if note is not None:
+            notes.append(note)
         contract = ServiceContract(
             contract_id=declaration.contract,
-            invoke=_instrumented_invoke(language_model_invoker(parameters)),
+            invoke=_instrumented_invoke(definition.type.invoker(parameters)),
             criteria=criteria,
             views=views,
         )
@@ -502,7 +501,7 @@ def instantiate_explore(
             ExploreConfiguration(
                 parameters=parameters,
                 factors=factor_values(definition, parameters),
-                configuration=configuration_values(parameters),
+                configuration=configuration_values(definition, parameters),
                 contract=contract,
                 plan=plan,
             )

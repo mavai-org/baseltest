@@ -141,15 +141,38 @@ class TestZeroCodePath:
 
 
 class TestResolutionRules:
-    def test_collision_between_code_and_definition_fails(
+    def test_service_names_and_type_names_are_separate_namespaces(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
+        # A registered type sharing a service definition's name is not a
+        # collision: a contract's `service:` reference resolves against
+        # service definitions first.
         @binding("greeter")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        with pytest.raises(ContractConfigurationError, match="one name, one owner"):
-            run(write_files(tmp_path), emit=False)
+        result = run(write_files(tmp_path), emit=False)
+        assert llm_environment  # the definition won: the model was invoked
+        assert result.composite is Verdict.PASS
+
+    def test_registering_a_builtin_type_name_is_refused(self) -> None:
+        with pytest.raises(ContractConfigurationError, match="built-in service type"):
+
+            @binding("language-model")
+            def invoke(value: str) -> str:
+                return value
+
+    def test_configurable_type_is_not_directly_addressable(self, tmp_path: Path) -> None:
+        from baseltest.declarative import binding_factory
+
+        @binding_factory("teller")
+        def teller(mood: str = "cheerful"):  # type: ignore[no-untyped-def]
+            return lambda value: f"{mood} {value}"
+
+        contract = tmp_path / "contract.yaml"
+        contract.write_text(CONTRACT.replace("service: greeter", "service: teller"))
+        with pytest.raises(ContractConfigurationError, match="mavai-services.yaml"):
+            run(contract, emit=False)
 
 
 class TestProvenance:

@@ -35,8 +35,8 @@ from baseltest.statistics import (
 )
 
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, CriterionDeclaration
-from ._registry import binding_covariates, has_binding
-from ._services import ServiceDefinition, resolved_provenance
+from ._services import ServiceDefinition
+from ._types import find_type
 
 DEFAULT_TARGET_POWER = 0.8
 
@@ -207,11 +207,14 @@ def resolve_contract_baseline(
     """
     definition = services.get(declaration.service)
     if definition is not None:
-        service_provenance = resolved_provenance(definition.configuration)
-    elif has_binding(declaration.service):
-        service_provenance = binding_covariates(declaration.service)
+        service_provenance = definition.type.provenance(definition.configuration)
     else:
-        service_provenance = {}
+        type_contract = find_type(declaration.service)
+        service_provenance = (
+            dict(type_contract.covariates)
+            if type_contract is not None and type_contract.addressable
+            else {}
+        )
     return resolve_baseline(
         baseline_dir,
         declaration.contract,

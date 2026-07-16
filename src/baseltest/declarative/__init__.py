@@ -10,6 +10,9 @@ decorators and one entry point:
 
 - :func:`binding` registers the code that invokes your service by name,
   optionally declaring the covariates that make up its computed identity.
+- :func:`binding_factory` registers a configurable service type: a factory
+  whose signature is the configuration schema, constructing the per-sample
+  callable from one services-file grid point.
 - :func:`check` registers a named predicate for the ``satisfies:`` form.
 - :func:`transform` registers a named transformation for the ``transform:``
   key.
@@ -23,7 +26,7 @@ means authoring the contract directly (``baseltest.contract``) — at that
 point nothing here is needed any more.
 """
 
-from ._registry import binding, check, transform
+from ._registry import binding, binding_factory, check, transform
 from ._runner import explore, run
 
-__all__ = ["binding", "check", "explore", "run", "transform"]
+__all__ = ["binding", "binding_factory", "check", "explore", "run", "transform"]
