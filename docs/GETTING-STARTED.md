@@ -264,11 +264,11 @@ Every `test` run also writes its results as a **verdict record** — XML in the 
 
 ## HTML reports
 
-Every run persists its artefacts, so reporting never requires re-execution: `basel report test` renders one self-contained HTML page from the verdict records under `_baseltest/verdicts/`, and `basel report explore` renders the exploration comparison — a ranked leaderboard, a per-criterion matrix, and latency-distribution strips — from the artefacts under `_baseltest/explorations/`. Reports land in `_baseltest/reports/` (`--out` relocates them), open offline in any browser (all CSS inline, no JavaScript, no external assets), and share the mavai family's report look, so a basel report and a punit report read as siblings. With nothing to render the verb aborts with a friendly pointer (exit 2); `basel report measure` is reserved — no measure report type exists in the family yet.
+Every run persists its artefacts, so reporting never requires re-execution: `basel report test` renders one self-contained HTML page from the verdict records under `_baseltest/verdicts/`. The report lands in `_baseltest/reports/` (`--out` relocates it), opens offline in any browser (all CSS inline, no JavaScript, no external assets), and shares the mavai family's report look, so a basel report and a punit report read as siblings. With nothing to render the verb aborts with a friendly pointer (exit 2); `basel report measure` is reserved — no measure report type exists in the family yet.
 
-Prefer the report in one step? `--html-report <path>` on `test` and `explore` renders the same report from the just-persisted artefacts as part of the run — one rendering path, so the inline report and a later `basel report` over the same run are identical. The flag never changes the verb's exit code.
+Prefer the report in one step? `--html-report <path>` on `test` renders the same report from the just-persisted verdict record as part of the run — one rendering path, so the inline report and a later `basel report test` over the same run are identical. The flag never changes the verb's exit code.
 
-The comparison report re-presents artefact values only: a percentile below its minimum-sample threshold renders as `-`, and adjacent equally-reliable variants whose medians differ by less than 5% share a rank with a ≈ marker — a presentational margin flagged as such in the page's legend, never a significance test.
+Exploration comparison reports are the family's shared tool's job: baseltest emits the canonical `mavai-explore-1` artefacts under `_baseltest/explorations/`, and the [mavai](https://github.com/mavai-org/mavai/releases) tool renders the comparison page from them — `mavai explore _baseltest/explorations -o report.html`. Because every framework in the family emits the same artefact schema, one tool renders them all.
 
 ## Exit codes
 

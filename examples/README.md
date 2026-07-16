@@ -5,7 +5,7 @@ Ready-to-run declarative authoring, from zero. Each folder holds **one contract 
 - `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
 - `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
 - `basel explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
-- `basel report <test|explore>` — an HTML report from whatever the runs above persisted, rendered post-hoc into `_baseltest/reports/` — no service is invoked. Or render inline as part of a run with `--html-report <path>` on `test` and `explore`; either way it is the same renderer, so the outputs are identical.
+- `basel report test` — an HTML test report from the persisted verdict records, rendered post-hoc into `_baseltest/reports/` — no service is invoked. Or render inline as part of a run with `--html-report <path>` on `test`; either way it is the same renderer, so the outputs are identical. Exploration comparison reports are rendered by the family's [mavai](https://github.com/mavai-org/mavai/releases) tool: `mavai explore _baseltest/explorations -o report.html`.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
 
@@ -94,14 +94,14 @@ The services file also carries an `explorations:` grid: the same job on a differ
 
    Each file carries the configuration's factors, observed pass rate, per-criterion counts and failure reasons, a gated latency summary (p50 at exploration-sized runs), and a per-sample **result projection** — which input drove each sample, which postconditions passed, how long the call took, and the model's response verbatim. Descriptive statistics only, triage rather than judgement — and when a configuration underperforms, the projection shows you *what it actually said*.
 
-5. **Render the comparison report** — the diff's visual sibling, one page over every configuration:
+5. **Render the comparison report** — the diff's visual sibling, one page over every configuration, rendered by the family's shared [mavai](https://github.com/mavai-org/mavai/releases) tool:
 
    ```bash
    cd ../..                                # back to examples/language-model
-   basel report explore                    # renders _baseltest/reports/explorations.html
+   mavai explore _baseltest/explorations -o comparison.html
    ```
 
-   A ranked leaderboard (pass rate, then median latency, then cost — with the winning cluster marked ≈ when the leaders are too close to call), a per-criterion matrix, and a latency-distribution strip per model. Like the artefacts it renders from, it is descriptive only. (`basel explore basket-builder.yaml --html-report comparison.html` produces the same page inline with the run.)
+   A ranked leaderboard, a per-criterion matrix, and a latency profile per model. Like the artefacts it renders from, it is descriptive only — and because every framework in the family emits the same `mavai-explore-1` artefact schema, the same tool renders a punit or feotest exploration identically.
 
 6. **Promote the winner.** Fold its values into the `configuration:` block, then `basel measure` and `basel test` as usual. An old baseline measured under the previous configuration no longer matches — the next test names the drift and refuses to judge against stale evidence until you re-measure.
 

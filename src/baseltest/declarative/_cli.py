@@ -15,6 +15,7 @@ from ._runner import (
     DEFAULT_BASELINE_DIR,
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_VERDICT_DIR,
+    MAVAI_EXPLORE_POINTER,
     explore,
     report,
     run,
@@ -157,7 +158,10 @@ def main(argv: list[str] | None = None) -> int:
         "--html-report",
         type=Path,
         default=None,
-        help="also render the exploration comparison report to this path",
+        help=(
+            "no longer rendered here: exploration comparison reports moved to "
+            "the family's mavai tool (mavai explore <dir> -o report.html)"
+        ),
     )
     report_parser = subparsers.add_parser(
         "report",
@@ -167,8 +171,8 @@ def main(argv: list[str] | None = None) -> int:
         "kind",
         choices=("test", "measure", "explore"),
         help=(
-            "which report to render: test (from verdict records) or explore "
-            "(from exploration artefacts); measure is reserved"
+            "which report to render: test (from verdict records); explore "
+            "moved to the family's mavai tool; measure is reserved"
         ),
     )
     report_parser.add_argument(
@@ -181,7 +185,10 @@ def main(argv: list[str] | None = None) -> int:
         "--explorations-dir",
         type=Path,
         default=DEFAULT_EXPLORATIONS_DIR,
-        help="where `report explore` reads exploration artefacts from",
+        help=(
+            "no longer read here: exploration comparison reports moved to "
+            "the family's mavai tool (mavai explore <dir> -o report.html)"
+        ),
     )
     report_parser.add_argument(
         "--out",
@@ -192,11 +199,13 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
 
     if arguments.command == "report":
+        if arguments.kind == "explore":
+            print(MAVAI_EXPLORE_POINTER, file=sys.stderr)
+            return 2
         try:
             written = report(
                 arguments.kind,
                 verdict_dir=arguments.verdict_dir,
-                explorations_dir=arguments.explorations_dir,
                 out=arguments.out,
             )
         except ContractConfigurationError as refusal:
@@ -208,11 +217,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if arguments.command == "explore":
+            if arguments.html_report is not None:
+                print(MAVAI_EXPLORE_POINTER, file=sys.stderr)
+                return 2
             explore(
                 arguments.contract_file,
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
-                html_report=arguments.html_report,
             )
             return 0
         verdict_dir = None

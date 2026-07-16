@@ -10,64 +10,11 @@ from baseltest.reporting import (
     RunDesign,
     SizingDisclosure,
     parse_verdict_record,
-    read_exploration_directory,
     read_verdict_directory,
-    render_exploration_report,
     render_test_report,
     render_verdict_record,
     write_verdict_record,
 )
-
-EXPLORATION = """\
-schemaVersion: "mavai-explore-1"
-serviceContractId: "svc"
-configuration: "model-{model}"
-generatedAt: "2026-07-09T12:00:00+00:00"
-factors:
-  "model": "{model}"
-execution:
-  samplesPlanned: 5
-  samplesExecuted: 5
-  terminationReason: "COMPLETED"
-statistics:
-  observed: {rate}
-  successes: {successes}
-  failures: {failures}
-  criteria:
-    "answers-as-json":
-      observedPassRate: {rate}
-      pass: {successes}
-      fail: {failures}
-      inconclusive: 0
-cost:
-  totalTimeMs: 2500
-  avgTimePerSampleMs: {avg}
-latency:
-  basis: "passing-samples"
-  contributingSamples: {successes}
-  totalSamples: 5
-  p50Ms: {p50}
-  sortedPassingLatenciesMs:
-{vector}
-"""
-
-
-def write_variant(root: Path, model: str, rate: float, successes: int, p50: int, avg: int) -> None:
-    latencies = [p50 - 2, p50 - 1, p50, p50 + 1, p50 + 2][:successes]
-    vector = "\n".join(f"    - {v}" for v in latencies)
-    (root / "svc").mkdir(parents=True, exist_ok=True)
-    (root / "svc" / f"model-{model}.yaml").write_text(
-        EXPLORATION.format(
-            model=model,
-            rate=rate,
-            successes=successes,
-            failures=5 - successes,
-            avg=avg,
-            p50=p50,
-            vector=vector,
-        ),
-        encoding="utf-8",
-    )
 
 
 def run_record(passing: bool = True):  # type: ignore[no-untyped-def]
@@ -204,63 +151,3 @@ class TestRunDesignDisclosures:
         html = render_test_report([run_record()], [None])
         assert "Run design" not in html
         assert render_test_report([run_record()]).count("Run design") == 0
-
-
-class TestExplorationReport:
-    def test_leaderboard_ranks_by_rate_then_median(self, tmp_path: Path) -> None:
-        write_variant(tmp_path, "fast", rate=1.0, successes=5, p50=100, avg=110)
-        write_variant(tmp_path, "slow", rate=1.0, successes=5, p50=500, avg=510)
-        write_variant(tmp_path, "flaky", rate=0.4, successes=2, p50=50, avg=60)
-        sweep = read_exploration_directory(tmp_path)
-        html = render_exploration_report(list(sweep.contracts))
-        assert html.index("model=fast") < html.index("model=slow") < html.index("model=flaky")
-        assert "Leaderboard" in html and "Per-criterion comparison" in html
-        assert "Latency distribution" in html and "latency-strip-svg" in html
-        assert "<script" not in html
-
-    def test_near_tie_shares_a_rank_with_the_legend(self, tmp_path: Path) -> None:
-        write_variant(tmp_path, "a", rate=1.0, successes=5, p50=100, avg=100)
-        write_variant(tmp_path, "b", rate=1.0, successes=5, p50=102, avg=100)
-        sweep = read_exploration_directory(tmp_path)
-        html = render_exploration_report(list(sweep.contracts))
-        assert 'class="tie-mark"' in html and "too close to call" in html
-
-    def test_pass_rate_difference_is_never_a_near_tie(self, tmp_path: Path) -> None:
-        write_variant(tmp_path, "a", rate=1.0, successes=5, p50=100, avg=100)
-        write_variant(tmp_path, "b", rate=0.8, successes=4, p50=101, avg=100)
-        sweep = read_exploration_directory(tmp_path)
-        html = render_exploration_report(list(sweep.contracts))
-        assert 'class="tie-mark"' not in html
-
-    def test_below_minimum_percentile_renders_as_dash(self, tmp_path: Path) -> None:
-        # 2 passing samples: below the median's minimum, so the artefact
-        # carries no p50Ms and the leaderboard shows a dash.
-        write_variant(tmp_path, "sparse", rate=0.4, successes=2, p50=100, avg=100)
-        text_path = tmp_path / "svc" / "model-sparse.yaml"
-        text = "\n".join(line for line in text_path.read_text().splitlines() if "p50Ms" not in line)
-        text_path.write_text(text + "\n", encoding="utf-8")
-        sweep = read_exploration_directory(tmp_path)
-        html = render_exploration_report(list(sweep.contracts))
-        assert '<span class="muted">-</span>' in html
-
-    def test_constant_configuration_shows_in_details_not_labels(self, tmp_path: Path) -> None:
-        # Artefacts carry the full configuration; only the differing keys
-        # label the variants — the constants sit in the factor list.
-        for model, p50 in (("a", 100), ("b", 300)):
-            write_variant(tmp_path, model, rate=1.0, successes=5, p50=p50, avg=p50)
-            path = tmp_path / "svc" / f"model-{model}.yaml"
-            text = path.read_text(encoding="utf-8").replace(
-                'factors:\n  "model": "' + model + '"',
-                'factors:\n  "system-prompt": "You are terse."\n'
-                '  "model": "' + model + '"\n  "temperature": 0.2',
-            )
-            path.write_text(text, encoding="utf-8")
-        sweep = read_exploration_directory(tmp_path)
-        labels = [v.label for v in sweep.contracts[0].variants]
-        assert labels == ["model=a", "model=b"]  # constants absent from labels
-        html = render_exploration_report(list(sweep.contracts))
-        assert "You are terse." in html and "temperature" in html  # ...but in the details
-
-    def test_empty_state_renders_a_friendly_paragraph(self) -> None:
-        html = render_exploration_report([])
-        assert "No explorations found" in html
