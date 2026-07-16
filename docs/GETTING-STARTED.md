@@ -198,6 +198,24 @@ criteria:
 
 A declined charge is a *response* (the criterion judges it); only genuine defects — the gateway unreachable, a bug — abort the run. (Registering from any other module you import before an API-driven run works too; `mavai-bindings.py` is simply the convention the CLI discovers.) The `threshold-origin` lines are optional provenance: the file records not just the bar, but where the bar comes from.
 
+### When the service's identity lives partly outside the code
+
+A binding's name says *which* service; it cannot say which version of the world the service ran under — the model behind an internal endpoint, a prompt-template revision, the content of a rules file the code loads. Declare those as **covariates** and they become part of the baseline's identity:
+
+```python
+@binding(
+    "payment-gateway",
+    covariates={
+        "gateway-api": gateway.api_version(),
+        "routing-rules": routing_rules_fingerprint(),
+    },
+)
+def charge(card_token: str) -> str:
+    return gateway.charge(card_token).status_line()
+```
+
+`basel measure` records the resolved values in the baseline artefact's provenance. A later `basel test` resolves them afresh — the bindings file is imported on every invocation — and a mismatch is refused with the drifted key named, never judged silently against evidence measured under a different identity. Keys the framework writes into provenance itself (`binding`, `runMode`, `serviceType`, `taskFile`, `taskFormat`) are reserved and refused at registration. The [`rule-driven-service` example](../examples/README.md#rule-driven-service--covariates-identity-that-lives-outside-the-code) walks the full loop: measure, drift, refusal, re-measure.
+
 ## Measuring without judging
 
 A file with no thresholds at all cannot be tested — `basel test` refuses it, telling you so — but it measures perfectly well: `basel measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.

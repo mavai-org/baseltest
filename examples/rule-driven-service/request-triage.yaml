@@ -1,0 +1,21 @@
+# The triage assistant: the claim rides on triage-rules.txt as much as on
+# the code, and the binding declares the file's fingerprint as a covariate.
+#   basel measure request-triage.yaml --samples 200  -> pins the identity
+#   basel test request-triage.yaml --tolerate 84     -> judged against it
+# Edit triage-rules.txt and the next test is refused, naming the drifted
+# key — re-measure to accept the new identity.
+format: mavai-contract/1
+contract: triage-assistant-routes-requests
+service: triage-assistant
+
+criteria:
+  - name: request-is-routed
+    threshold: 0.7
+    matches: "category: (billing|access|shipping)"
+  - name: assistant-never-guesses      # no threshold: recorded by measure,
+    matches: "^(category: |the assistant is unsure)"  # judged empirically thereafter
+
+inputs:
+  - "I was charged twice for one invoice"
+  - "my account is locked after a password reset"
+  - "the tracking page shows my parcel stuck in customs"

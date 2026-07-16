@@ -1,0 +1,7 @@
+# One routing rule per line: a category, then the keywords that select it.
+# This file is part of the triage assistant's identity: mavai-bindings.py
+# fingerprints it as a covariate, so a baseline measured under one set of
+# rules never silently judges a test running under another.
+billing: invoice, refund, charge, payment
+access: login, password, locked, account
+shipping: parcel, delivery, tracking, customs

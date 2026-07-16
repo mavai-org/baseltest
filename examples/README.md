@@ -40,6 +40,35 @@ open _baseltest/reports/test.html       # macOS; xdg-open on Linux
 
 One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer it in one step? `basel test fortune-teller.yaml --samples 100 --html-report report.html` renders the identical page as part of the run.)
 
+## `rule-driven-service/` — covariates: identity that lives outside the code
+
+A binding's name says *which* service; it cannot say which version of the world the service ran under. The triage assistant routes support requests using the keyword rules in `triage-rules.txt` — and that file is as much a part of the service's identity as the code. The binding declares it as a **covariate**:
+
+```python
+@binding(
+    "triage-assistant",
+    covariates={
+        "triage-rules": _RULES_FINGERPRINT,   # sha256 of triage-rules.txt
+        "assistant-version": "1.0",
+    },
+)
+```
+
+`basel measure` records the resolved covariates in the baseline artefact's provenance. Every later `basel test` resolves them afresh — the bindings file is imported on every invocation — and refuses to judge against a baseline measured under a different identity, naming the drifted key. Run the full loop (offline, like the simulated service):
+
+```bash
+cd examples/rule-driven-service
+basel measure request-triage.yaml --samples 200   # pins the identity
+basel test request-triage.yaml --tolerate 84      # judged against the baseline
+
+echo "complaints: unhappy, disappointed" >> triage-rules.txt   # the rules drift
+basel test request-triage.yaml --tolerate 84
+# no matching baseline to size against (baseline ... was measured under a
+# different configuration (differing: triage-rules)) — run `basel measure` first
+```
+
+The refusal is the feature: without the covariate, the edited rules would be judged silently against evidence measured under the old ones. Re-measure to accept the new identity, or restore the file to keep the old one. Keys the framework writes into provenance itself (`binding`, `runMode`, `serviceType`, `taskFile`, `taskFormat`) are reserved — declaring one is refused at registration, with a pointer.
+
 ## `language-model/` — a real model, two files, no Python
 
 The basket-builder from the [getting-started guide](../docs/GETTING-STARTED.md): a language model given a job, its response parsed as JSON (the `transforms:` block declares the `basket` view) and judged structurally — every item named, every quantity positive, plus an input-specific expectation (eggs in the egg order). Needs a credential for the declared provider (or edit `mavai-services.yaml` to use `anthropic`, `mistral`, `ollama`, or `apertus`):
