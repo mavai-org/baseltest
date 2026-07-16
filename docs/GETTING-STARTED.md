@@ -198,6 +198,56 @@ criteria:
 
 A declined charge is a *response* (the criterion judges it); only genuine defects — the gateway unreachable, a bug — abort the run. (Registering from any other module you import before an API-driven run works too; `mavai-bindings.py` is simply the convention the CLI discovers.) The `threshold-origin` lines are optional provenance: the file records not just the bar, but where the bar comes from.
 
+### When the service's identity lives partly outside the code
+
+A binding's name says *which* service; it cannot say which version of the world the service ran under — the model behind an internal endpoint, a prompt-template revision, the content of a rules file the code loads. Declare those as **covariates** and they become part of the baseline's identity:
+
+```python
+@binding(
+    "payment-gateway",
+    covariates={
+        "gateway-api": gateway.api_version(),
+        "routing-rules": routing_rules_fingerprint(),
+    },
+)
+def charge(card_token: str) -> str:
+    return gateway.charge(card_token).status_line()
+```
+
+`basel measure` records the resolved values in the baseline artefact's provenance. A later `basel test` resolves them afresh — the bindings file is imported on every invocation — and a mismatch is refused with the drifted key named, never judged silently against evidence measured under a different identity. Keys the framework writes into provenance itself (`binding`, `runMode`, `serviceType`, `taskFile`, `taskFormat`) are reserved and refused at registration. The [`rule-driven-service` example](../examples/README.md) walks the full loop: measure, drift, refusal, re-measure.
+
+### Configuring your own service: types, factories, and explorations
+
+`type: language-model` is not special — it is simply a built-in **service type**. Your own code joins the same registry as a configurable type by registering a *factory* whose signature is the configuration schema:
+
+```python
+from baseltest.declarative import binding_factory
+
+@binding_factory("gateway", covariates={"routing-rules": rules_fingerprint()})
+def gateway(region: str, retries: int = 0) -> Callable[[str], str]:
+    client = build_client(region=region, retries=retries)
+    return lambda card_token: client.charge(card_token).status_line()
+```
+
+```yaml
+# mavai-services.yaml
+format: mavai-services/1
+services:
+  payment-gateway:
+    type: gateway
+    configuration: {region: eu-central, retries: 0}
+    explorations:
+      - region: us-east
+```
+
+Kebab-case YAML keys map to the factory's snake_case parameters; parameters with defaults are the optional keys; annotations (`str`, `int`, `float`, `bool`) are checked. A services-file entry that does not fit the signature — unknown key, missing required one, wrong type — is refused at load time with the signature in the message. `basel explore` then runs your code's configuration grid exactly as it runs a language model's: one descriptive artefact per grid point, factor-named files, the same diff workflow and comparison report. `test` and `measure` run the baseline `configuration:`, and its keys join the covariates in the drift-checked identity. Factories run at contract-load time (validation constructs the per-sample callable before any sample), so keep them cheap and side-effect-light.
+
+Inputs are typed the same way: an `inputs:` entry may be a scalar or a flat list of scalars, splatted as the binding's positional arguments — `["Basel", 3, true]` calls `forecast(city: str, days: int, metric: bool)`. Arity is always checked against the binding's signature before any sample runs; annotated types are checked where declared.
+
+### `basel check`: the compile step
+
+Everything above is validated at load time — and `basel check <contract>` runs exactly those validations with zero samples: the contract file, the services file against every factory signature (baseline and each exploration entry), the service reference's resolution, and every input against the per-sample callable's signature. Exit 0 prints one `ok:` line per validated fact; exit 2 carries the same refusal a run would give. Put it in your editor loop and CI: a configuration defect should never cost a sample, let alone a paid one.
+
 ## Measuring without judging
 
 A file with no thresholds at all cannot be tested — `basel test` refuses it, telling you so — but it measures perfectly well: `basel measure --samples N` reports every criterion as an honest characterisation, never dressed up as a verdict, and persists the baseline artefact.
@@ -256,7 +306,7 @@ Every configuration in the grid — the baseline included — runs like a miniat
 diff _baseltest/explorations/basket-builder-returns-valid-baskets/model-gpt-4o-mini_temperature-0.{0,7}.yaml
 ```
 
-then promote the winner by folding its values into the `configuration:` block, run `basel measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore currently requires a service declared in the services file (a code-registered `@binding` carries no configuration grid to explore).
+then promote the winner by folding its values into the `configuration:` block, run `basel measure`, and test forever after. Promotion is safe by construction: an existing baseline was measured under the old configuration, so the next `test` names the drift and refuses to judge against stale evidence until you re-measure. `test` and `measure` never read the `explorations:` section — the baseline is always what they run — and tidying the section (reordering, reformatting, removing it) never invalidates a baseline. Two entries that resolve to the same configuration are refused at load time, as is an entry that merely restates the baseline; explore requires a service declared in the services file — a bare `@binding` carries no configuration grid, but a `@binding_factory` type with a services-file entry explores exactly like a language model does (see *Configuring your own service* above).
 
 ## The verdict record
 
@@ -278,7 +328,7 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a code-registered binding, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a service with no services-file grid, a `basel check` join failure, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
 | `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: too few samples *passed* for an asserted latency percentile to be estimated — the composite is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.

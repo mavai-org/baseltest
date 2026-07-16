@@ -209,7 +209,9 @@ class ServiceContract:
 
     Attributes:
         contract_id: The contract's stable identifier; names run artefacts.
-        invoke: The invocation callable -- accepts one input, returns one
+        invoke: The invocation callable -- accepts one input value (opaque
+            to the engine; the declarative layer splats a tuple-valued
+            input as positional arguments before it gets here), returns one
             response. An anticipated bad response is *returned* (for the
             criteria to judge); only genuine defects raise, and a raising
             invocation aborts the run.
@@ -227,7 +229,7 @@ class ServiceContract:
     """
 
     contract_id: str
-    invoke: Callable[[str], str]
+    invoke: Callable[[Any], str]
     criteria: tuple[Criterion, ...]
     views: Mapping[str, Callable[[str], Any]] = field(default_factory=dict)
     latency: LatencyBar | None = None

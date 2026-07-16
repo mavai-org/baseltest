@@ -1,0 +1,24 @@
+# The triage assistant: the claim rides on triage-rules.txt (a computed
+# covariate) and on the mavai-services.yaml configuration (declared,
+# sweepable factors) — one drift-checked identity with two feeds.
+#   basel check request-triage.yaml                  -> every join, zero samples
+#   basel measure request-triage.yaml --samples 200  -> pins the identity
+#   basel test request-triage.yaml --tolerate 84     -> judged against it
+#   basel explore request-triage.yaml                -> the whole grid, descriptively
+# Edit triage-rules.txt (or the configuration) and the next test is
+# refused, naming the drifted key — re-measure to accept the new identity.
+format: mavai-contract/1
+contract: triage-assistant-routes-requests
+service: triage-assistant
+
+criteria:
+  - name: request-is-routed
+    threshold: 0.7
+    matches: "category: (billing|access|shipping)"
+  - name: assistant-never-guesses      # no threshold: recorded by measure,
+    matches: "^(category: |the assistant is unsure)"  # judged empirically thereafter
+
+inputs:
+  - "I was charged twice for one invoice"
+  - "my account is locked after a password reset"
+  - "the tracking page shows my parcel stuck in customs"

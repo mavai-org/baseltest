@@ -23,7 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from baseltest.baseline import StoredBaseline, resolve_baseline
+from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
 from baseltest.engine import inputs_fingerprint
 from baseltest.statistics import (
     check_feasibility,
@@ -35,7 +35,8 @@ from baseltest.statistics import (
 )
 
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, CriterionDeclaration
-from ._services import ServiceDefinition, resolved_provenance
+from ._services import ServiceDefinition
+from ._types import find_type
 
 DEFAULT_TARGET_POWER = 0.8
 
@@ -196,18 +197,25 @@ def resolve_contract_baseline(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition],
     baseline_dir: Path,
-) -> "StoredBaseline | None":
-    """The baseline the empirical criteria would resolve, or ``None``.
+) -> BaselineResolution:
+    """The resolution of the baseline the empirical criteria would judge against.
 
     Mirrors the instantiation-time resolution (same identity keys), so the
     sizing conversation prices exactly the baseline the run will judge
-    against.
+    against — and a non-match carries the honest reason (a drifted
+    covariate is named, never flattened into "no baseline").
     """
     definition = services.get(declaration.service)
-    service_provenance = (
-        resolved_provenance(definition.configuration) if definition is not None else {}
-    )
-    resolution = resolve_baseline(
+    if definition is not None:
+        service_provenance = definition.type.provenance(definition.configuration)
+    else:
+        type_contract = find_type(declaration.service)
+        service_provenance = (
+            dict(type_contract.covariates)
+            if type_contract is not None and type_contract.addressable
+            else {}
+        )
+    return resolve_baseline(
         baseline_dir,
         declaration.contract,
         inputs_fingerprint(declaration.inputs),
@@ -217,7 +225,6 @@ def resolve_contract_baseline(
             **service_provenance,
         },
     )
-    return resolution.baseline
 
 
 def _sizeable_criteria(
@@ -681,12 +688,14 @@ def resolve_test_sizing(
         return ResolvedSizing(samples=samples, approach="threshold-first")
     tolerate_flags = _parse_tolerate_flags(tolerate, empirical_names)
 
-    baseline = resolve_contract_baseline(declaration, services, baseline_dir)
+    resolution = resolve_contract_baseline(declaration, services, baseline_dir)
+    baseline = resolution.baseline
     if baseline is None:
         if tolerate_flags:
+            detail = f" ({resolution.reason})" if resolution.reason else ""
             raise SizingRefusalError(
-                "no matching baseline to size against — run `basel measure` first, "
-                "then declare your tolerance"
+                f"no matching baseline to size against{detail} — run `basel measure` "
+                "first, then declare your tolerance"
             )
         return ResolvedSizing(samples=samples)
 

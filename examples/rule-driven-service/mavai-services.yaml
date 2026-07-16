@@ -1,0 +1,16 @@
+# The triage assistant, configured: `triage` is the service *type*
+# registered in mavai-bindings.py (its factory's signature is the schema
+# for the keys below), and `triage-assistant` is the named, configured
+# service the contract references.
+#   basel test / measure   -> run exactly the baseline `configuration:`
+#   basel explore          -> run the baseline plus every entry below
+format: mavai-services/1
+services:
+  triage-assistant:
+    type: triage
+    configuration:                # the baseline — drift-checked identity
+      tone: matter-of-fact
+      certainty: 0.9
+    explorations:                 # entries state only their deviations
+      - certainty: 0.7            # a markedly less certain assistant
+      - tone: reassuring          # same certainty, warmer closing

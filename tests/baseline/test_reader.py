@@ -45,6 +45,30 @@ def record(provenance: dict[str, str] | None = None) -> BaselineRecord:
 
 
 class TestRoundTrip:
+    def test_quoted_key_containing_the_separator_reads_back(self, tmp_path: Path) -> None:
+        # A failure reason quoting a regex (or a covariate value) may itself
+        # contain ": " — the split point is the decoded key's end, never the
+        # first separator in the line.
+        tricky = BaselineRecord(
+            contract_id="triage",
+            generated_at=datetime(2026, 7, 16, tzinfo=UTC),
+            sample_count=50,
+            inputs_identity="b" * 64,
+            criteria={
+                "routed": CriterionCharacterisation(
+                    successes=44,
+                    trials=50,
+                    failure_distribution={
+                        "response does not match /category: (billing|access)/": 6
+                    },
+                    judgement=None,
+                )
+            },
+            provenance={"binding": "triage-assistant"},
+        )
+        stored = read_baseline(write_baseline(tricky, tmp_path))
+        assert stored.criteria["routed"].successes == 44
+
     def test_written_artefact_reads_back(self, tmp_path: Path) -> None:
         path = write_baseline(record(), tmp_path)
         stored = read_baseline(path)

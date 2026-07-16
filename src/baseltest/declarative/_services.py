@@ -1,17 +1,21 @@
 """Declarative service definitions: the mavai-services/1 companion file.
 
-A service file defines named services — including the code-free
-``language-model`` type — that contract files reference by name. A definition
-carries a complete ``configuration:`` block — the baseline factor record:
-every covariate value the service runs under, in one place, communicated to
-the service uniformly. An optional ``explorations:`` section extends the
-baseline into a configuration grid: each entry declares only the covariates
-that deviate from the baseline (entry = baseline with those keys replaced),
+A service file defines named services that contract files reference by
+name. Each entry is a named, configured instance of a **service type** —
+a registered implementation: the built-in ``language-model``, or a user
+type registered in ``mavai-bindings.py``. A definition carries a complete
+``configuration:`` block — the baseline factor record: every covariate
+value the service runs under, in one place, communicated to the service
+uniformly. An optional ``explorations:`` section extends the baseline
+into a configuration grid: each entry declares only the covariates that
+deviate from the baseline (entry = baseline with those keys replaced),
 and the grid is the baseline plus the entries. A test or measure run
 consumes exactly the baseline; an explore run consumes the whole grid.
-Definitions join code registrations as a second population source of the
-binding registry; a name collision between the two is a configuration
-defect.
+
+The grid semantics here are one generic layer; everything type-specific —
+configuration validation, canonical key order, provenance projection, the
+invoker — is supplied by the type's registry entry. ``language-model`` is
+simply the first built-in entry on that seam.
 """
 
 import hashlib
@@ -20,6 +24,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import replace as _replace
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +37,13 @@ from ._providers import (
     ENV_MODEL,
     build_invoker,
     resolve_provider,
+)
+from ._types import (
+    ServiceTypeContract,
+    closest_type_hint,
+    find_type,
+    register_builtin_type,
+    registered_type_names,
 )
 
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
@@ -57,26 +69,29 @@ class LanguageModelParameters:
 
 @dataclass(frozen=True, slots=True)
 class ServiceDefinition:
-    """One service entry: its baseline configuration plus any exploration grid.
+    """One service entry: a configured type, plus any exploration grid.
 
     Attributes:
-        name: The service's registry name.
-        configuration: The baseline factor record — the configuration a
-            test or measure run consumes.
+        name: The service's name — what a contract's ``service:`` references.
+        type: The registered service type the entry configures.
+        configuration: The baseline factor record, as the type's parsed
+            parameters value — the configuration a test or measure run
+            consumes.
         explorations: The resolved exploration entries (each already the
             baseline with the entry's keys replaced), in declaration order.
             Empty unless the definition declares an ``explorations:`` section.
         swept_keys: The configuration keys any exploration entry replaces,
-            in canonical parameter order — the grid's discriminating factors.
+            in the type's canonical order — the grid's discriminating factors.
     """
 
     name: str
-    configuration: LanguageModelParameters
-    explorations: tuple[LanguageModelParameters, ...] = ()
+    type: ServiceTypeContract
+    configuration: Any
+    explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
 
     @property
-    def grid(self) -> tuple[LanguageModelParameters, ...]:
+    def grid(self) -> tuple[Any, ...]:
         """Every configuration an explore run samples: baseline first."""
         return (self.configuration, *self.explorations)
 
@@ -88,7 +103,7 @@ def _fail(message: str) -> ContractConfigurationError:
 def _validate_configuration(
     name: str, configuration: dict[str, Any], where: str
 ) -> LanguageModelParameters:
-    """Validate one resolved configuration mapping into its parameters."""
+    """Validate one resolved language-model configuration mapping."""
     for key in configuration:
         if key not in _CONFIGURATION_KEYS:
             raise _fail(f"service {name!r}: {where} has unknown key `{key}:`")
@@ -117,7 +132,9 @@ def _validate_configuration(
     )
 
 
-def _resolved_point(parameters: LanguageModelParameters) -> tuple[tuple[str, str], ...]:
+def _resolved_point(
+    type_contract: ServiceTypeContract, parameters: Any
+) -> tuple[tuple[str, str], ...]:
     """A configuration's identity: its resolved covariate values, nothing else.
 
     Resolution has already happened by the time this is called — deltas
@@ -125,12 +142,15 @@ def _resolved_point(parameters: LanguageModelParameters) -> tuple[tuple[str, str
     uses) — so how a grid point was expressed in the file cannot influence
     its identity.
     """
-    return tuple(sorted(resolved_provenance(parameters).items()))
+    return tuple(sorted(type_contract.provenance(parameters).items()))
 
 
 def _parse_explorations(
-    name: str, entries: Any, baseline: dict[str, Any]
-) -> tuple[tuple[LanguageModelParameters, ...], tuple[str, ...]]:
+    name: str,
+    entries: Any,
+    baseline: dict[str, Any],
+    type_contract: ServiceTypeContract,
+) -> tuple[tuple[Any, ...], tuple[str, ...]]:
     """Resolve the ``explorations:`` entries over the baseline record.
 
     Each entry declares only deviations; its resolution is the baseline
@@ -143,30 +163,31 @@ def _parse_explorations(
             f"service {name!r}: `explorations:` must be a non-empty list of "
             "entries, each declaring the configuration values it replaces"
         )
+    ordered: list[str] = list(baseline)
     swept: set[str] = set()
-    resolved: list[LanguageModelParameters] = []
+    resolved: list[Any] = []
     for index, entry in enumerate(entries, start=1):
         where = f"exploration entry {index}"
         if not isinstance(entry, dict):
             raise _fail(f"service {name!r}: {where} must be a mapping of replacement values")
         for key, value in entry.items():
-            if key not in _CONFIGURATION_KEYS:
-                raise _fail(f"service {name!r}: {where} has unknown key `{key}:`")
             if value is None:
                 raise _fail(
                     f"service {name!r}: {where}: `{key}:` declares no value — an "
                     "entry states replacements; omit a key to keep its baseline value"
                 )
+            if key not in ordered:
+                ordered.append(key)
         merged = {**baseline, **entry}
-        resolved.append(_validate_configuration(name, merged, where))
+        resolved.append(type_contract.parse(name, merged, where))
         swept.update(entry)
     seen: dict[tuple[tuple[str, str], ...], str] = {
-        _resolved_point(_validate_configuration(name, baseline, "configuration")): (
+        _resolved_point(type_contract, type_contract.parse(name, baseline, "configuration")): (
             "the baseline `configuration:`"
         )
     }
     for index, parameters in enumerate(resolved, start=1):
-        point = _resolved_point(parameters)
+        point = _resolved_point(type_contract, parameters)
         previous = seen.get(point)
         if previous is not None:
             raise _fail(
@@ -175,14 +196,16 @@ def _parse_explorations(
                 "each entry must resolve to a distinct covariate point"
             )
         seen[point] = f"exploration entry {index}"
-    swept_keys = tuple(key for key in _PARAMETER_ORDER if key in swept)
+    swept_keys = type_contract.parameter_order(tuple(key for key in ordered if key in swept))
     return tuple(resolved), swept_keys
 
 
-def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
+def _parse_definition(
+    name: str, data: dict[str, Any], type_contract: ServiceTypeContract
+) -> ServiceDefinition:
     for key in data:
         if key not in _DEFINITION_KEYS:
-            if key in _CONFIGURATION_KEYS:
+            if type_contract.accepts_configuration_key(str(key)):
                 raise _fail(
                     f"service {name!r}: `{key}:` belongs inside the `configuration:` "
                     "block — every covariate value lives there, uniformly"
@@ -194,13 +217,16 @@ def _parse_language_model(name: str, data: dict[str, Any]) -> ServiceDefinition:
             f"service {name!r}: a `configuration:` block is required — the complete "
             "set of parameter values the service runs under"
         )
-    parameters = _validate_configuration(name, configuration, "configuration")
-    explorations: tuple[LanguageModelParameters, ...] = ()
+    parameters = type_contract.parse(name, configuration, "configuration")
+    explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
     if "explorations" in data:
-        explorations, swept_keys = _parse_explorations(name, data["explorations"], configuration)
+        explorations, swept_keys = _parse_explorations(
+            name, data["explorations"], configuration, type_contract
+        )
     return ServiceDefinition(
         name=name,
+        type=type_contract,
         configuration=parameters,
         explorations=explorations,
         swept_keys=swept_keys,
@@ -228,11 +254,16 @@ def parse_services(text: str) -> dict[str, ServiceDefinition]:
         if not isinstance(entry, dict):
             raise _fail(f"service {name!r} must be a mapping")
         service_type = entry.get("type")
-        if service_type != "language-model":
+        type_contract = find_type(str(service_type)) if service_type is not None else None
+        if type_contract is None:
+            registered = ", ".join(registered_type_names())
             raise _fail(
-                f"service {name!r}: unknown `type: {service_type}` — supported: language-model"
+                f"service {name!r}: unknown `type: {service_type}` — registered types: "
+                f"{registered}{closest_type_hint(str(service_type))} (built-in types "
+                "ship with the framework; user types are registered in "
+                "mavai-bindings.py with @binding_factory)"
             )
-        definitions[str(name)] = _parse_language_model(str(name), entry)
+        definitions[str(name)] = _parse_definition(str(name), entry, type_contract)
     return definitions
 
 
@@ -246,7 +277,7 @@ def discover_services(contract_path: Path) -> dict[str, ServiceDefinition]:
 
 
 def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
-    """The provenance entries a definition-resolved run must carry."""
+    """The provenance entries a language-model-resolved run must carry."""
     entries = {
         "serviceType": "language-model",
         "provider": parameters.provider or "openai-compatible",
@@ -273,9 +304,7 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
     }
 
 
-def factor_values(
-    definition: ServiceDefinition, parameters: LanguageModelParameters
-) -> dict[str, Any]:
+def factor_values(definition: ServiceDefinition, parameters: Any) -> dict[str, Any]:
     """One grid point's discriminating factor values, in canonical order.
 
     The keys are the definition's swept keys; the values are the point's
@@ -283,22 +312,20 @@ def factor_values(
     provenance follows). This is what identifies the configuration in
     exploration artefact *filenames* and variant labels.
     """
-    resolved = _resolved_values(parameters)
+    resolved = definition.type.resolved_values(parameters)
     return {key: resolved[key] for key in definition.swept_keys}
 
 
-def configuration_values(parameters: LanguageModelParameters) -> dict[str, Any]:
+def configuration_values(definition: ServiceDefinition, parameters: Any) -> dict[str, Any]:
     """One grid point's full resolved configuration, in canonical order.
 
     Everything the point ran under — swept or constant across the grid —
     with unset keys omitted. This is what the exploration artefact's
     ``factors:`` block records: a reader of any single artefact sees the
-    whole configuration, not only the keys that happened to vary. The
-    response schema is carried structurally elsewhere (its absence per
-    provider is announced at run time; baselines record its fingerprint)
-    and is included here only when present, as declared.
+    whole configuration, not only the keys that happened to vary.
     """
-    return {key: value for key, value in _resolved_values(parameters).items() if value is not None}
+    resolved = definition.type.resolved_values(parameters)
+    return {key: value for key, value in resolved.items() if value is not None}
 
 
 def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str], str]:
@@ -311,3 +338,42 @@ def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str
     the response, judged by the criteria.
     """
     return build_invoker(resolve_provider(parameters.provider), parameters)
+
+
+def _language_model_explore_point(
+    parameters: LanguageModelParameters,
+) -> tuple[LanguageModelParameters, str | None]:
+    """Announced degradation, never silent: a grid may span providers with
+    differing structured-output support, and the configuration that
+    actually runs — and its artefact — carries no schema."""
+    if (
+        parameters.response_schema is not None
+        and not resolve_provider(parameters.provider).supports_response_schema
+    ):
+        return _replace(parameters, response_schema=None), (
+            f"provider {parameters.provider!r} has no structured-output "
+            "support in this reader — the response-schema is not sent for "
+            "this configuration; carry the output shape in the system "
+            "prompt if the comparison should stay fair"
+        )
+    return parameters, None
+
+
+def _language_model_type() -> ServiceTypeContract:
+    """The built-in language-model entry: the first type on the generic seam."""
+    return ServiceTypeContract(
+        name="language-model",
+        builtin=True,
+        addressable=False,
+        covariates={},
+        parse=_validate_configuration,
+        parameter_order=lambda keys: tuple(k for k in _PARAMETER_ORDER if k in keys),
+        resolved_values=_resolved_values,
+        provenance=resolved_provenance,
+        invoker=language_model_invoker,
+        accepts_configuration_key=lambda key: key in _CONFIGURATION_KEYS,
+        prepare_explore_point=_language_model_explore_point,
+    )
+
+
+register_builtin_type(_language_model_type())

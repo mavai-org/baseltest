@@ -6,6 +6,7 @@ The run mode is supplied by the invocation (the verb), never by the file:
 ``measure`` instantiates a measure experiment over every criterion.
 """
 
+import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from dataclasses import replace as _replace
@@ -56,18 +57,15 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
-from ._providers import resolve_provider
-from ._registry import has_binding, resolve_binding, resolve_check, resolve_transform
+from ._registry import _value_fits, resolve_check, resolve_transform
 from ._services import (
-    LanguageModelParameters,
     ServiceDefinition,
     configuration_values,
     factor_values,
-    language_model_invoker,
-    resolved_provenance,
 )
 from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
 from ._structured import compile_jsonpath, compile_xpath, path_qualified
+from ._types import find_type
 
 _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
     "equals": lambda arg, view: equals(str(arg), view=view),
@@ -120,7 +118,7 @@ def _build_form(
 
 
 def _expected_postconditions(
-    pairs: Sequence[tuple[str, tuple[FormDeclaration, ...]]],
+    pairs: Sequence[tuple[Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
 ) -> list[Postcondition]:
     """Per-input expectations: each check dispatches on the trial's input."""
@@ -133,7 +131,7 @@ def _expected_postconditions(
     return dispatching
 
 
-def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
+def _dispatch_on_input(input_value: Any, inner: Postcondition) -> Postcondition:
     def check(subject: Any) -> PostconditionResult:
         if _CURRENT_INPUT.get("value") != input_value:
             return PostconditionResult.ok()
@@ -153,15 +151,55 @@ def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
 # The engine evaluates postconditions without threading the input through;
 # per-input dispatch needs it. The instrumented invoke below records the
 # current input -- single-threaded per run by design.
-_CURRENT_INPUT: dict[str, str] = {}
+_CURRENT_INPUT: dict[str, Any] = {}
 
 
-def _instrumented_invoke(invoke: Callable[[str], str]) -> Callable[[str], str]:
-    def wrapped(value: str) -> str:
+def _instrumented_invoke(invoke: Callable[..., str]) -> Callable[[Any], str]:
+    """Record the driving input, and splat a tuple-valued one positionally."""
+
+    def wrapped(value: Any) -> str:
         _CURRENT_INPUT["value"] = value
-        return invoke(value)
+        return invoke(*value) if isinstance(value, tuple) else invoke(value)
 
     return wrapped
+
+
+def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]) -> None:
+    """The inputs ↔ per-sample-callable join, checked before any sample runs.
+
+    Arity is always checked; scalar-annotated parameters are checked where
+    the signature declares them; unannotated parameters pass through
+    untyped. The message carries the introspected signature — the binding's
+    signature is the contract, and the reader should never have to go and
+    find it.
+    """
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):  # no introspectable signature to join against
+        return
+    rendered = f"{service}{signature}"
+    for index, value in enumerate(inputs, start=1):
+        arguments = value if isinstance(value, tuple) else (value,)
+        try:
+            bound = signature.bind(*arguments)
+        except TypeError:
+            count = f"{len(arguments)} value{'s' if len(arguments) != 1 else ''}"
+            raise ContractConfigurationError(
+                f"service {service!r}: input {index} ({value!r}) supplies {count} for "
+                f"the binding's signature {rendered} — each input must match the "
+                "binding's parameters (a list-valued input is splatted positionally)"
+            ) from None
+        for name, argument in bound.arguments.items():
+            parameter = signature.parameters[name]
+            if parameter.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                continue
+            annotation = parameter.annotation
+            if annotation in (str, int, float, bool) and not _value_fits(argument, annotation):
+                raise ContractConfigurationError(
+                    f"service {service!r}: input {index}: parameter {name!r} expects "
+                    f"{annotation.__name__}, got {type(argument).__name__} "
+                    f"({argument!r}) — the binding's signature is {rendered}"
+                )
 
 
 def _build_criterion(
@@ -189,19 +227,36 @@ def _build_criterion(
 
 def _resolve_service(
     reference: str, services: dict[str, ServiceDefinition]
-) -> tuple[Callable[[str], str], dict[str, str]]:
-    """Resolve a service reference against both registry populations."""
-    defined = reference in services
-    registered = has_binding(reference)
-    if defined and registered:
-        raise ContractConfigurationError(
-            f"service {reference!r} is both registered in code (@binding) and defined "
-            "in the services file — one name, one owner; rename one of them"
+) -> tuple[Callable[..., str], dict[str, str]]:
+    """Resolve a service reference: definitions first, then the type registry.
+
+    Service names (services-file keys) and type names (the registry) are
+    separate namespaces. A definition is a configured instance of a type;
+    an *addressable* type — a bare ``@binding`` — is directly usable as a
+    service of the same name, the degenerate zero-configuration instance.
+    """
+    definition = services.get(reference)
+    if definition is not None:
+        return (
+            definition.type.invoker(definition.configuration),
+            definition.type.provenance(definition.configuration),
         )
-    if defined:
-        parameters = services[reference].configuration
-        return language_model_invoker(parameters), resolved_provenance(parameters)
-    return resolve_binding(reference), {}
+    type_contract = find_type(reference)
+    if type_contract is None or type_contract.builtin:
+        raise ContractConfigurationError(
+            f"service {reference!r} matches no service definition and no registered "
+            f"binding. Register the code that invokes your service with "
+            f"@binding({reference!r}) in mavai-bindings.py, or define the service in "
+            "mavai-services.yaml, before running the contract."
+        )
+    if not type_contract.addressable:
+        raise ContractConfigurationError(
+            f"service {reference!r} names a configurable type directly — a "
+            "configurable type is instantiated by a services-file entry; declare a "
+            f"service with `type: {reference}` (and its `configuration:`) in "
+            "mavai-services.yaml"
+        )
+    return type_contract.invoker(None), dict(type_contract.covariates)
 
 
 # Sample sizing is decided at invocation, never in the file: the contract
@@ -400,7 +455,7 @@ class ExploreConfiguration:
     point runs under, recorded in its artefact.
     """
 
-    parameters: LanguageModelParameters
+    parameters: Any
     factors: dict[str, Any]
     configuration: dict[str, Any]
     contract: ServiceContract
@@ -433,22 +488,21 @@ def instantiate_explore(
     ``(note, ...)`` lines the caller should surface before running.
 
     Raises:
-        ContractConfigurationError: The service resolves to a
-            code-registered binding — explore currently requires a service
-            declared in the services file, whose configuration grid is the
-            factor source.
+        ContractConfigurationError: The service resolves to a bare binding —
+            explore requires a service declared in the services file, whose
+            configuration grid is the factor source.
     """
     definition = (services or {}).get(declaration.service)
     if definition is None:
-        if has_binding(declaration.service):
+        if find_type(declaration.service) is not None:
             raise ContractConfigurationError(
-                f"explore requires a declared service: {declaration.service!r} is "
-                "registered in code (@binding), and a code binding carries no "
-                "configuration grid to explore — declare the service (and its "
-                "`explorations:` entries) in the services file"
+                f"explore requires a declared service: {declaration.service!r} is a "
+                "registered type with no services-file entry, so it carries no "
+                "configuration grid to explore — declare a service of this type "
+                "(and its `explorations:` entries) in the services file"
             )
-        resolve_binding(declaration.service)  # raises the standard unresolvable refusal
-        raise AssertionError("unreachable: resolve_binding refuses unknown names")
+        _resolve_service(declaration.service, {})  # raises the standard refusal
+        raise AssertionError("unreachable: unresolvable services are refused above")
     sizing = (
         RunSizing(samples=samples_per_config, provenance="explicit")
         if samples_per_config is not None
@@ -467,22 +521,16 @@ def instantiate_explore(
     configurations = []
     notes: list[str] = []
     for parameters in definition.grid:
-        if (
-            parameters.response_schema is not None
-            and not resolve_provider(parameters.provider).supports_response_schema
-        ):
-            # Announced degradation, never silent: the configuration that
-            # actually runs — and its artefact — carries no schema.
-            parameters = _replace(parameters, response_schema=None)
-            notes.append(
-                f"provider {parameters.provider!r} has no structured-output "
-                "support in this reader — the response-schema is not sent for "
-                "this configuration; carry the output shape in the system "
-                "prompt if the comparison should stay fair"
-            )
+        # A type's last look at its grid point (e.g. the language model's
+        # structured-output degradation): announced, never silent.
+        parameters, note = definition.type.prepare_explore_point(parameters)
+        if note is not None:
+            notes.append(note)
+        per_sample = definition.type.invoker(parameters)
+        _validate_inputs(declaration.service, per_sample, declaration.inputs)
         contract = ServiceContract(
             contract_id=declaration.contract,
-            invoke=_instrumented_invoke(language_model_invoker(parameters)),
+            invoke=_instrumented_invoke(per_sample),
             criteria=criteria,
             views=views,
         )
@@ -496,7 +544,7 @@ def instantiate_explore(
             ExploreConfiguration(
                 parameters=parameters,
                 factors=factor_values(definition, parameters),
-                configuration=configuration_values(parameters),
+                configuration=configuration_values(definition, parameters),
                 contract=contract,
                 plan=plan,
             )
@@ -676,6 +724,7 @@ def instantiate(
             limit, and a ``measure`` without an explicit sample count.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
+    _validate_inputs(declaration.service, resolved, declaration.inputs)
     invoke = _instrumented_invoke(resolved)
     transforms = declaration.transforms
     views = _build_views(declaration)

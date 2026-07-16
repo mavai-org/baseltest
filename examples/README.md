@@ -5,6 +5,7 @@ Ready-to-run declarative authoring, from zero. Each folder holds **one contract 
 - `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
 - `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
 - `basel explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
+- `basel check <contract-file>` — the authoring loop's compile step: validates the contract against its services file and bindings (every load-time join, including each exploration grid point and every input against the binding's signature) without running a single sample. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give.
 - `basel report test` — an HTML test report from the persisted verdict records, rendered post-hoc into `_baseltest/reports/` — no service is invoked. Or render inline as part of a run with `--html-report <path>` on `test`; either way it is the same renderer, so the outputs are identical. Exploration comparison reports are rendered by the family's [mavai](https://github.com/mavai-org/mavai/releases) tool: `mavai explore _baseltest/explorations -o report.html`.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
@@ -39,6 +40,62 @@ open _baseltest/reports/test.html       # macOS; xdg-open on Linux
 ```
 
 One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer it in one step? `basel test fortune-teller.yaml --samples 100 --html-report report.html` renders the identical page as part of the run.)
+
+## `rule-driven-service/` — factors and covariates: configuration citizenship for your own service
+
+A binding's name says *which* service; it cannot say which version of the world the service ran under. The triage assistant routes support requests using the keyword rules in `triage-rules.txt`, under a configuration declared in `mavai-services.yaml` — and its identity has **two feeds** flowing into one drift-checked provenance surface:
+
+**Computed covariates** — values YAML cannot state, declared on the registration and resolved fresh every run (the bindings file is imported on every invocation):
+
+```python
+@binding_factory(
+    "triage",                                  # the service *type*
+    covariates={
+        "triage-rules": _RULES_FINGERPRINT,    # sha256 of triage-rules.txt
+        "assistant-version": "2.0",
+    },
+)
+def triage(tone: str = "matter-of-fact", certainty: float = 0.9) -> Callable[[str], str]:
+    ...                                        # returns the per-sample callable
+```
+
+**Declared, sweepable configuration** — the factory's signature *is* the schema (kebab-case YAML keys map to snake_case parameters, defaults are the optional keys, annotations are checked), and `mavai-services.yaml` configures the named service and its exploration grid:
+
+```yaml
+services:
+  triage-assistant:
+    type: triage
+    configuration: {tone: matter-of-fact, certainty: 0.9}
+    explorations:
+      - certainty: 0.7          # a markedly less certain assistant
+      - tone: reassuring        # same certainty, warmer closing
+```
+
+Run the full loop (offline, like the simulated service):
+
+```bash
+cd examples/rule-driven-service
+basel check request-triage.yaml                   # every join, zero samples
+basel measure request-triage.yaml --samples 200   # pins the identity (both feeds)
+basel test request-triage.yaml --tolerate 84      # judged against the baseline
+
+basel explore request-triage.yaml                 # the whole grid, descriptively
+ls _baseltest/explorations/triage-assistant-routes-requests/
+# tone-matter-of-fact_certainty-0.9.yaml   <- the baseline
+# tone-matter-of-fact_certainty-0.7.yaml   <- visibly lower observed rate
+# tone-reassuring_certainty-0.9.yaml
+```
+
+`explore` runs every grid point through the factory and writes one descriptive artefact per configuration, named by its factors — diff two of them and the lines that differ are the factor values and the statistics. `test` and `measure` never read the grid: they run the baseline `configuration:`, whose keys join the covariates in the drift-checked identity. So both feeds refuse the same way:
+
+```bash
+echo "complaints: unhappy, disappointed" >> triage-rules.txt   # the rules drift
+basel test request-triage.yaml --tolerate 84
+# no matching baseline to size against (baseline ... was measured under a
+# different configuration (differing: triage-rules)) — run `basel measure` first
+```
+
+The refusal is the feature: without the declared identity, the edited rules (or a tweaked `certainty:`) would be judged silently against evidence measured under the old ones. Re-measure to accept the new identity, or restore the file to keep the old one. A misfit between the services file and the factory's signature — an unknown key, a missing required one, a wrongly typed value — is refused at load time with the signature in the message; `basel check` runs all of those joins (and the inputs-against-signature join) without a single sample, so it belongs in your editor loop and CI. Keys the framework writes into provenance itself (`binding`, `runMode`, `serviceType`, `taskFile`, `taskFormat`) are reserved — declaring one is refused, with a pointer.
 
 ## `language-model/` — a real model, two files, no Python
 

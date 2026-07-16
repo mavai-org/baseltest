@@ -16,6 +16,7 @@ from ._runner import (
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_VERDICT_DIR,
     MAVAI_EXPLORE_POINTER,
+    check,
     explore,
     report,
     run,
@@ -163,6 +164,14 @@ def main(argv: list[str] | None = None) -> int:
             "the family's mavai tool (mavai explore <dir> -o report.html)"
         ),
     )
+    check_parser = subparsers.add_parser(
+        "check",
+        help=(
+            "validate the contract against its services file and bindings — every "
+            "load-time join, zero samples; the authoring loop's compile step"
+        ),
+    )
+    check_parser.add_argument("contract_file", type=Path, help="path to the contract file")
     report_parser = subparsers.add_parser(
         "report",
         help=("render an HTML report from persisted artefacts — post-hoc, never invokes a service"),
@@ -197,6 +206,17 @@ def main(argv: list[str] | None = None) -> int:
         help="output path (default: _baseltest/reports/<kind-specific name>)",
     )
     arguments = parser.parse_args(argv)
+
+    if arguments.command == "check":
+        try:
+            facts = check(arguments.contract_file)
+        except ContractConfigurationError as refusal:
+            print(f"contract {arguments.contract_file}: cannot run as declared", file=sys.stderr)
+            print(f"  {refusal}", file=sys.stderr)
+            return 2
+        for fact in facts:
+            print(f"ok: {fact}")
+        return 0
 
     if arguments.command == "report":
         if arguments.kind == "explore":
