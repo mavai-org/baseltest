@@ -25,7 +25,12 @@ from baseltest.reporting import (
 
 from ._disclosure import sizing_disclosure
 from ._errors import ContractConfigurationError
-from ._instantiate import BaselineContext, instantiate, instantiate_explore
+from ._instantiate import (
+    BaselineContext,
+    _validate_inputs,
+    instantiate,
+    instantiate_explore,
+)
 from ._parser import FORMAT_IDENTIFIER, load_contract
 from ._registrations import discover_registrations
 from ._services import discover_services
@@ -319,6 +324,56 @@ def explore(
             )
         )
     return tuple(explored)
+
+
+def check(path: str | Path) -> tuple[str, ...]:
+    """Validate a contract against its services and bindings — zero samples.
+
+    The authoring loop's compile step: loads the contract, discovers the
+    services file and the bindings, and runs every load-time join — the
+    configuration ↔ factory-signature joins (at services load), the
+    service reference's resolution, and the inputs ↔ per-sample-callable
+    join — constructing the per-sample callable exactly as a run would,
+    for the baseline and for every exploration grid point, without
+    invoking anything. A missing baseline is not checked: absence is a
+    run-time fact, not a configuration defect.
+
+    Returns one line per validated fact. Raises on the first join that
+    fails, with the same refusal a run would give.
+
+    Raises:
+        ContractConfigurationError: The first failing join.
+    """
+    contract_path = Path(path)
+    declaration = load_contract(contract_path)
+    discover_registrations(contract_path)
+    services = discover_services(contract_path)
+    # The baseline path, validated by the machinery a real run uses —
+    # check and run cannot drift apart.
+    instantiate(declaration, services, mode=RunKind.MEASURE, samples=1)
+    facts = [
+        f"contract {declaration.contract!r}: {len(declaration.criteria)} criteria, "
+        f"{len(declaration.inputs)} inputs"
+    ]
+    definition = services.get(declaration.service)
+    if definition is None:
+        facts.append(
+            f"service {declaration.service!r}: binding resolved, every input joined "
+            "against its signature"
+        )
+        return tuple(facts)
+    facts.append(
+        f"service {declaration.service!r}: type {definition.type.name!r}, baseline "
+        "configuration valid"
+    )
+    for parameters in definition.explorations:
+        point, _note = definition.type.prepare_explore_point(parameters)
+        _validate_inputs(declaration.service, definition.type.invoker(point), declaration.inputs)
+    if definition.explorations:
+        count = len(definition.explorations)
+        entries = "entry" if count == 1 else "entries"
+        facts.append(f"exploration grid: {count} {entries} constructed and joined")
+    return tuple(facts)
 
 
 def report(

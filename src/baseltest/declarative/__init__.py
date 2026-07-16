@@ -19,6 +19,9 @@ decorators and one entry point:
 - :func:`run` loads and executes a contract file (test or measure).
 - :func:`explore` runs a contract over every configuration in its
   service's grid, one descriptive artefact per configuration.
+- :func:`check_contract` validates every load-time join — contract,
+  services file, bindings — with zero samples: the authoring loop's
+  compile step (the ``basel check`` verb).
 
 Everything else in this package is private implementation; import nothing
 from its underscore modules. Graduating out of the declarative surface
@@ -27,6 +30,15 @@ point nothing here is needed any more.
 """
 
 from ._registry import binding, binding_factory, check, transform
+from ._runner import check as check_contract
 from ._runner import explore, run
 
-__all__ = ["binding", "binding_factory", "check", "explore", "run", "transform"]
+__all__ = [
+    "binding",
+    "binding_factory",
+    "check",
+    "check_contract",
+    "explore",
+    "run",
+    "transform",
+]
