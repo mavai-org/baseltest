@@ -135,8 +135,8 @@ class ContractDeclaration:
     contract: str
     service: str
     transforms: dict[str, str]
-    inputs: tuple[str, ...]
-    expected_pairs: tuple[tuple[str, tuple[FormDeclaration, ...]], ...]
+    inputs: tuple[Any, ...]
+    expected_pairs: tuple[tuple[Any, tuple[FormDeclaration, ...]], ...]
     criteria: tuple[CriterionDeclaration, ...]
     intent: str
     confidence: float
@@ -256,22 +256,49 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
     return FormDeclaration(form=form, argument=entry[form], view=view, path=path)
 
 
+_INPUT_SCALARS = (str, int, float, bool)
+
+
+def _normalised_input(entry: Any, where: str) -> Any:
+    """One input value: a scalar, or a flat list of scalars (one per parameter).
+
+    A list becomes a tuple whose elements are splatted as the binding's
+    positional arguments; nesting is refused — an input's values are
+    JSON-expressible scalars, and interpreting one (a path, an identifier)
+    is the service type's business, not the file format's.
+    """
+    if isinstance(entry, _INPUT_SCALARS):
+        return entry
+    if isinstance(entry, list):
+        if not entry or not all(isinstance(item, _INPUT_SCALARS) for item in entry):
+            raise _fail(
+                f"{where}: a list-valued input must be a non-empty flat list of "
+                "scalars (string, number, or boolean) — one value per service parameter"
+            )
+        return tuple(entry)
+    raise _fail(
+        f"{where}: an input is a scalar (string, number, or boolean) or a flat "
+        f"list of scalars, got {type(entry).__name__}"
+    )
+
+
 def _parse_inputs(
     value: Any, views: dict[str, str]
-) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[FormDeclaration, ...]], ...]]:
+) -> tuple[tuple[Any, ...], tuple[tuple[Any, tuple[FormDeclaration, ...]], ...]]:
     if not isinstance(value, list) or not value:
         raise _fail("`inputs:` must be a non-empty list")
-    inputs: list[str] = []
-    pairs: list[tuple[str, tuple[FormDeclaration, ...]]] = []
-    for entry in value:
-        if isinstance(entry, str):
-            inputs.append(entry)
+    inputs: list[Any] = []
+    pairs: list[tuple[Any, tuple[FormDeclaration, ...]]] = []
+    for index, entry in enumerate(value, start=1):
+        if not isinstance(entry, dict):
+            inputs.append(_normalised_input(entry, f"inputs entry {index}"))
             continue
-        if not (isinstance(entry, dict) and set(entry) == {"input", "expected"}):
-            raise _fail("each `inputs:` entry is a string or an {input, expected} entry")
-        input_value = entry["input"]
-        if not isinstance(input_value, str):
-            raise _fail("`input:` in an input/expected entry must be a string")
+        if set(entry) != {"input", "expected"}:
+            raise _fail(
+                "each `inputs:` entry is a scalar, a flat list of scalars, or an "
+                "{input, expected} entry"
+            )
+        input_value = _normalised_input(entry["input"], f"inputs entry {index}")
         where = f"expected for input {input_value!r}"
         expected = entry["expected"]
         if isinstance(expected, dict):

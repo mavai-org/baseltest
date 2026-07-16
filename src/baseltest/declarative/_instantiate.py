@@ -6,6 +6,7 @@ The run mode is supplied by the invocation (the verb), never by the file:
 ``measure`` instantiates a measure experiment over every criterion.
 """
 
+import inspect
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from dataclasses import replace as _replace
@@ -56,7 +57,7 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
-from ._registry import resolve_check, resolve_transform
+from ._registry import _value_fits, resolve_check, resolve_transform
 from ._services import (
     ServiceDefinition,
     configuration_values,
@@ -117,7 +118,7 @@ def _build_form(
 
 
 def _expected_postconditions(
-    pairs: Sequence[tuple[str, tuple[FormDeclaration, ...]]],
+    pairs: Sequence[tuple[Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
 ) -> list[Postcondition]:
     """Per-input expectations: each check dispatches on the trial's input."""
@@ -130,7 +131,7 @@ def _expected_postconditions(
     return dispatching
 
 
-def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
+def _dispatch_on_input(input_value: Any, inner: Postcondition) -> Postcondition:
     def check(subject: Any) -> PostconditionResult:
         if _CURRENT_INPUT.get("value") != input_value:
             return PostconditionResult.ok()
@@ -150,15 +151,55 @@ def _dispatch_on_input(input_value: str, inner: Postcondition) -> Postcondition:
 # The engine evaluates postconditions without threading the input through;
 # per-input dispatch needs it. The instrumented invoke below records the
 # current input -- single-threaded per run by design.
-_CURRENT_INPUT: dict[str, str] = {}
+_CURRENT_INPUT: dict[str, Any] = {}
 
 
-def _instrumented_invoke(invoke: Callable[[str], str]) -> Callable[[str], str]:
-    def wrapped(value: str) -> str:
+def _instrumented_invoke(invoke: Callable[..., str]) -> Callable[[Any], str]:
+    """Record the driving input, and splat a tuple-valued one positionally."""
+
+    def wrapped(value: Any) -> str:
         _CURRENT_INPUT["value"] = value
-        return invoke(value)
+        return invoke(*value) if isinstance(value, tuple) else invoke(value)
 
     return wrapped
+
+
+def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]) -> None:
+    """The inputs ↔ per-sample-callable join, checked before any sample runs.
+
+    Arity is always checked; scalar-annotated parameters are checked where
+    the signature declares them; unannotated parameters pass through
+    untyped. The message carries the introspected signature — the binding's
+    signature is the contract, and the reader should never have to go and
+    find it.
+    """
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):  # no introspectable signature to join against
+        return
+    rendered = f"{service}{signature}"
+    for index, value in enumerate(inputs, start=1):
+        arguments = value if isinstance(value, tuple) else (value,)
+        try:
+            bound = signature.bind(*arguments)
+        except TypeError:
+            count = f"{len(arguments)} value{'s' if len(arguments) != 1 else ''}"
+            raise ContractConfigurationError(
+                f"service {service!r}: input {index} ({value!r}) supplies {count} for "
+                f"the binding's signature {rendered} — each input must match the "
+                "binding's parameters (a list-valued input is splatted positionally)"
+            ) from None
+        for name, argument in bound.arguments.items():
+            parameter = signature.parameters[name]
+            if parameter.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                continue
+            annotation = parameter.annotation
+            if annotation in (str, int, float, bool) and not _value_fits(argument, annotation):
+                raise ContractConfigurationError(
+                    f"service {service!r}: input {index}: parameter {name!r} expects "
+                    f"{annotation.__name__}, got {type(argument).__name__} "
+                    f"({argument!r}) — the binding's signature is {rendered}"
+                )
 
 
 def _build_criterion(
@@ -485,9 +526,11 @@ def instantiate_explore(
         parameters, note = definition.type.prepare_explore_point(parameters)
         if note is not None:
             notes.append(note)
+        per_sample = definition.type.invoker(parameters)
+        _validate_inputs(declaration.service, per_sample, declaration.inputs)
         contract = ServiceContract(
             contract_id=declaration.contract,
-            invoke=_instrumented_invoke(definition.type.invoker(parameters)),
+            invoke=_instrumented_invoke(per_sample),
             criteria=criteria,
             views=views,
         )
@@ -681,6 +724,7 @@ def instantiate(
             limit, and a ``measure`` without an explicit sample count.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
+    _validate_inputs(declaration.service, resolved, declaration.inputs)
     invoke = _instrumented_invoke(resolved)
     transforms = declaration.transforms
     views = _build_views(declaration)
