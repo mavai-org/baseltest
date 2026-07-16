@@ -57,10 +57,10 @@ TWO_ENTRIES = """
         initial: {temperature: 0.0}
         max-iterations: 11
       - id: temperature-honing
-        stepper: bisection
-        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, tolerance: 0.05}
+        stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
         initial: {temperature: 0.0}
-        max-iterations: 8
+        max-iterations: 20
 """
 
 
@@ -148,8 +148,8 @@ class TestEntryValidation:
       - stepper: linear-sweep
         stepper-config: {key: temperature, step: 0.1, stop: 0.5}
         max-iterations: 3
-      - stepper: bisection
-        stepper-config: {key: temperature, lo: 0.0, hi: 1.0}
+      - stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
         max-iterations: 3
 """
             )
@@ -172,8 +172,8 @@ class TestEntryValidation:
         stepper-config: {key: temperature, step: 0.1, stop: 0.5}
         max-iterations: 3
       - id: twin
-        stepper: bisection
-        stepper-config: {key: temperature, lo: 0.0, hi: 1.0}
+        stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
         max-iterations: 3
 """
             )
@@ -379,7 +379,7 @@ class TestEntryValidation:
     def test_a_builtin_stepper_name_cannot_be_shadowed(self) -> None:
         with pytest.raises(ContractConfigurationError, match="built-in stepper"):
 
-            @stepper("bisection")
+            @stepper("refining-grid")
             def usurper():  # type: ignore[no-untyped-def]
                 return lambda current, ctx: None
 
@@ -540,29 +540,40 @@ class TestOptimizeLoop:
         assert record.termination == "max-iterations"
         assert len(record.iterations) == 3
 
-    def test_a_stepper_returning_the_configuration_unchanged_is_refused(
-        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    def test_re_measuring_a_configuration_is_legitimate_and_noted(
+        self,
+        tmp_path: Path,
+        scripted_endpoint: Callable[..., list[dict[str, Any]]],
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
+        """A stochastic score is noisy: revisiting a configuration pools
+        evidence, so the run proceeds and says the repeat is deliberate."""
         scripted_endpoint(hello_below(1.0))
 
-        @stepper("treadmill")
-        def treadmill():  # type: ignore[no-untyped-def]
-            return lambda current, ctx: dict(current)
+        @stepper("second-opinion")
+        def second_opinion():  # type: ignore[no-untyped-def]
+            def step(current, ctx):  # type: ignore[no-untyped-def]
+                return dict(current) if ctx.iteration < 3 else None
+
+            return step
 
         path = write_files(
             tmp_path,
             services_yaml(
                 """
-      - stepper: treadmill
-        max-iterations: 3
+      - stepper: second-opinion
+        max-iterations: 5
 """
             ),
         )
-        with pytest.raises(ContractConfigurationError) as caught:
-            optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
-        message = str(caught.value)
-        assert "returned the configuration unchanged" in message
-        assert "return None" in message
+        outcomes = optimize(path, samples_per_iteration=2, optimizations_dir=tmp_path / "o")
+        record = outcomes[0].record
+        assert len(record.iterations) == 3  # the same configuration, measured thrice
+        factors = [dict(capture.factors) for capture in record.iterations]
+        assert factors[0] == factors[1] == factors[2]
+        out = capsys.readouterr().out
+        assert "re-measures a configuration this run has already visited" in out
+        assert "accumulate evidence" in out
 
     def test_a_stepper_returning_a_non_mapping_is_refused(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
@@ -744,29 +755,83 @@ class TestBuiltinSteppers:
         assert walked == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
         assert record.termination == "stepper-stopped"
 
-    def test_bisection_hones_toward_the_best_scoring_value(
+    def test_refining_grid_stops_when_no_challenger_stays_plausible(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
-        scripted_endpoint(hello_below(0.05))  # the peak is at the low end
+        scripted_endpoint(hello_below(0.05))  # a clean peak at the low end
         path = write_files(
             tmp_path,
             services_yaml(
                 """
-      - stepper: bisection
-        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, tolerance: 0.05}
+      - stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
         initial: {temperature: 0.0}
-        max-iterations: 8
+        max-iterations: 20
 """
             ),
         )
         outcomes = optimize(
-            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+            path, samples_per_iteration=4, emit=False, optimizations_dir=tmp_path / "o"
         )
         record = outcomes[0].record
         probed = [dict(capture.factors)["temperature"] for capture in record.iterations]
-        assert probed == [0.0, 0.5, 0.25, 0.125, 0.0625, 0.03125]
+        # Iteration 0 (the initial overlay), then the whole coarse grid —
+        # revisiting 0.0 pools its evidence rather than being skipped. The
+        # losers' intervals cannot carry a meaningful advantage over a
+        # pooled 8/8, so the search stops without refinement or epochs.
+        assert probed == [0.0, 0.0, 0.5, 1.0]
         assert record.termination == "stepper-stopped"
-        assert dict(record.best.factors)["temperature"] == 0.0
+        provenance = dict(record.stepper)
+        assert provenance["selectedValue"] == 0.0
+        assert provenance["stoppingReason"] == "no-plausible-challenger"
+        assert provenance["confirmed"] is False
+
+    def test_refining_grid_refines_confirms_and_prefers_low_on_a_tie(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        def graded(payload: dict[str, Any]) -> str:
+            # One prompt tolerates heat up to 0.75, the other only to 0.4:
+            # pass rates 1.0 / 0.5 / 0.0 across the grid — enough ambiguity
+            # to keep a challenger alive into refinement and confirmation.
+            temperature = payload.get("temperature", 1.0)
+            tolerant = payload["messages"][1]["content"] == "Where is my order?"
+            return "hello there" if temperature <= (0.75 if tolerant else 0.4) else "goodbye"
+
+        scripted_endpoint(graded)
+        path = write_files(
+            tmp_path,
+            services_yaml(
+                """
+      - stepper: refining-grid
+        stepper-config:
+          key: temperature
+          lo: 0.0
+          hi: 1.0
+          step: 0.5
+          min-step: 0.25
+          min-improvement: 0.05
+          confirmation-epochs: 1
+        initial: {temperature: 0.0}
+        max-iterations: 20
+"""
+            ),
+        )
+        outcomes = optimize(
+            path, samples_per_iteration=4, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        record = outcomes[0].record
+        probed = [dict(capture.factors)["temperature"] for capture in record.iterations]
+        # Coarse grid (0.0 pooled with iteration 0), refinement around the
+        # leader at half the step, then one confirmation epoch of the two
+        # finalists; 0.0 and 0.25 both measure perfect, so the practical
+        # tie resolves to the lower temperature.
+        assert probed == [0.0, 0.0, 0.5, 1.0, 0.0, 0.25, 0.5, 0.0, 0.25]
+        assert record.termination == "stepper-stopped"
+        provenance = dict(record.stepper)
+        assert provenance["selectedValue"] == 0.0
+        assert provenance["stoppingReason"] == "min-step"
+        assert provenance["confirmed"] is True
+        assert "0.25" in provenance["finalists"]
 
 
 META_MARKER = "You are a prompt engineer"

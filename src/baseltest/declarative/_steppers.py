@@ -21,9 +21,11 @@ Built-ins registered here:
 - ``linear-sweep`` — walks one numeric key in fixed increments; plateau
   detection (``no-improvement-window``) is what makes this an
   optimisation rather than an exploration grid respelled.
-- ``bisection`` — divide-and-conquer honing of one numeric key. Assumes
-  the score is roughly unimodal in that key; on a noisy or multimodal
-  landscape it converges confidently on nothing meaningful.
+- ``refining-grid`` — noise-aware, coarse-to-fine grid search over one
+  numeric key: whole grids evaluated before any decision, evidence
+  pooled per value across revisits, interval-based elimination (never a
+  single observed decline), and independent confirmation epochs before
+  the winner is selected.
 - ``pass-rate`` — the default scorer.
 """
 
@@ -32,6 +34,8 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from baseltest.statistics import wilson_interval
 
 from ._errors import ContractConfigurationError
 from ._signatures import (
@@ -401,55 +405,221 @@ def _linear_sweep(key: str, step: float, stop: float) -> StepFunction:
     return advance
 
 
-def _bisection(key: str, lo: float, hi: float, tolerance: float = 0.05) -> StepFunction:
-    """Divide-and-conquer honing of one numeric key over ``[lo, hi]``.
+def _grid_values(lo: float, hi: float, step: float) -> tuple[float, ...]:
+    """The grid ``lo, lo+step, …, hi`` (both bounds included), rounded stably."""
+    count = int(round((hi - lo) / step))
+    values = [round(lo + index * step, 12) for index in range(count + 1)]
+    if abs(values[-1] - hi) > _NUMERIC_TOLERANCE:
+        values.append(round(hi, 12))
+    return tuple(values)
 
-    Each proposal probes the midpoint of the larger flank around the best
-    value seen; a probe that fails to improve shrinks its flank. Assumes
-    the score is roughly unimodal in the key — on a noisy or multimodal
-    landscape it converges confidently on nothing meaningful. The
-    shrinking interval is the algorithm's state, held in this factory's
-    closure scope.
+
+@dataclass(frozen=True, slots=True)
+class _Standing:
+    """One candidate value's pooled evidence and its uncertainty interval."""
+
+    value: float
+    passes: int
+    trials: int
+    rate: float
+    low: float
+    high: float
+
+
+def _refining_grid(
+    key: str,
+    lo: float,
+    hi: float,
+    step: float,
+    min_step: float,
+    confidence: float = 0.95,
+    min_improvement: float = 0.02,
+    confirmation_epochs: int = 2,
+    prefer: str = "low",
+) -> StepFunction:
+    """Noise-aware, coarse-to-fine grid search over one numeric key.
+
+    Evaluates every value in the current grid, pools the evidence per
+    value across *all* visits (a stochastic score is noisy; revisiting a
+    value is how the search buys confidence), then narrows to the
+    leader's surrounding grid points at half the step and repeats. No
+    single observed decline eliminates anything — a candidate drops out
+    only when its uncertainty interval can no longer carry a meaningful
+    advantage over the leader's. Refinement stops at ``min-step`` or when
+    no plausible challenger remains; the finalists are then re-evaluated
+    in independent confirmation epochs and the winner selected on pooled
+    evidence, with a practical tie resolved by the ``prefer`` policy
+    (lower value by default). The selection, finalist standings, and
+    stopping reason are recorded on the step function's provenance
+    channel, landing in the artefact's ``stepper:`` block.
     """
     if not lo < hi:
         raise ContractConfigurationError(
-            f"stepper 'bisection': `lo:` ({lo}) must be below `hi:` ({hi})"
+            f"stepper 'refining-grid': `lo:` ({lo}) must be below `hi:` ({hi})"
         )
-    if tolerance <= 0:
+    if step <= 0 or min_step <= 0 or min_step > step:
         raise ContractConfigurationError(
-            f"stepper 'bisection': `tolerance:` must be positive, got {tolerance}"
+            "stepper 'refining-grid': `step:` and `min-step:` must be positive, "
+            f"with `min-step:` at most `step:` — got step {step}, min-step {min_step}"
         )
-    bounds = {"lo": lo, "hi": hi}
-    last_probe: dict[str, tuple[float, str] | None] = {"value": None}
+    if not 0 < confidence < 1:
+        raise ContractConfigurationError(
+            f"stepper 'refining-grid': `confidence:` must be between 0 and 1, got {confidence}"
+        )
+    if min_improvement < 0:
+        raise ContractConfigurationError(
+            f"stepper 'refining-grid': `min-improvement:` must be at least 0, got {min_improvement}"
+        )
+    if confirmation_epochs < 0:
+        raise ContractConfigurationError(
+            "stepper 'refining-grid': `confirmation-epochs:` must be at least 0, "
+            f"got {confirmation_epochs}"
+        )
+    if prefer not in ("low", "high"):
+        raise ContractConfigurationError(
+            f"stepper 'refining-grid': `prefer:` must be 'low' or 'high', got {prefer!r}"
+        )
+
+    state: dict[str, Any] = {
+        "phase": "start",  # start → grid → confirm → done
+        "pending": [],  # values scheduled for measurement, in order
+        "step": step,
+        "candidates": (),  # the current round's grid values
+        "finalists": (),
+        "reason": None,
+    }
+
+    def pooled(ctx: OptimizeContext) -> dict[float, tuple[int, int]]:
+        """Per-value evidence pooled across every visit in the history."""
+        evidence: dict[float, tuple[int, int]] = {}
+        for entry in ctx.history:
+            value = round(_numeric(entry.config.get(key), "refining-grid", key), 12)
+            passes, trials = evidence.get(value, (0, 0))
+            evidence[value] = (passes + entry.passes, trials + entry.samples)
+        return evidence
+
+    def standings(values: tuple[float, ...], ctx: OptimizeContext) -> list[_Standing]:
+        # Pragmatic uncertainty model, deliberately outside the Statistical
+        # Companion's scope: per-candidate pooled counts with two-sided
+        # Wilson intervals (reusing the conformance-locked implementation),
+        # compared unpaired. This is a budget-bounded search policy, not a
+        # calibrated hypothesis test — it decides where to look next, never
+        # a verdict.
+        evidence = pooled(ctx)
+        rows = []
+        for value in values:
+            passes, trials = evidence.get(value, (0, 0))
+            if trials == 0:
+                continue
+            interval = wilson_interval(passes, trials, confidence)
+            rows.append(
+                _Standing(
+                    value=value,
+                    passes=passes,
+                    trials=trials,
+                    rate=passes / trials,
+                    low=interval.lower_bound,
+                    high=interval.upper_bound,
+                )
+            )
+        return rows
+
+    def better(a: _Standing, b: _Standing) -> bool:
+        """Whether ``a`` outranks ``b``: higher rate, ties by the prefer policy."""
+        if a.rate != b.rate:
+            return a.rate > b.rate
+        return a.value < b.value if prefer == "low" else a.value > b.value
+
+    def leader_and_challengers(
+        rows: list[_Standing],
+    ) -> tuple[_Standing, list[_Standing]]:
+        leader = rows[0]
+        for row in rows[1:]:
+            if better(row, leader):
+                leader = row
+        # A challenger stays plausible while its optimistic bound beats the
+        # leader's pessimistic bound by more than the meaningful margin —
+        # one observed decline never eliminates anyone; intervals do.
+        challengers = [
+            row for row in rows if row is not leader and row.high - leader.low > min_improvement
+        ]
+        return leader, challengers
+
+    def schedule(values: tuple[float, ...]) -> None:
+        state["candidates"] = values
+        state["pending"] = list(values)
+
+    def finish(winner: _Standing, rows: list[_Standing], confirmed: bool) -> None:
+        state["phase"] = "done"
+        rendered = "; ".join(
+            f"{row.value:g} (rate {row.rate:.4f}, {row.passes}/{row.trials}, "
+            f"interval {row.low:.4f}-{row.high:.4f})"
+            for row in sorted(rows, key=lambda r: r.value)
+        )
+        advance.provenance = {  # type: ignore[attr-defined]
+            "selectedValue": winner.value,
+            "selectedRate": round(winner.rate, 6),
+            "selectedIntervalLow": round(winner.low, 6),
+            "selectedIntervalHigh": round(winner.high, 6),
+            "stoppingReason": str(state["reason"]),
+            "confirmed": confirmed,
+            "finalists": rendered,
+        }
+
+    def decide_after_grid(ctx: OptimizeContext) -> None:
+        rows = standings(state["candidates"], ctx)
+        leader, challengers = leader_and_challengers(rows)
+        half = state["step"] / 2
+        if challengers and half >= min_step - _NUMERIC_TOLERANCE:
+            # Refine: the leader's surrounding grid points at half the step.
+            state["step"] = half
+            schedule(
+                _grid_values(
+                    max(lo, leader.value - 2 * half), min(hi, leader.value + 2 * half), half
+                )
+            )
+            return
+        state["reason"] = "min-step" if challengers else "no-plausible-challenger"
+        strongest = None
+        for row in challengers:
+            if strongest is None or better(row, strongest):
+                strongest = row
+        if strongest is None or confirmation_epochs == 0:
+            finalists = [leader] + ([strongest] if strongest is not None else [])
+            state["finalists"] = tuple(row.value for row in finalists)
+            finish(leader, finalists, confirmed=False)
+            return
+        state["phase"] = "confirm"
+        state["finalists"] = (leader.value, strongest.value)
+        state["pending"] = list(state["finalists"]) * confirmation_epochs
+
+    def decide_after_confirmation(ctx: OptimizeContext) -> None:
+        rows = standings(state["finalists"], ctx)
+        leader, _ = leader_and_challengers(rows)
+        runner_up = next((row for row in rows if row is not leader), None)
+        # A practical tie — a difference below the meaningful margin — is
+        # resolved by the tie-break policy, not by whichever rate is ahead.
+        if (
+            runner_up is not None
+            and abs(leader.rate - runner_up.rate) <= min_improvement
+            and (runner_up.value < leader.value) == (prefer == "low")
+        ):
+            leader = runner_up
+        finish(leader, rows, confirmed=True)
 
     def advance(current: dict[str, Any], ctx: OptimizeContext) -> dict[str, Any] | None:
-        best = ctx.best
-        assert best is not None  # the stepper runs only after iteration 0
-        best_value = _numeric(best.config.get(key), "bisection", key)
-        probe = last_probe["value"]
-        if probe is not None and ctx.history[-1] is not best:
-            # The previous probe did not improve on the best: its flank is
-            # not where the peak is — shrink it.
-            probed, side = probe
-            if side == "up":
-                bounds["hi"] = probed
+        _numeric(current.get(key), "refining-grid", key)  # fail fast on a non-numeric key
+        if state["phase"] == "start":
+            state["phase"] = "grid"
+            schedule(_grid_values(lo, hi, state["step"]))
+        while not state["pending"] and state["phase"] in ("grid", "confirm"):
+            if state["phase"] == "grid":
+                decide_after_grid(ctx)
             else:
-                bounds["lo"] = probed
-        if bounds["hi"] - bounds["lo"] <= tolerance:
+                decide_after_confirmation(ctx)
+        if state["phase"] == "done":
             return None
-        up_flank = bounds["hi"] - best_value
-        down_flank = best_value - bounds["lo"]
-        if up_flank >= down_flank:
-            candidate, side = (best_value + bounds["hi"]) / 2, "up"
-        else:
-            candidate, side = (bounds["lo"] + best_value) / 2, "down"
-        if any(
-            abs(_numeric(entry.config.get(key), "bisection", key) - candidate) <= _NUMERIC_TOLERANCE
-            for entry in ctx.history
-        ):
-            return None  # converged: the next probe was already measured
-        last_probe["value"] = (candidate, side)
-        return {**current, key: round(candidate, 12)}
+        return {**current, key: state["pending"].pop(0)}
 
     return advance
 
@@ -564,7 +734,7 @@ for _registration in (
         name="linear-sweep", factory=_linear_sweep, configuration_keys=("key",), builtin=True
     ),
     StepperRegistration(
-        name="bisection", factory=_bisection, configuration_keys=("key",), builtin=True
+        name="refining-grid", factory=_refining_grid, configuration_keys=("key",), builtin=True
     ),
 ):
     _register_stepper(_registration, _builtin_steppers)

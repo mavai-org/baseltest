@@ -396,8 +396,7 @@ def optimize(
     Raises:
         ContractConfigurationError: The file (or its registrations) is not
             runnable as declared, the selection is ambiguous, or a stepper
-            mid-run returns a configuration the service type refuses (or
-            the current one unchanged).
+            mid-run returns a configuration the service type refuses.
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
@@ -443,7 +442,9 @@ def _drive_optimization(
     plateau = 0
     termination = "max-iterations"
     parameters = entry.parameters
+    visited: set[tuple[Any, ...]] = set()
     for index in range(entry.max_iterations):
+        visited.add(_configuration_identity(definition.type, parameters))
         point = instantiate_optimize_point(declaration, definition, parameters, samples)
         label = f"{entry.run_id} iteration {index}"
         result = execute(
@@ -477,11 +478,20 @@ def _drive_optimization(
             iterations_remaining=entry.max_iterations - (index + 1),
         )
         next_parameters = _next_parameters(
-            entry, definition, context, iteration_result.config, parameters, index + 1
+            entry, definition, context, iteration_result.config, index + 1
         )
         if next_parameters is None:
             termination = "stepper-stopped"
             break
+        if emit and _configuration_identity(definition.type, next_parameters) in visited:
+            # Deliberate, not a defect: under a stochastic service a single
+            # visit's score is noisy, and repeated visits pool into
+            # stronger evidence — say so instead of looking stuck.
+            print(
+                f"note: iteration {index + 1} re-measures a configuration this run "
+                "has already visited — repeated measurements accumulate evidence "
+                "against the noise in any single visit"
+            )
         parameters = next_parameters
 
     record = OptimizationRecord(
@@ -593,19 +603,19 @@ def _next_parameters(
     definition: ServiceDefinition,
     context: OptimizeContext,
     configuration: dict[str, Any],
-    current_parameters: Any,
     iteration: int,
 ) -> Any | None:
     """One stepper call, its proposal validated into the next parameters.
 
-    Returns ``None`` when the stepper stopped the search.
+    Returns ``None`` when the stepper stopped the search. Any
+    configuration the service type accepts is a legitimate proposal —
+    including one this run has already measured: a stochastic score is
+    noisy, and re-measuring a configuration pools into stronger evidence
+    (the caller notes a revisit on the console rather than refusing it).
 
     Raises:
         ContractConfigurationError: The proposal is not a configuration
-            mapping, does not fit the service type, or restates the
-            current configuration (re-measuring the same point spends
-            samples for nothing — a stepper with nothing to propose must
-            stop).
+            mapping, or does not fit the service type.
     """
     where = (
         f"optimization {entry.run_id!r}: iteration {iteration} configuration "
@@ -620,16 +630,7 @@ def _next_parameters(
             "configuration mapping — a stepper returns the whole next "
             "configuration, or None to stop"
         )
-    parameters = definition.type.parse(definition.name, proposal, where)
-    if _configuration_identity(definition.type, parameters) == _configuration_identity(
-        definition.type, current_parameters
-    ):
-        raise ContractConfigurationError(
-            f"{where}: the stepper returned the configuration unchanged — "
-            "re-measuring the same point spends samples for nothing; a stepper "
-            "with nothing to propose must stop (return None)"
-        )
-    return parameters
+    return definition.type.parse(definition.name, proposal, where)
 
 
 def check(path: str | Path) -> tuple[str, ...]:

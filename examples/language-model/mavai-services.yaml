@@ -75,8 +75,11 @@ services:
         max-iterations: 11
         no-improvement-window: 3
 
-      - id: temperature-honing         # divide and conquer: 0.0 → 0.5 → 0.25 → 0.375 …
-        stepper: bisection             # assumes the score is roughly unimodal in the key
-        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, tolerance: 0.05}
+      - id: temperature-honing         # noise-aware, coarse-to-fine grid search: whole
+        stepper: refining-grid         # grids measured before any decision, evidence
+                                       # pooled per value across revisits, interval-based
+                                       # elimination, finalists confirmed in independent
+                                       # epochs (ties prefer the lower temperature)
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.25, min-step: 0.05}
         initial: {temperature: 0.0}
-        max-iterations: 8
+        max-iterations: 20             # the cap always bounds the spend
