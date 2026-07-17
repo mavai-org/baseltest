@@ -6,7 +6,7 @@ which accepts a JSON Schema.
 
 from typing import TYPE_CHECKING, Any
 
-from ._protocol import Provider, plain_headers
+from ._protocol import Provider, no_constraint, plain_headers
 
 if TYPE_CHECKING:
     from .._services import LanguageModelParameters
@@ -21,8 +21,13 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
             {"role": "user", "content": user_prompt},
         ],
     }
+    options: dict[str, Any] = {}
     if parameters.temperature is not None:
-        body["options"] = {"temperature": parameters.temperature}
+        options["temperature"] = parameters.temperature
+    if parameters.top_p is not None:
+        options["top_p"] = parameters.top_p
+    if options:
+        body["options"] = options
     if parameters.response_schema is not None:
         body["format"] = parameters.response_schema
     return body
@@ -38,6 +43,9 @@ PROVIDER = Provider(
     key_env_fallback=None,
     key_required=False,
     supports_response_schema=True,
+    supports_prompt_caching=False,
+    supports_thinking=False,
+    constraint=no_constraint,
     body=_body,
     headers=plain_headers,
     extract=_extract,

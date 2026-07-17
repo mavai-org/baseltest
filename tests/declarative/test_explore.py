@@ -369,6 +369,58 @@ services:
             )
 
 
+class TestClientFactorGrids:
+    FACTOR_SERVICES = """
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a support agent."
+      model: small-model
+      thinking: none
+      prompt-caching: false
+    explorations:
+      - prompt-caching: true
+"""
+
+    def test_unsupporting_provider_drops_the_active_key_with_a_note(
+        self,
+        tmp_path: Path,
+        llm_environment: list[dict[str, Any]],
+        capsys: Any,
+    ) -> None:
+        # A thinking/prompt-caching grid explores cleanly: the declared-off
+        # baseline runs everywhere, and the active point on a provider
+        # without support is dropped with the warning, never silently.
+        explored = explore(
+            write_files(tmp_path, services=self.FACTOR_SERVICES),
+            samples_per_config=1,
+            explorations_dir=tmp_path / "x",
+        )
+        assert len(explored) == 2  # the run proceeded across both grid points
+        out = capsys.readouterr().out
+        assert "no prompt-caching support" in out
+        assert all("cache_control" not in json.dumps(p) for p in llm_environment)
+
+    def test_measure_still_refuses_an_active_key_the_provider_cannot_honour(
+        self,
+        tmp_path: Path,
+        llm_environment: list[dict[str, Any]],
+    ) -> None:
+        # Population identity is load-bearing for measure/test: no degradation.
+        services = self.FACTOR_SERVICES[: self.FACTOR_SERVICES.index("    explorations:")].replace(
+            "prompt-caching: false", "prompt-caching: true"
+        )
+        with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
+            run(
+                write_files(tmp_path, services=services),
+                mode="measure",
+                samples=5,
+                emit=False,
+            )
+
+
 class TestOtherVerbsIgnoreTheGrid:
     def test_measure_and_test_consume_the_baseline_only(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any
