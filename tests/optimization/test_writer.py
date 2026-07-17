@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
-from baseltest.exploration import CriterionStatistics, ExplorationRecord
+from baseltest.exploration import CriterionStatistics, ExplorationRecord, FailureEntry
 from baseltest.optimization import (
     IterationCapture,
     OptimizationRecord,
@@ -24,7 +24,11 @@ def observation(successes: int, samples: int) -> ExplorationRecord:
         samples_planned=samples,
         samples_executed=samples,
         successes=successes,
-        failure_distribution={"no greeting": samples - successes} if successes < samples else {},
+        failure_distribution=(
+            (FailureEntry(condition="no greeting", count=samples - successes),)
+            if successes < samples
+            else ()
+        ),
         criteria={"says-hello": CriterionStatistics(passes=successes, fails=samples - successes)},
         total_time_ms=samples * 100,
     )

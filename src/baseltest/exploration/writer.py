@@ -31,7 +31,8 @@ Illustrative artefact:
       successes: 4
       failures: 1
       failureDistribution:
-        "response is not valid JSON": 1
+        - condition: "response is not valid JSON"
+          count: 1
       criteria:
         "answers-as-json":
           observedPassRate: 0.800000
@@ -76,6 +77,8 @@ import json
 import re
 from pathlib import Path
 from typing import Any
+
+from baseltest.engine.naming import bounded_key
 
 from .record import ExplorationRecord
 
@@ -152,7 +155,7 @@ def factor_lines(factors: tuple[tuple[str, Any], ...], indent: str = "") -> list
         return []
     lines = [f"{indent}factors:"]
     for key, value in factors:
-        lines.append(f"{indent}  {_quote(key)}: {_scalar(value)}")
+        lines.append(f"{indent}  {_quote(bounded_key(key))}: {_scalar(value)}")
     return lines
 
 
@@ -173,13 +176,18 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
     ]
     if record.failure_distribution:
         lines.append(f"{indent}  failureDistribution:")
-        for reason in sorted(record.failure_distribution):
-            lines.append(f"{indent}    {_quote(reason)}: {record.failure_distribution[reason]}")
+        for entry in record.failure_distribution:
+            lines.append(f"{indent}    - condition: {_quote(entry.condition)}")
+            if entry.input_index is not None:
+                lines.append(f"{indent}      inputIndex: {entry.input_index}")
+            if entry.input_excerpt is not None:
+                lines.append(f"{indent}      inputExcerpt: {_quote(entry.input_excerpt)}")
+            lines.append(f"{indent}      count: {entry.count}")
     lines.append(f"{indent}  criteria:")
     for name, statistics in record.criteria.items():
         lines.extend(
             [
-                f"{indent}    {_quote(name)}:",
+                f"{indent}    {_quote(bounded_key(name))}:",
                 f"{indent}      observedPassRate: {statistics.observed_rate:.6f}",
                 f"{indent}      pass: {statistics.passes}",
                 f"{indent}      fail: {statistics.fails}",
@@ -223,7 +231,7 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
             lines.append(f"{indent}    inputIndex: {sample.input_index}")
             lines.append(f"{indent}    postconditions:")
             for name, status in sample.postconditions:
-                lines.append(f"{indent}      {_quote(name)}: {_quote(status)}")
+                lines.append(f"{indent}      {_quote(bounded_key(name))}: {_quote(status)}")
             lines.append(f"{indent}    executionTimeMs: {sample.execution_time_ms}")
             lines.append(f"{indent}    content: {_quote(sample.content)}")
     return lines

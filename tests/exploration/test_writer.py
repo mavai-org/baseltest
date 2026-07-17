@@ -9,6 +9,7 @@ from baseltest.engine import SampleRecord
 from baseltest.exploration import (
     CriterionStatistics,
     ExplorationRecord,
+    FailureEntry,
     LatencyBlock,
     exploration_stem,
     render_exploration,
@@ -28,7 +29,7 @@ def record(
         samples_planned=samples,
         samples_executed=samples,
         successes=successes,
-        failure_distribution={"response is not valid JSON": 1},
+        failure_distribution=(FailureEntry(condition="response is not valid JSON", count=1),),
         criteria={
             "answers-as-json": CriterionStatistics(passes=successes, fails=samples - successes)
         },
@@ -86,7 +87,9 @@ class TestRendering:
         assert statistics["successes"] == 4
         assert statistics["failures"] == 1
         assert statistics["observed"] == 0.8
-        assert statistics["failureDistribution"] == {"response is not valid JSON": 1}
+        assert statistics["failureDistribution"] == [
+            {"condition": "response is not valid JSON", "count": 1}
+        ]
         assert statistics["criteria"]["answers-as-json"] == {
             "observedPassRate": 0.8,
             "pass": 4,
