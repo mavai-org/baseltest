@@ -9,7 +9,12 @@ from typing import Any
 from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute, latency_block
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
-from baseltest.optimization import IterationCapture, OptimizationRecord, write_optimization
+from baseltest.optimization import (
+    IterationCapture,
+    OptimizationRecord,
+    wire_scorer_name,
+    write_optimization,
+)
 from baseltest.reporting import (
     RISK_DRIVEN_APPROACH,
     BaselineDisclosure,
@@ -498,6 +503,7 @@ def _drive_optimization(
         contract_id=declaration.contract,
         experiment_id=entry.run_id,
         objective=entry.objective,
+        scorer=wire_scorer_name(entry.scorer_name),
         generated_at=captures[-1].observation.generated_at,
         iterations=tuple(captures),
         best_index=best_index,

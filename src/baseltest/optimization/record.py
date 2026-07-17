@@ -13,6 +13,21 @@ from typing import Any
 from baseltest.engine import RunResult
 from baseltest.exploration import ExplorationRecord
 
+_WIRE_SCORER_NAMES = {"pass-rate": "observed-pass-rate"}
+
+
+def wire_scorer_name(registered_name: str) -> str:
+    """The scorer's interchange wire name.
+
+    The family's canonical interchange vocabulary names the built-in
+    scorer ``observed-pass-rate`` (the registered additive ``scorer``
+    field of ``mavai-optimize-1``); baseltest's authoring surface
+    registers the same scorer as ``pass-rate``. User-registered scorers
+    travel under their registered name verbatim — it is their domain
+    name.
+    """
+    return _WIRE_SCORER_NAMES.get(registered_name, registered_name)
+
 
 @dataclass(frozen=True, slots=True)
 class IterationCapture:
@@ -53,6 +68,9 @@ class OptimizationRecord:
         contract_id: The optimized contract's identity.
         experiment_id: The run's name — the ``optimizations:`` entry's id.
         objective: ``MAXIMIZE`` or ``MINIMIZE``.
+        scorer: The scoring function's interchange wire name — what the
+            per-iteration ``score`` measures (see
+            :func:`wire_scorer_name`).
         generated_at: When the run finished, UTC.
         iterations: The full history, in execution order — never elided
             or truncated; the history is the artefact.
@@ -67,6 +85,7 @@ class OptimizationRecord:
     contract_id: str
     experiment_id: str
     objective: str
+    scorer: str
     generated_at: datetime
     iterations: tuple[IterationCapture, ...]
     best_index: int
