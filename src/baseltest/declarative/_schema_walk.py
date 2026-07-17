@@ -29,6 +29,8 @@ from jsonpath_rfc9535.selectors import (
     WildcardSelector,
 )
 
+from baseltest.engine.naming import bounded_excerpt
+
 from ._errors import ContractConfigurationError
 
 VERIFIED = "verified"
@@ -284,11 +286,16 @@ def validate_declared_paths(
                 entries.append(
                     (f"criterion {criterion.name!r}, postcondition {ordinal}", form.view, form.path)
                 )
-    for input_value, forms in declaration.expected_pairs:
+    for input_index, input_value, forms in declaration.expected_pairs:
         for ordinal, form in enumerate(forms, start=1):
             if form.path is not None:
                 entries.append(
-                    (f"expected for input {input_value!r}, form {ordinal}", form.view, form.path)
+                    (
+                        f"expected for input {input_index} "
+                        f"({bounded_excerpt(str(input_value), 64)!r}), form {ordinal}",
+                        form.view,
+                        form.path,
+                    )
                 )
 
     verified: dict[str, int] = {}

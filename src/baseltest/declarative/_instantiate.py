@@ -44,6 +44,7 @@ from baseltest.engine import (
     inputs_fingerprint,
     minimum_contributing_samples,
 )
+from baseltest.engine.naming import bounded_excerpt, per_input_name
 from baseltest.statistics import (
     bound_existence_minimum,
     check_feasibility,
@@ -187,34 +188,35 @@ def _build_form(
 
 
 def _expected_postconditions(
-    pairs: Sequence[tuple[Any, tuple[FormDeclaration, ...]]],
+    pairs: Sequence[tuple[int, Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
 ) -> list[Postcondition]:
     """Per-input expectations: each check dispatches on the trial's input."""
     dispatching: list[Postcondition] = []
-    for input_value, declarations in pairs:
+    for input_index, input_value, declarations in pairs:
         for declaration in declarations:
-            where = f"expected for input {input_value!r}"
+            where = f"expected for input {input_index} ({bounded_excerpt(str(input_value), 64)!r})"
             inner = _build_form(declaration, transforms, where)
-            dispatching.append(_dispatch_on_input(input_value, inner))
+            dispatching.append(_dispatch_on_input(input_index, input_value, inner))
     return dispatching
 
 
-def _dispatch_on_input(input_value: Any, inner: Postcondition) -> Postcondition:
+def _dispatch_on_input(input_index: int, input_value: Any, inner: Postcondition) -> Postcondition:
     def check(subject: Any) -> PostconditionResult:
         if _CURRENT_INPUT.get("value") != input_value:
             return PostconditionResult.ok()
         result = inner.evaluate(subject)
         if result.passed:
             return result
-        # Attribute the failure to its input: a per-input expectation's
-        # reason is only diagnosable if it says which input it judged.
+        # Attribute the failure to its input structurally: identities and
+        # reasons carry the input's position, never its text — reasons
+        # become artefact mapping keys downstream, and the key discipline
+        # forbids input-derived key content (the input list is the
+        # developer's own; the index is the reference).
         reason = result.reason or f"postcondition {inner.name!r} not satisfied"
-        return PostconditionResult.failed(f"for input {input_value!r}: {reason}")
+        return PostconditionResult.failed(f"input {input_index}: {reason}")
 
-    return Postcondition(
-        name=f"{inner.name} (for input {input_value!r})", check=check, view=inner.view
-    )
+    return Postcondition(name=per_input_name(inner.name, input_index), check=check, view=inner.view)
 
 
 # The engine evaluates postconditions without threading the input through;
