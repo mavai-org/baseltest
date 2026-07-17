@@ -736,4 +736,8 @@ inputs:
 """
         result = run(write_contract(tmp_path, contract), samples=2, emit=False)
         reasons = list(result.criterion_results[0].tally.failure_reasons)
-        assert any("for input 'bad':" in reason for reason in reasons)
+        # Structural attribution: the reason names the input's position,
+        # never its text — reasons become artefact mapping keys, and key
+        # content must not depend on input content.
+        assert any(reason.startswith("input 0:") for reason in reasons)
+        assert all("'bad'" not in reason for reason in reasons)

@@ -135,7 +135,7 @@ class ContractDeclaration:
     service: str
     transforms: dict[str, str]
     inputs: tuple[Any, ...]
-    expected_pairs: tuple[tuple[Any, tuple[FormDeclaration, ...]], ...]
+    expected_pairs: tuple[tuple[int, Any, tuple[FormDeclaration, ...]], ...]
     criteria: tuple[CriterionDeclaration, ...]
     intent: str
     confidence: float
@@ -283,11 +283,11 @@ def _normalised_input(entry: Any, where: str) -> Any:
 
 def _parse_inputs(
     value: Any, views: dict[str, str]
-) -> tuple[tuple[Any, ...], tuple[tuple[Any, tuple[FormDeclaration, ...]], ...]]:
+) -> tuple[tuple[Any, ...], tuple[tuple[int, Any, tuple[FormDeclaration, ...]], ...]]:
     if not isinstance(value, list) or not value:
         raise _fail("`inputs:` must be a non-empty list")
     inputs: list[Any] = []
-    pairs: list[tuple[Any, tuple[FormDeclaration, ...]]] = []
+    pairs: list[tuple[int, Any, tuple[FormDeclaration, ...]]] = []
     for index, entry in enumerate(value, start=1):
         if not isinstance(entry, dict):
             inputs.append(_normalised_input(entry, f"inputs entry {index}"))
@@ -311,8 +311,11 @@ def _parse_inputs(
         for declaration in forms:
             if declaration.form == "parses":
                 raise _fail(f"{where}: `parses:` is a criterion-level form")
+        # The input's position in the full input list — the structural
+        # identity per-input checks carry (entries without `expected:`
+        # occupy positions too, so the pair index alone would drift).
+        pairs.append((len(inputs), input_value, forms))
         inputs.append(input_value)
-        pairs.append((input_value, forms))
     return tuple(inputs), tuple(pairs)
 
 

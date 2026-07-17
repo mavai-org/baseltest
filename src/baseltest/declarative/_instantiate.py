@@ -13,6 +13,8 @@ from dataclasses import replace as _replace
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 from baseltest.baseline import (
     BaselineResolution,
     StoredBaseline,
@@ -28,6 +30,7 @@ from baseltest.contract import (
     PostconditionResult,
     ServiceContract,
     ThresholdProvenance,
+    TransformError,
     contains,
     equals,
     matches,
@@ -41,6 +44,7 @@ from baseltest.engine import (
     inputs_fingerprint,
     minimum_contributing_samples,
 )
+from baseltest.engine.naming import bounded_excerpt, per_input_name
 from baseltest.statistics import (
     bound_existence_minimum,
     check_feasibility,
@@ -57,7 +61,8 @@ from ._parser import (
     CriterionDeclaration,
     FormDeclaration,
 )
-from ._registry import resolve_check, resolve_transform
+from ._registry import resolve_check, transform_registration
+from ._schema_walk import validate_declared_paths
 from ._services import (
     ServiceDefinition,
     configuration_values,
@@ -79,10 +84,58 @@ _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
 def _build_views(declaration: ContractDeclaration) -> dict[str, Callable[[str], Any]]:
     views: dict[str, Callable[[str], Any]] = {}
     for view_name, transformation in declaration.transforms.items():
-        views[view_name] = STOCK_TRANSFORM_FNS.get(transformation) or resolve_transform(
-            transformation
-        )
+        stock = STOCK_TRANSFORM_FNS.get(transformation)
+        if stock is not None:
+            views[view_name] = stock
+            continue
+        registration = transform_registration(transformation)
+        fn = registration.fn
+        if registration.output_schema is not None:
+            # A declared schema is a claim; claims are checked — always-on:
+            # every trial's actual output is validated, and a violation is
+            # a named trial failure (view-shape drift surfaced honestly,
+            # never a silent empty selection).
+            fn = _schema_checked_view(view_name, fn, registration.output_schema)
+        views[view_name] = fn
     return views
+
+
+def _schema_checked_view(
+    view_name: str, fn: Callable[[str], Any], schema: dict[str, Any]
+) -> Callable[[str], Any]:
+    validator = Draft202012Validator(schema)
+
+    def compute(raw: str) -> Any:
+        value = fn(raw)
+        error = next(validator.iter_errors(value), None)
+        if error is not None:
+            at = f" (at {error.json_path})" if error.json_path != "$" else ""
+            raise TransformError(
+                f"view {view_name!r} violates its declared output schema: {error.message}{at}"
+            )
+        return value
+
+    return compute
+
+
+def descriptive_view_fingerprints(declaration: ContractDeclaration) -> dict[str, str]:
+    """Fingerprints of the contract's declared view output schemas.
+
+    Recorded descriptively in baseline artefacts — visible and diffable,
+    never compared: a transformation's output schema executes after the
+    response exists and has no influence on the service's behaviour, so
+    it is never a covariate and never enters provenance or the drift
+    comparison. (The response-schema, by contrast, always influences the
+    service and travels in provenance as a covariate.)
+    """
+    fingerprints: dict[str, str] = {}
+    for view_name, transformation in declaration.transforms.items():
+        if transformation in STOCK_TRANSFORM_FNS:
+            continue
+        registration = transform_registration(transformation)
+        if registration.fingerprint is not None:
+            fingerprints[view_name] = registration.fingerprint
+    return fingerprints
 
 
 def _parses_postcondition(view: str) -> Postcondition:
@@ -135,34 +188,35 @@ def _build_form(
 
 
 def _expected_postconditions(
-    pairs: Sequence[tuple[Any, tuple[FormDeclaration, ...]]],
+    pairs: Sequence[tuple[int, Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
 ) -> list[Postcondition]:
     """Per-input expectations: each check dispatches on the trial's input."""
     dispatching: list[Postcondition] = []
-    for input_value, declarations in pairs:
+    for input_index, input_value, declarations in pairs:
         for declaration in declarations:
-            where = f"expected for input {input_value!r}"
+            where = f"expected for input {input_index} ({bounded_excerpt(str(input_value), 64)!r})"
             inner = _build_form(declaration, transforms, where)
-            dispatching.append(_dispatch_on_input(input_value, inner))
+            dispatching.append(_dispatch_on_input(input_index, input_value, inner))
     return dispatching
 
 
-def _dispatch_on_input(input_value: Any, inner: Postcondition) -> Postcondition:
+def _dispatch_on_input(input_index: int, input_value: Any, inner: Postcondition) -> Postcondition:
     def check(subject: Any) -> PostconditionResult:
         if _CURRENT_INPUT.get("value") != input_value:
             return PostconditionResult.ok()
         result = inner.evaluate(subject)
         if result.passed:
             return result
-        # Attribute the failure to its input: a per-input expectation's
-        # reason is only diagnosable if it says which input it judged.
+        # Attribute the failure to its input structurally: identities and
+        # reasons carry the input's position, never its text — reasons
+        # become artefact mapping keys downstream, and the key discipline
+        # forbids input-derived key content (the input list is the
+        # developer's own; the index is the reference).
         reason = result.reason or f"postcondition {inner.name!r} not satisfied"
-        return PostconditionResult.failed(f"for input {input_value!r}: {reason}")
+        return PostconditionResult.failed(f"input {input_index}: {reason}")
 
-    return Postcondition(
-        name=f"{inner.name} (for input {input_value!r})", check=check, view=inner.view
-    )
+    return Postcondition(name=per_input_name(inner.name, input_index), check=check, view=inner.view)
 
 
 # The engine evaluates postconditions without threading the input through;
@@ -833,6 +887,11 @@ def instantiate(
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {})
     _validate_inputs(declaration.service, resolved, declaration.inputs)
+    definition = (services or {}).get(declaration.service)
+    response_schema = (
+        getattr(definition.configuration, "response_schema", None) if definition else None
+    )
+    validate_declared_paths(declaration, response_schema, declaration.service)
     invoke = _instrumented_invoke(resolved)
     transforms = declaration.transforms
     views = _build_views(declaration)

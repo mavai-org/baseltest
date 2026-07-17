@@ -55,6 +55,7 @@ import json
 from pathlib import Path
 
 from baseltest.engine import LatencyBlock
+from baseltest.engine.naming import bounded_key
 
 from .record import BaselineRecord, CriterionCharacterisation
 
@@ -68,7 +69,7 @@ def _quote(value: str) -> str:
 
 def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
     lines = [
-        f"  {_quote(name)}:",
+        f"  {_quote(bounded_key(name))}:",
         f"    observedPassRate: {c.observed_rate:.6f}",
         f"    successes: {c.successes}",
         f"    trials: {c.trials}",
@@ -76,7 +77,7 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
     if c.failure_distribution:
         lines.append("    failureDistribution:")
         for reason in sorted(c.failure_distribution):
-            lines.append(f"      {_quote(reason)}: {c.failure_distribution[reason]}")
+            lines.append(f"      {_quote(bounded_key(reason))}: {c.failure_distribution[reason]}")
     if c.judgement is not None:
         lines.extend(
             [
@@ -102,6 +103,11 @@ def render_baseline(record: BaselineRecord) -> str:
         lines.append("provenance:")
         for key in sorted(record.provenance):
             lines.append(f"  {_quote(key)}: {_quote(record.provenance[key])}")
+    if record.views:
+        lines.append("views:")
+        for view in sorted(record.views):
+            lines.append(f"  {_quote(view)}:")
+            lines.append(f"    outputSchemaFingerprint: {_quote(record.views[view])}")
     lines.append("criteria:")
     for name, characterisation in record.criteria.items():
         lines.extend(_criterion_lines(name, characterisation))

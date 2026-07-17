@@ -6,10 +6,19 @@ entries in the same registry the built-in ``language-model`` type lives in
 predicates and transformations criteria reference.
 """
 
+import hashlib
 import inspect
+import io
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path, PurePath
 from typing import Any, TypeVar
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from ._errors import ContractConfigurationError
 from ._signatures import SCALAR_TYPES as _SCALAR_TYPES
@@ -37,7 +46,7 @@ _STOCK_TRANSFORMS = ("json", "xml", "yaml")
 RESERVED_COVARIATE_KEYS = frozenset({"binding", "runMode", "serviceType", "taskFile", "taskFormat"})
 
 _checks: dict[str, Callable[[Any], bool]] = {}
-_transforms: dict[str, Callable[[str], Any]] = {}
+_transforms: dict[str, "TransformRegistration"] = {}
 
 
 def _register(
@@ -286,6 +295,64 @@ def _factory_type(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class TransformRegistration:
+    """One registered transformation: the callable and its declared shape.
+
+    Attributes:
+        fn: The transformation callable.
+        output_schema: The declared JSON Schema of the transformation's
+            output, when declared — enables static ``path:`` validation
+            at load time and always-on per-trial output validation.
+        fingerprint: The canonical sha256 fingerprint of the declared
+            schema, recorded descriptively in baseline artefacts (an
+            output schema executes after the response exists and has no
+            influence on the service's behaviour, so it is never a
+            covariate); ``None`` when no schema is declared.
+    """
+
+    fn: Callable[[str], Any]
+    output_schema: dict[str, Any] | None = None
+    fingerprint: str | None = None
+
+
+def _loaded_schema(name: str, output_schema: Any) -> dict[str, Any]:
+    """Resolve the declared schema (mapping, or path to a schema file) and vet it."""
+    schema = output_schema
+    if isinstance(schema, (str, PurePath)):
+        path = Path(schema)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ContractConfigurationError(
+                f"transform {name!r}: cannot read output schema file {path}: {error}"
+            ) from error
+        try:
+            if path.suffix.lower() in (".yaml", ".yml"):
+                yaml = YAML(typ="safe", pure=True)
+                schema = yaml.load(io.StringIO(text))
+            else:
+                schema = json.loads(text)
+        except (ValueError, YAMLError) as error:
+            raise ContractConfigurationError(
+                f"transform {name!r}: output schema file {path} does not parse: {error}"
+            ) from error
+    if not isinstance(schema, dict):
+        raise ContractConfigurationError(
+            f"transform {name!r}: `output_schema` must be a mapping (the JSON Schema "
+            f"of the transformation's output) or a path to a schema file, got "
+            f"{type(schema).__name__}"
+        )
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as error:
+        raise ContractConfigurationError(
+            f"transform {name!r}: the declared output schema is not a valid JSON "
+            f"Schema: {error.message}"
+        ) from error
+    return schema
+
+
 def check(name: str) -> Callable[[_F], _F]:
     """Register a named predicate for the ``satisfies:`` postcondition form.
 
@@ -301,17 +368,45 @@ def check(name: str) -> Callable[[_F], _F]:
     return decorate
 
 
-def transform(name: str) -> Callable[[_F], _F]:
+def transform(
+    name: str,
+    *,
+    output_schema: dict[str, Any] | str | PurePath | None = None,
+) -> Callable[[_F], _F]:
     """Register a named transformation for the ``transform:`` key.
 
     The callable receives the raw response and returns the value under
     judgement. Raise :class:`baseltest.contract.TransformError` when the
     response cannot be transformed — that is a failed trial, not an abort;
     any other exception is treated as a defect.
+
+    Args:
+        name: The registry name ``transforms:`` entries reference.
+        output_schema: The JSON Schema of the transformation's output — a
+            mapping, or a path to a schema file (``.json``, or
+            ``.yaml``/``.yml``). Declaring it buys two things: contract
+            ``path:`` expressions over the transformation's views are
+            statically validated against it at load time (the check
+            verb's path ↔ shape join), and every trial's actual output is
+            validated against it — a violation is a named trial failure,
+            never a silent empty selection. A malformed schema is refused
+            at registration. The schema's canonical fingerprint is
+            recorded descriptively in baseline artefacts — never as a
+            covariate: an output schema executes after the response
+            exists and has no influence on the service's stochastic
+            behaviour, so it is definitionally outside the drift-checked
+            identity (the response-schema, by contrast, always influences
+            the service and is always a covariate).
     """
+    schema = _loaded_schema(name, output_schema) if output_schema is not None else None
+    fingerprint = None
+    if schema is not None:
+        canonical = json.dumps(schema, sort_keys=True)
+        fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def decorate(fn: _F) -> _F:
-        _register(_transforms, "transform", name, fn, reserved=_STOCK_TRANSFORMS)
+        registration = TransformRegistration(fn=fn, output_schema=schema, fingerprint=fingerprint)
+        _register(_transforms, "transform", name, registration, reserved=_STOCK_TRANSFORMS)
         return fn
 
     return decorate
@@ -366,13 +461,19 @@ def resolve_check(name: str) -> Callable[[Any], bool]:
 
 def resolve_transform(name: str) -> Callable[[str], Any]:
     """Look up a named transform at contract-load time; unresolvable names are refused."""
+    return transform_registration(name).fn
+
+
+def transform_registration(name: str) -> TransformRegistration:
+    """The full registration record; unresolvable names are refused."""
     if name not in _transforms:
         raise ContractConfigurationError(
             f"transform: {name!r} is neither a stock transform (json, xml, yaml) nor a "
             f"registered one. Register the transformation with @transform({name!r}) "
             "before running the contract."
         )
-    return _transforms[name]
+    registration: TransformRegistration = _transforms[name]
+    return registration
 
 
 def clear_registries() -> None:

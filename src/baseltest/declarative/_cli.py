@@ -254,7 +254,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {refusal}", file=sys.stderr)
             return 2
         for fact in facts:
-            print(f"ok: {fact}")
+            if fact.startswith("(unverified) "):
+                print(f"ok (unverified): {fact[len('(unverified) ') :]}")
+            else:
+                print(f"ok: {fact}")
         return 0
 
     if arguments.command == "report":
