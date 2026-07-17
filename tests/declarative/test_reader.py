@@ -1,5 +1,6 @@
 """The reader end-to-end: parse, validate, instantiate per mode, run, persist, refuse."""
 
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
 import pytest
@@ -198,7 +199,7 @@ inputs: ["a"]
         with pytest.raises(ContractConfigurationError, match="undeclared view"):
             parse_contract(contract)
 
-    def test_path_requires_a_stock_transformed_view(self) -> None:
+    def test_path_requires_a_declared_view(self) -> None:
         contract = """
 format: mavai-contract/1
 contract: t
@@ -210,7 +211,23 @@ criteria:
         equals: "1"
 inputs: ["a"]
 """
-        with pytest.raises(ContractConfigurationError, match="stock"):
+        with pytest.raises(ContractConfigurationError, match="declared view"):
+            parse_contract(contract)
+
+    def test_path_on_the_raw_view_is_refused(self) -> None:
+        contract = """
+format: mavai-contract/1
+contract: t
+service: s
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: raw
+        path: "$.x"
+        equals: "1"
+inputs: ["a"]
+"""
+        with pytest.raises(ContractConfigurationError, match="declared view"):
             parse_contract(contract)
 
     def test_parses_references_a_declared_view(self) -> None:
@@ -364,6 +381,145 @@ inputs: ["a"]
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any(r.startswith("transform failed") for r in tally.failure_reasons)
+
+    def test_custom_view_takes_a_jsonpath(self, tmp_path: Path) -> None:
+        @binding("judged-svc")
+        def invoke(value: str) -> str:
+            return f"the verdict on {value}"
+
+        @transform("judge")
+        def judge(raw: str) -> dict[str, object]:
+            return {"invariants": {"closedWorld": True}, "precision": 0.93}
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: judged-svc
+transforms:
+  judged: judge
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: judged
+        path: "$.invariants.closedWorld"
+        equals: "true"
+      - in: judged
+        path: "$.precision"
+        matches: "^(0\\\\.[89]|1)"
+inputs: ["a"]
+"""
+        result = run(write_contract(tmp_path, contract), emit=False)
+        assert result.composite is Verdict.PASS
+
+    def test_custom_view_takes_an_xpath(self, tmp_path: Path) -> None:
+        @binding("xml-svc")
+        def invoke(value: str) -> str:
+            return value
+
+        @transform("wrapped")
+        def wrap(raw: str) -> ElementTree.Element:
+            return ElementTree.fromstring(
+                f"<verdict><status>ok</status><echo>{raw}</echo></verdict>"
+            )
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: xml-svc
+transforms:
+  doc: wrapped
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: doc
+        path: "/verdict/status"
+        equals: "ok"
+inputs: ["a"]
+"""
+        result = run(write_contract(tmp_path, contract), emit=False)
+        assert result.composite is Verdict.PASS
+
+    def test_jsonpath_over_a_text_valued_custom_view_fails_the_trial(self, tmp_path: Path) -> None:
+        @binding("texty-svc")
+        def invoke(value: str) -> str:
+            return value
+
+        @transform("shout")
+        def shout(raw: str) -> str:
+            return raw.upper()
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: texty-svc
+transforms:
+  loud: shout
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: loud
+        path: "$.x"
+        equals: "1"
+inputs: ["a"]
+"""
+        result = run(write_contract(tmp_path, contract), emit=False)
+        tally = result.criterion_results[0].tally
+        assert tally.successes == 0
+        assert any("not a JSON structure" in r for r in tally.failure_reasons)
+
+    def test_xpath_over_a_non_element_custom_view_fails_the_trial(self, tmp_path: Path) -> None:
+        @binding("dicty-svc")
+        def invoke(value: str) -> str:
+            return value
+
+        @transform("boxed")
+        def box(raw: str) -> dict[str, str]:
+            return {"value": raw}
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: dicty-svc
+transforms:
+  boxed: boxed
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: boxed
+        path: "/value"
+        equals: "a"
+inputs: ["a"]
+"""
+        result = run(write_contract(tmp_path, contract), emit=False)
+        tally = result.criterion_results[0].tally
+        assert tally.successes == 0
+        assert any("not a parsed XML element" in r for r in tally.failure_reasons)
+
+    def test_bad_xpath_on_a_custom_view_refused_at_load(self, tmp_path: Path) -> None:
+        @binding("svc-x")
+        def invoke(value: str) -> str:
+            return value
+
+        @transform("identity-ish")
+        def identity_ish(raw: str) -> str:
+            return raw
+
+        contract = """
+format: mavai-contract/1
+contract: t
+service: svc-x
+transforms:
+  v: identity-ish
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: v
+        path: "//["
+        equals: "1"
+inputs: ["a"]
+"""
+        with pytest.raises(ContractConfigurationError, match="XPath"):
+            run(write_contract(tmp_path, contract))
 
     def test_registered_transformation_and_check(self, tmp_path: Path) -> None:
         @binding("svc")

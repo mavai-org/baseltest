@@ -28,6 +28,8 @@ intent: smoke                        # quick first try; see README to graduate
 
 transforms:
   basket: json                         # parse each response; the view is 'basket'
+  judged: basket-judge                 # custom @transform (mavai-bindings.py);
+                                       # its dict is a structured view too
 
 criteria:
   - name: response-is-a-valid-basket
@@ -40,6 +42,9 @@ criteria:
       - in: basket
         path: "$.items[*].quantity"
         matches: '^[1-9][0-9]*$'       # every quantity is a positive integer
+      - in: judged                     # a $-rooted path selects into ANY view
+        path: "$.namesUnique"          # holding structure - here the judge's
+        equals: "true"                 # verdict: no item listed twice
 
 inputs:
   # One criteria collection judges ONE class of inputs: these are all

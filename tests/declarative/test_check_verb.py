@@ -79,6 +79,39 @@ class TestCheckVerb:
         assert main(["check", str(contract)]) == 0
         assert "binding resolved" in capsys.readouterr().out
 
+    def test_a_custom_view_path_is_validated_with_zero_samples(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from baseltest.declarative import transform
+
+        @binding("solo")
+        def solo(name: str) -> str:
+            return name
+
+        @transform("judge")
+        def judge(raw: str) -> dict[str, bool]:
+            return {"ok": True}
+
+        contract = tmp_path / "contract.yaml"
+        contract.write_text(
+            """
+format: mavai-contract/1
+contract: t
+service: solo
+transforms:
+  judged: judge
+criteria:
+  - threshold: 0.5
+    postconditions:
+      - in: judged
+        path: "$[["
+        equals: "1"
+inputs: ["a"]
+"""
+        )
+        assert main(["check", str(contract)]) == 2
+        assert "JSONPath" in capsys.readouterr().err
+
     def test_configuration_misfit_fails_with_the_join_message(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
