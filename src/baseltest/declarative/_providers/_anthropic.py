@@ -26,6 +26,8 @@ via the vendor constraint below.
 
 from typing import TYPE_CHECKING, Any
 
+from baseltest.contract import ServiceDeliveryError
+
 from ._protocol import Provider
 
 if TYPE_CHECKING:
@@ -86,7 +88,19 @@ def _headers(key: str) -> dict[str, str]:
 
 
 def _extract(body: dict[str, Any]) -> Any:
-    return body["content"][0]["text"]
+    # With thinking enabled the assistant text is not the first content
+    # block — `thinking` (and possibly `redacted_thinking`) blocks precede
+    # it. The assistant text is the first block of type `text`, wherever
+    # it sits.
+    for block in body["content"]:
+        if block.get("type") == "text":
+            return block["text"]
+    kinds = ", ".join(str(block.get("type")) for block in body["content"]) or "(none)"
+    stop_reason = body.get("stop_reason")
+    raise ServiceDeliveryError(
+        "anthropic delivered a response with no text content block "
+        f"(blocks: {kinds}; stop_reason: {stop_reason})"
+    )
 
 
 PROVIDER = Provider(

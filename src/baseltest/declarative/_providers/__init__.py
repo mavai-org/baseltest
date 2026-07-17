@@ -187,9 +187,24 @@ def build_invoker(
             raise ServiceDeliveryError(
                 f"service unreachable at {endpoint}: {error.reason}"
             ) from None
-        content = provider.extract(payload)
+        # A 2xx body that does not match the vendor's shape is still a
+        # *delivered* response — the boundary is: provider rejection →
+        # abort; delivered-but-odd response → counted failed sample with
+        # the cause recorded.
+        try:
+            content = provider.extract(payload)
+        except ServiceDeliveryError:
+            raise
+        except (KeyError, IndexError, TypeError) as error:
+            raise ServiceDeliveryError(
+                f"service delivered a response body not matching the "
+                f"{provider.name} shape: {type(error).__name__}: {error}"
+            ) from None
         if not isinstance(content, str):
-            raise ValueError("the provider response carried no text content")
+            raise ServiceDeliveryError(
+                f"service delivered a response with no text content "
+                f"(the {provider.name} content field held {type(content).__name__})"
+            )
         return content
 
     return invoke

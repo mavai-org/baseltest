@@ -246,7 +246,7 @@ A lone entry runs without naming it; with several declared, the `id` is required
 basel check contract.yaml
 ```
 
-The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI.
+The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI. One boundary to know: zero samples means zero responses, so *response-shape* behaviour (provider reply parsing, transform outcomes) is exercised only by live samples — the framework keeps the provider adapters' extraction paths under recorded-response tests precisely because `basel check` cannot reach them.
 
 ### `basel report`
 
