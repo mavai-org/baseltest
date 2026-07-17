@@ -44,6 +44,7 @@ def record(**overrides: Any) -> OptimizationRecord:
         "contract_id": "support-agent-tuning",
         "experiment_id": "temperature-linear",
         "objective": "maximize",
+        "scorer": "observed-pass-rate",
         "generated_at": datetime(2026, 7, 16, 12, 0, tzinfo=UTC),
         "iterations": (capture(0, 0.0, 0.5), capture(1, 0.1, 0.75)),
         "best_index": 1,
@@ -67,6 +68,7 @@ class TestRenderOptimization:
         assert document["serviceContractId"] == "support-agent-tuning"
         assert document["experimentId"] == "temperature-linear"
         assert document["objective"] == "MAXIMIZE"
+        assert document["scorer"] == "observed-pass-rate"
         assert document["termination"] == "max-iterations"
         assert document["stepper"] == {"name": "linear-sweep", "key": "temperature"}
         assert [entry["iteration"] for entry in document["iterations"]] == [0, 1]

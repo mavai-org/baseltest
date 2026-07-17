@@ -43,6 +43,9 @@ def render_optimization(record: OptimizationRecord) -> str:
         f"serviceContractId: {_quote(record.contract_id)}",
         f"experimentId: {_quote(record.experiment_id)}",
         f"objective: {_quote(record.objective.upper())}",
+        # What the score measures — the family's registered additive
+        # field, so the shared report can label the score column.
+        f"scorer: {_quote(record.scorer)}",
         f"generatedAt: {_quote(record.generated_at.isoformat())}",
     ]
     if record.stepper:
