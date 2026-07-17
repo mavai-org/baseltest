@@ -113,8 +113,24 @@ def _build_form(
     if transformation == "xml":
         expression = compile_xpath(declaration.path, where)
         return path_qualified("xpath", expression, expression, inner, view=declaration.view)
-    raise ContractConfigurationError(
-        f"{where}: `path:` requires a view with a stock transformation"
+    # A custom transformation names no path language, so the expression's
+    # syntax decides: RFC 9535 mandates `$`-rooted JSONPath, and a
+    # `$`-initial XPath is a variable reference no contract can bind —
+    # everything else validates as XPath 1.0. The value's type is then
+    # checked per trial; load time cannot know what the transform returns.
+    if declaration.path.startswith("$"):
+        compiled = compile_jsonpath(declaration.path, where)
+        return path_qualified(
+            "jsonpath",
+            declaration.path,
+            compiled,
+            inner,
+            view=declaration.view,
+            check_value_type=True,
+        )
+    expression = compile_xpath(declaration.path, where)
+    return path_qualified(
+        "xpath", expression, expression, inner, view=declaration.view, check_value_type=True
     )
 
 

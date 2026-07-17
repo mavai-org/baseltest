@@ -85,7 +85,7 @@ Planned around that core:
 
 - **Honest output**: a declared threshold yields a statistical verdict with its uncertainty stated; no threshold yields a measurement explicitly labelled as an observation, never dressed up as a pass.
 - **Multiple criteria per contract**: a service examined through several Bernoulli streams in one run — relevance at one bar, well-formedness at another.
-- **Structured-response checks**: JSON, XML, and YAML transforms with standards-pinned path expressions (RFC 9535 JSONPath, XPath 1.0).
+- **Structured-response checks**: JSON, XML, and YAML transforms with standards-pinned path expressions (RFC 9535 JSONPath, XPath 1.0) — and the same `path:` expressions address the structured value of any transform you register in code.
 - **Measurement runs** that persist a baseline artefact — the empirical record future regression tests will verify against.
 - **A graduation path**: when the contract file runs out of expressive power, baseltest emits the equivalent contract as Python source you take ownership of — the same object you were already running, not a migration.
 - **An lm-eval bridge** (separate package): mavai-grade statistics over [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) runs, with baseltest as the statistical engine underneath.

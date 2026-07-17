@@ -22,7 +22,6 @@ from ._errors import ContractConfigurationError
 FORMAT_IDENTIFIER = "mavai-contract/1"
 DEFAULT_CONFIDENCE = 0.95
 RAW_VIEW = "raw"
-STOCK_TRANSFORMS = {"json", "xml", "yaml"}
 
 _TOP_LEVEL_KEYS = {
     "format",
@@ -241,10 +240,10 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
     if path is not None:
         if form not in _STRING_FORMS:
             raise _fail(f"{where}: `path:` qualifies the string forms only")
-        if views.get(view) not in STOCK_TRANSFORMS:
+        if view == RAW_VIEW:
             raise _fail(
-                f"{where}: `path:` requires `in:` naming a view with a stock "
-                "transformation (json, xml, or yaml)"
+                f"{where}: `path:` requires `in:` naming a declared view — "
+                "the raw response is unstructured text"
             )
     if form == "parses":
         target = entry[form]

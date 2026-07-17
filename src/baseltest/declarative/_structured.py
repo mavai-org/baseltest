@@ -8,6 +8,13 @@ form; scalars compare by content (strings) or by their JSON text (numbers,
 booleans, null); selecting a JSON object or array under a string form is a
 per-trial type failure — structure is selected through, not compared as
 text.
+
+Views produced by custom transformations are structurally addressable too:
+the path expression's syntax picks the language (``$``-rooted is JSONPath,
+anything else XPath 1.0), and because a custom transform's return type has
+no load-time guarantee, the value must match the chosen language on every
+trial — a dict or list for JSONPath, a parsed XML element for XPath — with
+a mismatch failing the trial, reason naming the type it found.
 """
 
 import io
@@ -137,12 +144,36 @@ def _xpath_values(document: Any, expression: str) -> list[str]:
     return values
 
 
+def _value_type_mismatch(language: str, expression: str, value: Any) -> PostconditionResult | None:
+    """The per-trial failure when a custom view's value cannot take the path.
+
+    A custom transformation gives no load-time guarantee about what its view
+    holds, so the value's type is checked on every trial: a ``$``-rooted
+    (JSONPath) expression addresses a dict or list, an XPath expression
+    addresses a parsed XML element. Anything else — notably a transformation
+    returning plain text, or XML as an unparsed string — fails the trial
+    with the type it found, mirroring the empty-selection semantics.
+    """
+    if language == "jsonpath" and not isinstance(value, dict | list):
+        return PostconditionResult.failed(
+            f"path {expression}: view holds {type(value).__name__}, not a JSON "
+            "structure — a `$`-rooted path addresses an object or array"
+        )
+    if language == "xpath" and not isinstance(value, ElementTree.Element):
+        return PostconditionResult.failed(
+            f"path {expression}: view holds {type(value).__name__}, not a parsed "
+            "XML element — an XPath addresses a parsed element, not xml text"
+        )
+    return None
+
+
 def path_qualified(
     language: str,
     expression: str,
     compiled: Any,
     inner: Postcondition,
     view: str = "raw",
+    check_value_type: bool = False,
 ) -> Postcondition:
     """Wrap a string-form postcondition to judge the values a path selects.
 
@@ -150,10 +181,16 @@ def path_qualified(
     The wrapped check applies the inner form to every selected value's
     string projection; empty selections and structural values under a
     string form are per-trial failures with their own reasons. The check's
-    subject is the named view's document.
+    subject is the named view's document. ``check_value_type`` is set for
+    views produced by custom transformations, whose value type has no
+    load-time guarantee and is verified per trial.
     """
 
     def check(value: Any) -> PostconditionResult:
+        if check_value_type:
+            mismatch = _value_type_mismatch(language, expression, value)
+            if mismatch is not None:
+                return mismatch
         if language == "jsonpath":
             selected = [node.value for node in compiled.find(value)]
             texts: list[str] = []
