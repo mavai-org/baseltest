@@ -100,6 +100,22 @@ class TestParsing:
         with pytest.raises(ContractConfigurationError, match="unknown key `variations:`"):
             parse_services(text)
 
+    def test_thinking_value_outside_the_vocabulary_refused(self) -> None:
+        text = SERVICES.replace("temperature: 0.7", "thinking: deep")
+        with pytest.raises(ContractConfigurationError, match="adaptive, none"):
+            parse_services(text)
+
+    def test_top_p_outside_the_unit_interval_refused(self) -> None:
+        for bad in ("0", "1.2", "true", '"high"'):
+            text = SERVICES.replace("temperature: 0.7", f"top-p: {bad}")
+            with pytest.raises(ContractConfigurationError, match="top-p"):
+                parse_services(text)
+
+    def test_prompt_caching_must_be_a_boolean(self) -> None:
+        text = SERVICES.replace("temperature: 0.7", "prompt-caching: ephemeral")
+        with pytest.raises(ContractConfigurationError, match="prompt-caching"):
+            parse_services(text)
+
     def test_unknown_type_refused(self) -> None:
         with pytest.raises(ContractConfigurationError, match="language-model"):
             parse_services(SERVICES.replace("type: language-model", "type: robot", 1))
@@ -192,3 +208,33 @@ class TestProvenance:
         assert '"systemPrompt": "You are a support agent."' in content
         assert '"model": "small-model"' in content
         assert '"temperature": "0.7"' in content
+
+    def test_client_factors_join_provenance_and_drift_check(
+        self, tmp_path: Path, llm_environment: list[dict[str, Any]]
+    ) -> None:
+        services = SERVICES.replace("temperature: 0.7", "top-p: 0.9")
+        empirical_only = CONTRACT.replace("  - threshold: 0.5\n", "  - ")
+        contract = CONTRACT.replace("service: greeter", "service: support-agent")
+        empirical = empirical_only.replace("service: greeter", "service: support-agent")
+        run(
+            write_files(tmp_path, contract=contract, services=services),
+            mode="measure",
+            samples=20,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+        )
+        content = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
+        assert '"topP": "0.9"' in content
+        assert llm_environment[0]["top_p"] == 0.9
+        # A baseline measured under one top-p refuses a test under another,
+        # naming the drifted key — configuration keys join identity natively.
+        write_files(
+            tmp_path,
+            contract=empirical,
+            services=services.replace("top-p: 0.9", "top-p: 0.95"),
+        )
+        contract_path = tmp_path / "contract.yaml"
+        contract_path.write_text(empirical, encoding="utf-8")
+        with pytest.raises(ContractConfigurationError) as refusal:
+            run(contract_path, mode="test", baseline_dir=tmp_path / "b", emit=False)
+        assert "topP" in str(refusal.value)

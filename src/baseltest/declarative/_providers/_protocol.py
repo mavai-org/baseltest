@@ -19,11 +19,17 @@ ENV_MODEL = "MAVAI_LLM_MODEL"
 BodyBuilder = Callable[["LanguageModelParameters", str, str], dict[str, Any]]
 HeaderBuilder = Callable[[str], dict[str, str]]
 Extractor = Callable[[dict[str, Any]], Any]
+Constraint = Callable[["LanguageModelParameters"], str | None]
+
+
+def no_constraint(_parameters: "LanguageModelParameters") -> str | None:
+    """The default vendor constraint: every configuration combination is fine."""
+    return None
 
 
 @dataclass(frozen=True, slots=True)
 class Provider:
-    """One vendor adapter: protocol shape, defaults, and schema support.
+    """One vendor adapter: protocol shape, defaults, and capability support.
 
     Attributes:
         name: The `provider:` value contract authors declare.
@@ -35,6 +41,13 @@ class Provider:
         supports_response_schema: Whether a declared ``response-schema:``
             can be honoured; when ``False``, declaring one is refused at
             load — never silently dropped.
+        supports_prompt_caching: Whether ``prompt-caching: true`` can be
+            honoured; same refusal rule as the schema.
+        supports_thinking: Whether ``thinking: adaptive`` can be honoured;
+            same refusal rule as the schema.
+        constraint: The vendor's own veto over an otherwise-valid
+            configuration combination: ``parameters -> refusal message`` or
+            ``None`` when the combination is fine. Checked at load time.
         body: Composes one request body from (parameters, model, prompt).
         headers: Composes the request headers from the resolved credential.
         extract: Pulls the response text out of the vendor's reply shape.
@@ -45,6 +58,9 @@ class Provider:
     key_env_fallback: str | None
     key_required: bool
     supports_response_schema: bool
+    supports_prompt_caching: bool
+    supports_thinking: bool
+    constraint: Constraint
     body: BodyBuilder
     headers: HeaderBuilder
     extract: Extractor
@@ -76,6 +92,8 @@ def openai_compatible_body(
     }
     if parameters.temperature is not None:
         body["temperature"] = parameters.temperature
+    if parameters.top_p is not None:
+        body["top_p"] = parameters.top_p
     if parameters.response_schema is not None:
         body["response_format"] = {
             "type": "json_schema",
@@ -95,6 +113,9 @@ GENERIC = Provider(
     key_env_fallback=None,
     key_required=False,
     supports_response_schema=True,
+    supports_prompt_caching=False,
+    supports_thinking=False,
+    constraint=no_constraint,
     body=openai_compatible_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
