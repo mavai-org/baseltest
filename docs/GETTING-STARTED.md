@@ -2,7 +2,7 @@
 
 baseltest tests services that don't behave the same way twice — LLM-backed services above all. You declare what a good response looks like and what pass rate you require; baseltest runs the service repeatedly and gives you a verdict backed by real statistics, not a green tick over one lucky sample.
 
-For your first test you write **two small files and no Python**.
+For your first test you write **two small files and no Python**. (This guide walks one example end to end; the [user guide](USER-GUIDE.md) is the complete reference for every verb, file, and option.)
 
 ## Setup
 

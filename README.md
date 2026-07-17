@@ -63,7 +63,7 @@ The `baseltest` package ships one command, `basel`, with five run and reporting 
 
 Frequently reached-for flags: `--html-report <path>` on `test` renders the report inline as part of the run (the same renderer as `basel report test`, so the two outputs are identical); `--baseline-dir`, `--verdict-dir`, `--explorations-dir`, and `--optimizations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
 
-Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration, nothing to render) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it.
+Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration, nothing to render) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it, and the [user guide](docs/USER-GUIDE.md) is the complete reference — every verb, every file, every option.
 
 ## Where the project is going
 
