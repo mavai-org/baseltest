@@ -8,10 +8,13 @@ headers, response extraction), the default endpoint
 and whether a declared response schema can be honoured.
 
 Deliberately absent from every adapter, as a rule and not an omission:
-retries, backoff, caching, streaming, tool use. A silently retried failure
-is a resampled trial and biases the observed rate — sampling independence
-outranks API convenience. One invocation, one request; transport and error
-responses are defects.
+retries, backoff, client-side response caching, streaming, tool use. A
+silently retried failure is a resampled trial and biases the observed rate —
+sampling independence outranks API convenience. One invocation, one request;
+transport and error responses are defects. (Provider-side prompt caching is
+different: it is a declared configuration factor — ``prompt-caching:`` —
+fixed per configuration and part of the drift-checked identity, not a
+convenience the adapter reaches for on its own.)
 """
 
 import json
@@ -129,6 +132,23 @@ def build_invoker(
             "dropping it would change what is being measured. Remove the schema or "
             "choose a provider that supports it."
         )
+    if parameters.prompt_caching and not provider.supports_prompt_caching:
+        raise ContractConfigurationError(
+            f"provider {provider.name!r} has no prompt-caching support in this "
+            "reader: `prompt-caching: true` cannot be honoured, and silently "
+            "dropping it would change what is being measured. Remove the key or "
+            "choose a provider that supports it."
+        )
+    if parameters.thinking == "adaptive" and not provider.supports_thinking:
+        raise ContractConfigurationError(
+            f"provider {provider.name!r} has no thinking support in this reader: "
+            "`thinking: adaptive` cannot be honoured, and silently dropping it "
+            "would change what is being measured. Remove the key or choose a "
+            "provider that supports it."
+        )
+    refusal = provider.constraint(parameters)
+    if refusal is not None:
+        raise ContractConfigurationError(f"provider {provider.name!r}: {refusal}")
     endpoint = _resolve_endpoint(provider)
     model = parameters.model or os.environ.get(ENV_MODEL)
     if not model:

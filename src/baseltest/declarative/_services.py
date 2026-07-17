@@ -51,10 +51,30 @@ SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
 
 _DEFINITION_KEYS = {"type", "configuration", "explorations", "optimizations"}
-_CONFIGURATION_KEYS = {"system-prompt", "provider", "model", "temperature", "response-schema"}
+_CONFIGURATION_KEYS = {
+    "system-prompt",
+    "provider",
+    "model",
+    "temperature",
+    "top-p",
+    "thinking",
+    "prompt-caching",
+    "response-schema",
+}
 # Canonical parameter order: stems and factor blocks list swept covariates
 # in this order so artefacts from one grid stay field-for-field diffable.
-_PARAMETER_ORDER = ("system-prompt", "provider", "model", "temperature", "response-schema")
+_PARAMETER_ORDER = (
+    "system-prompt",
+    "provider",
+    "model",
+    "temperature",
+    "top-p",
+    "thinking",
+    "prompt-caching",
+    "response-schema",
+)
+
+_THINKING_VALUES = ("adaptive", "none")
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +85,9 @@ class LanguageModelParameters:
     provider: str | None = None
     model: str | None = None
     temperature: float | None = None
+    top_p: float | None = None
+    thinking: str | None = None
+    prompt_caching: bool | None = None
     response_schema: dict[str, Any] | None = None
 
 
@@ -123,6 +146,21 @@ def _validate_configuration(
     provider_name = configuration.get("provider")
     if provider_name is not None:
         resolve_provider(str(provider_name))  # unknown names refused at load
+    top_p = configuration.get("top-p")
+    if top_p is not None and (
+        isinstance(top_p, bool) or not isinstance(top_p, int | float) or not 0 < top_p <= 1
+    ):
+        raise _fail(
+            f"service {name!r}: `top-p:` must be a number in (0, 1] — the "
+            "cumulative probability mass nucleus sampling draws from"
+        )
+    thinking = configuration.get("thinking")
+    if thinking is not None and thinking not in _THINKING_VALUES:
+        values = ", ".join(_THINKING_VALUES)
+        raise _fail(f"service {name!r}: `thinking:` must be one of: {values}")
+    prompt_caching = configuration.get("prompt-caching")
+    if prompt_caching is not None and not isinstance(prompt_caching, bool):
+        raise _fail(f"service {name!r}: `prompt-caching:` must be a boolean")
     response_schema = configuration.get("response-schema")
     if response_schema is not None and not isinstance(response_schema, dict):
         raise _fail(
@@ -134,6 +172,9 @@ def _validate_configuration(
         provider=provider_name,
         model=configuration.get("model"),
         temperature=configuration.get("temperature"),
+        top_p=top_p,
+        thinking=thinking,
+        prompt_caching=prompt_caching,
         response_schema=response_schema,
     )
 
@@ -298,6 +339,12 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     }
     if parameters.temperature is not None:
         entries["temperature"] = str(parameters.temperature)
+    if parameters.top_p is not None:
+        entries["topP"] = str(parameters.top_p)
+    if parameters.thinking is not None:
+        entries["thinking"] = parameters.thinking
+    if parameters.prompt_caching is not None:
+        entries["promptCaching"] = "true" if parameters.prompt_caching else "false"
     if parameters.response_schema is not None:
         canonical = json.dumps(parameters.response_schema, sort_keys=True)
         entries["responseSchemaFingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -312,6 +359,9 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
         "provider": parameters.provider,
         "model": parameters.model or os.environ.get(ENV_MODEL) or None,
         "temperature": parameters.temperature,
+        "top-p": parameters.top_p,
+        "thinking": parameters.thinking,
+        "prompt-caching": parameters.prompt_caching,
         "response-schema": parameters.response_schema,
     }
 
@@ -356,19 +406,34 @@ def _language_model_explore_point(
     parameters: LanguageModelParameters,
 ) -> tuple[LanguageModelParameters, str | None]:
     """Announced degradation, never silent: a grid may span providers with
-    differing structured-output support, and the configuration that
-    actually runs — and its artefact — carries no schema."""
-    if (
-        parameters.response_schema is not None
-        and not resolve_provider(parameters.provider).supports_response_schema
-    ):
-        return _replace(parameters, response_schema=None), (
+    differing structured-output, prompt-caching, or thinking support, and
+    the configuration that actually runs — and its artefact — carries only
+    what its provider honoured."""
+    provider = resolve_provider(parameters.provider)
+    notes: list[str] = []
+    if parameters.response_schema is not None and not provider.supports_response_schema:
+        parameters = _replace(parameters, response_schema=None)
+        notes.append(
             f"provider {parameters.provider!r} has no structured-output "
             "support in this reader — the response-schema is not sent for "
             "this configuration; carry the output shape in the system "
             "prompt if the comparison should stay fair"
         )
-    return parameters, None
+    if parameters.prompt_caching and not provider.supports_prompt_caching:
+        parameters = _replace(parameters, prompt_caching=None)
+        notes.append(
+            f"provider {parameters.provider!r} has no prompt-caching support "
+            "in this reader — `prompt-caching:` is not sent for this "
+            "configuration; its latency is measured uncached"
+        )
+    if parameters.thinking == "adaptive" and not provider.supports_thinking:
+        parameters = _replace(parameters, thinking=None)
+        notes.append(
+            f"provider {parameters.provider!r} has no thinking support in "
+            "this reader — `thinking:` is not sent for this configuration; "
+            "its responses are sampled without deliberation"
+        )
+    return parameters, "; ".join(notes) if notes else None
 
 
 def _language_model_type() -> ServiceTypeContract:

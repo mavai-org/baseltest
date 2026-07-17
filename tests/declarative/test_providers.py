@@ -168,6 +168,76 @@ class TestResponseSchema:
         assert capture == []
 
 
+class TestClientFactors:
+    def test_top_p_passes_through_like_temperature(self, capture: list[dict[str, Any]]) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", top_p=0.9)
+        build_invoker(resolve_provider("openai"), parameters)("hello")
+        build_invoker(resolve_provider("anthropic"), parameters)("hello")
+        build_invoker(resolve_provider("ollama"), parameters)("hello")
+        assert capture[0]["body"]["top_p"] == 0.9
+        assert capture[1]["body"]["top_p"] == 0.9
+        assert capture[2]["body"]["options"]["top_p"] == 0.9
+
+    def test_anthropic_prompt_caching_marks_the_system_block(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", prompt_caching=True)
+        build_invoker(resolve_provider("anthropic"), parameters)("hello")
+        assert capture[0]["body"]["system"] == [
+            {"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}
+        ]
+
+    def test_anthropic_adaptive_thinking_passes_through(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", thinking="adaptive")
+        build_invoker(resolve_provider("anthropic"), parameters)("hello")
+        assert capture[0]["body"]["thinking"] == {"type": "adaptive"}
+
+    def test_declared_off_values_are_honoured_everywhere(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        # `thinking: none` and `prompt-caching: false` state today's behaviour
+        # explicitly — every provider honours them by sending nothing.
+        parameters = LanguageModelParameters(
+            system_prompt="s", model="m1", thinking="none", prompt_caching=False
+        )
+        build_invoker(resolve_provider("openai"), parameters)("hello")
+        build_invoker(resolve_provider("anthropic"), parameters)("hello")
+        assert "thinking" not in capture[0]["body"] and "thinking" not in capture[1]["body"]
+        assert capture[1]["body"]["system"] == "s"
+
+    def test_prompt_caching_on_an_unsupporting_provider_is_refused(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", prompt_caching=True)
+        with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
+            build_invoker(resolve_provider("openai"), parameters)
+        assert capture == []
+
+    def test_thinking_on_an_unsupporting_provider_is_refused(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        parameters = LanguageModelParameters(system_prompt="s", model="m1", thinking="adaptive")
+        with pytest.raises(ContractConfigurationError, match="cannot be honoured"):
+            build_invoker(resolve_provider("ollama"), parameters)
+        assert capture == []
+
+    def test_anthropic_thinking_with_sampling_parameters_is_refused(
+        self, capture: list[dict[str, Any]]
+    ) -> None:
+        with_temperature = LanguageModelParameters(
+            system_prompt="s", model="m1", thinking="adaptive", temperature=0.7
+        )
+        with_top_p = LanguageModelParameters(
+            system_prompt="s", model="m1", thinking="adaptive", top_p=0.9
+        )
+        for parameters in (with_temperature, with_top_p):
+            with pytest.raises(ContractConfigurationError, match="constrains sampling"):
+                build_invoker(resolve_provider("anthropic"), parameters)
+        assert capture == []
+
+
 class TestErrorResponses:
     def test_http_error_is_a_diagnosable_defect(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # An error response aborts the run (a defect, never a sample) — and
