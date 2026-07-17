@@ -102,6 +102,11 @@ def render_baseline(record: BaselineRecord) -> str:
         lines.append("provenance:")
         for key in sorted(record.provenance):
             lines.append(f"  {_quote(key)}: {_quote(record.provenance[key])}")
+    if record.views:
+        lines.append("views:")
+        for view in sorted(record.views):
+            lines.append(f"  {_quote(view)}:")
+            lines.append(f"    outputSchemaFingerprint: {_quote(record.views[view])}")
     lines.append("criteria:")
     for name, characterisation in record.criteria.items():
         lines.extend(_criterion_lines(name, characterisation))

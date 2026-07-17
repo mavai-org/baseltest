@@ -36,6 +36,7 @@ from ._errors import ContractConfigurationError
 from ._instantiate import (
     BaselineContext,
     _validate_inputs,
+    descriptive_view_fingerprints,
     instantiate,
     instantiate_explore,
     instantiate_optimize_point,
@@ -44,6 +45,7 @@ from ._instantiate import (
 from ._optimize import OptimizationDeclaration
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, load_contract
 from ._registrations import discover_registrations
+from ._schema_walk import validate_declared_paths
 from ._services import ServiceDefinition, discover_services
 from ._services import _resolved_point as _configuration_identity
 from ._sizing import ResolvedSizing
@@ -201,7 +203,11 @@ def run(
             "taskFile": contract_path.name,
             **service_provenance,
         }
-        record = BaselineRecord.from_run_result(result, provenance=provenance)
+        record = BaselineRecord.from_run_result(
+            result,
+            provenance=provenance,
+            views=descriptive_view_fingerprints(declaration),
+        )
         baseline_path = str(write_baseline(record, Path(baseline_dir)))
 
     if html_report is not None:
@@ -674,10 +680,18 @@ def check(path: str | Path) -> tuple[str, ...]:
             f"service {declaration.service!r}: binding resolved, every input joined "
             "against its signature"
         )
+        facts.extend(validate_declared_paths(declaration, None, declaration.service))
         return tuple(facts)
     facts.append(
         f"service {declaration.service!r}: type {definition.type.name!r}, baseline "
         "configuration valid"
+    )
+    facts.extend(
+        validate_declared_paths(
+            declaration,
+            getattr(definition.configuration, "response_schema", None),
+            declaration.service,
+        )
     )
     for parameters in definition.explorations:
         point, _note = definition.type.prepare_explore_point(parameters)

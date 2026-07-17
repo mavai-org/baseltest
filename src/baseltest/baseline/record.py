@@ -71,6 +71,11 @@ class BaselineRecord:
             a later test needs to derive its own bound at its own
             confidence. ``None`` when no sample passed or no per-sample
             observations were recorded.
+        views: Descriptive fingerprints of declared view output schemas
+            that are NOT covariates, keyed by view name — visible and
+            diffable in the artefact, never compared by baseline
+            resolution (covariate fingerprints travel in ``provenance``
+            instead). Additive, optional field of the artefact schema.
     """
 
     contract_id: str
@@ -80,10 +85,13 @@ class BaselineRecord:
     criteria: Mapping[str, CriterionCharacterisation]
     provenance: Mapping[str, str] = field(default_factory=dict)
     latency: LatencyBlock | None = None
+    views: Mapping[str, str] = field(default_factory=dict)
 
     @staticmethod
     def from_run_result(
-        result: RunResult, provenance: Mapping[str, str] | None = None
+        result: RunResult,
+        provenance: Mapping[str, str] | None = None,
+        views: Mapping[str, str] | None = None,
     ) -> "BaselineRecord":
         """Build a record from a completed run.
 
@@ -117,4 +125,5 @@ class BaselineRecord:
             criteria=criteria,
             provenance=dict(provenance or {}),
             latency=latency_block(result.samples),
+            views=dict(views or {}),
         )

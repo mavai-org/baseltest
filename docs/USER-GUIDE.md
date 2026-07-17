@@ -246,7 +246,11 @@ A lone entry runs without naming it; with several declared, the `id` is required
 basel check contract.yaml
 ```
 
-The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI. One boundary to know: zero samples means zero responses, so *response-shape* behaviour (provider reply parsing, transform outcomes) is exercised only by live samples — the framework keeps the provider adapters' extraction paths under recorded-response tests precisely because `basel check` cannot reach them.
+The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI.
+
+**Paths are validated against declared shapes.** When a view's value has a declared schema — the parsed response (stock `json` view) against the service's `response-schema`, a derived view against its transformation's declared `output_schema` — every `path:` expression over it is statically resolved against that schema at load time, before a single sample is paid for. A mistyped path (`$.statments[*]` for `$.statements[*]`) is refused with **every** failing expression itemised in one message: the criterion and postcondition it sits in, the full expression, where the walk stopped, the keys actually declared there, and a nearest-match suggestion (*did you mean `statements`?*). Resolving expressions are counted in the `ok:` facts (`ok: 14 path expressions resolve against the response-schema of service 'extractor'`). The walk covers the decidable subset — member access, array indices, wildcards, union branches; filter expressions, slices, recursive descent, and open shapes **pass unverified, visibly** (`ok (unverified): …`) — no false refusals, ever. A service without a declared schema simply has no such join.
+
+One boundary to know: zero samples means zero responses, so *response-shape* behaviour (provider reply parsing, transform outcomes) is exercised only by live samples — the framework keeps the provider adapters' extraction paths under recorded-response tests precisely because `basel check` cannot reach them. (Declared schemas move a large class of response-shape assumptions left of that boundary — that is exactly what the path validation above buys.)
 
 ### `basel report`
 
@@ -440,6 +444,17 @@ def basket_judge(raw: str) -> dict[str, object]:
 ```
 
 Registers a transformation for the contract's `transforms:` block. The callable receives the raw response string and returns the value under judgement — text (for the string forms) or structure (a dict/list for JSONPath `path:` checks, a parsed `ElementTree.Element` for XPath ones). Raise `baseltest.contract.TransformError` when the response cannot be transformed: that is a **failed trial** with a transform-failure reason, never an abort; any other exception is a defect and propagates. The stock names `json`, `xml`, `yaml` are reserved.
+
+A transformation computing derived values can declare its output's shape — `output_schema=` takes the JSON Schema as a mapping or a path to a schema file (`.json`, `.yaml`/`.yml`; a malformed schema is refused at registration):
+
+```python
+@transform("verdict-view", output_schema=VERDICT_VIEW_SCHEMA)
+def derive_verdict(response: str) -> dict[str, object]: ...
+```
+
+Declaring it buys two things. **Statically**, contract `path:` expressions over the transformation's views are validated against the schema at load time and by `basel check` — the same walk, refusals, and `ok (unverified)` discipline as for the `response-schema` ([see the check verb](#basel-check)). **Per trial**, the transformation's actual output is validated against the schema — always on: a declared schema is a claim, and claims are checked — and a violation is a named trial failure (`view 'verdict-view' violates its declared output schema: …`), so view-shape drift surfaces honestly instead of silently selecting nothing.
+
+One thing the schema is deliberately **not**: a covariate. An output schema executes after the response exists and has no influence on the service's stochastic behaviour, so it never joins the drift-checked identity — its canonical fingerprint is recorded *descriptively* in the baseline artefact's `views:` block (visible and diffable, never compared), and changing it never refuses a baseline. Contrast the `response-schema`, which constrains what the model emits — it always influences the service and is always a covariate.
 
 ### `@check` — named predicates
 
