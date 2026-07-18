@@ -37,11 +37,19 @@ _YAML_NODE_BUDGET = 1_000_000
 
 
 def json_transform(raw: str) -> Any:
-    """Stock ``transform: json``."""
+    """Stock ``transform: json``.
+
+    Any response that does not yield a usable JSON value — malformed JSON, or
+    a degenerate but syntactically valid draw the platform will not realise
+    (e.g. an enormous integer) — is a transform/no-value failed trial, never
+    an abort. The broad ``ValueError`` catch is deliberate: it is exactly the
+    exceptions ``json.loads`` raises beyond ``JSONDecodeError`` that a narrow
+    catch would let escape as a spurious defect.
+    """
     try:
         return json.loads(raw)
     except ValueError as error:
-        raise TransformError(f"response does not parse as json: {error}") from error
+        raise TransformError(f"response did not yield a usable JSON value: {error}") from error
 
 
 def xml_transform(raw: str) -> ElementTree.Element:
