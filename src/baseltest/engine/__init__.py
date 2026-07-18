@@ -10,6 +10,7 @@ statistics package; everything downstream consumes its
 
 from baseltest.statistics.verdict import Verdict
 
+from .defect import TRANSFORM_CONTRACT_NOTE, DefectDiagnosisError
 from .latency import (
     BoundEvaluation,
     LatencyBlock,
@@ -34,8 +35,10 @@ from .run import (
 )
 
 __all__ = [
+    "TRANSFORM_CONTRACT_NOTE",
     "BoundEvaluation",
     "CriterionResult",
+    "DefectDiagnosisError",
     "LatencyEvaluation",
     "InfeasibleCriterion",
     "InfeasibleRunError",

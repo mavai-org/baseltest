@@ -1,13 +1,13 @@
 """The runner: load, instantiate, execute, render, persist."""
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from baseltest.baseline import BaselineRecord, write_baseline
-from baseltest.engine import RunKind, RunResult, execute, latency_block
+from baseltest.engine import DefectDiagnosisError, RunKind, RunResult, execute, latency_block
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
 from baseltest.optimization import (
     IterationCapture,
@@ -279,6 +279,45 @@ class ConfigurationExploration:
     path: Path
 
 
+@dataclass(frozen=True, slots=True)
+class AbortedConfiguration:
+    """One configuration a defect stopped: its factors and the diagnosis.
+
+    A defect is a bug in the testing machinery — not a countable outcome and
+    not a sample. It stops *its* configuration with an actionable diagnosis
+    instead of forfeiting the whole grid's paid spend; the remaining
+    configurations run to completion.
+    """
+
+    factors: dict[str, object]
+    diagnosis: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExplorationRun:
+    """An explore run's outcome: the configurations that completed, and any a
+    defect contained.
+
+    Iterating or indexing an ``ExplorationRun`` yields the *completed*
+    configurations (baseline first), so the run reads as the sequence of
+    artefacts it produced. ``aborted`` carries the configurations a defect
+    stopped, each with its diagnosis: a partial run is a reported outcome,
+    never a silent truncation.
+    """
+
+    completed: tuple[ConfigurationExploration, ...]
+    aborted: tuple[AbortedConfiguration, ...] = ()
+
+    def __iter__(self) -> "Iterator[ConfigurationExploration]":
+        return iter(self.completed)
+
+    def __len__(self) -> int:
+        return len(self.completed)
+
+    def __getitem__(self, index: int) -> ConfigurationExploration:
+        return self.completed[index]
+
+
 # javai-ref: JVI-HGF78G* — do not remove (resolves in javai-orchestrator)
 def explore(
     path: str | Path,
@@ -286,7 +325,7 @@ def explore(
     samples_per_config: int | None = None,
     explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
     emit: bool = True,
-) -> tuple[ConfigurationExploration, ...]:
+) -> ExplorationRun:
     """Run the contract's inputs and criteria over every configuration in the grid.
 
     Per configuration this is a measure run in miniature — the same
@@ -305,12 +344,17 @@ def explore(
         emit: Whether to print the rendered summary.
 
     Returns:
-        One entry per configuration, baseline first.
+        The run's outcome: the completed configurations (baseline first,
+        iterable directly) and any a defect contained, each with its
+        diagnosis.
 
     Raises:
         ContractConfigurationError: The file (or its registrations) is not
             runnable as declared — refused before any invocation; in
             particular a service that resolves to a code-registered binding.
+            A load-time refusal stops the whole run up front; only a runtime
+            defect during a configuration's sampling is contained per
+            configuration.
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
@@ -325,15 +369,27 @@ def explore(
             print(f"note: {note}")
 
     explored: list[ConfigurationExploration] = []
+    aborted: list[AbortedConfiguration] = []
     for configuration in configurations:
         stem_source = tuple(configuration.factors.items())
         record_label = exploration_stem(stem_source)
-        result = execute(
-            configuration.contract,
-            configuration.plan,
-            on_sample=_tty_progress(record_label) if emit else None,
-            record_samples=True,  # projections are the artefact's triage payload
-        )
+        try:
+            result = execute(
+                configuration.contract,
+                configuration.plan,
+                on_sample=_tty_progress(record_label) if emit else None,
+                record_samples=True,  # projections are the artefact's triage payload
+            )
+        except DefectDiagnosisError as defect:
+            # Contain the defect to this configuration: its paid spend is
+            # lost, but every remaining configuration's is not. Record the
+            # diagnosis and carry on — the run reports the partial outcome.
+            aborted.append(
+                AbortedConfiguration(factors=dict(configuration.factors), diagnosis=str(defect))
+            )
+            if emit:
+                print(f"note: configuration {record_label} aborted — {defect}", file=sys.stderr)
+            continue
         record = ExplorationRecord.from_run_result(
             result,
             factors=configuration.factors,
@@ -354,16 +410,26 @@ def explore(
                 [(e.path.stem, e.result, e.path.as_posix()) for e in explored],
             )
         )
-    return tuple(explored)
+        for entry in aborted:
+            label = exploration_stem(tuple(entry.factors.items()))
+            print(f"  configuration {label} aborted with a defect (no artefact written)")
+    return ExplorationRun(completed=tuple(explored), aborted=tuple(aborted))
 
 
 @dataclass(frozen=True, slots=True)
 class OptimizationOutcome:
-    """One executed optimize run: its record and its artefact path."""
+    """One executed optimize run: its record and its artefact path.
+
+    ``record`` and ``path`` are ``None`` only when a defect stopped the run
+    before its first iteration produced a scored data point — there is then
+    no history to persist. ``defect`` carries the diagnosis when a defect
+    stopped the search (whether or not any iteration completed first).
+    """
 
     run_id: str
-    record: OptimizationRecord
-    path: Path
+    record: OptimizationRecord | None
+    path: Path | None
+    defect: str | None = None
 
 
 # javai-ref: JVI-PS5XC2C — do not remove (resolves in javai-orchestrator)
@@ -445,25 +511,46 @@ def _drive_optimization(
     optimizations_dir: Path,
     emit: bool,
 ) -> OptimizationOutcome:
-    """One entry's full loop: iterate, score, track the best, persist."""
+    """One entry's full loop: iterate, score, track the best, persist.
+
+    A defect (a non-``TransformError`` exception escaping a transform or
+    postcondition) that escapes an iteration's sampling cannot yield a score
+    — a defected iteration is not a data point. It is contained here: the
+    search stops with a ``defect`` termination, the defected iteration is
+    *not* appended to the history (recording it as a scored iteration would
+    be dishonest), and the best is selected among the iterations that did
+    complete. This keeps the defect from forfeiting the whole entry's paid
+    spend and, under ``--all``, keeps it from killing sibling entries — an
+    entry whose very first iteration defects yields no persistable history,
+    so it returns an aborted outcome with no artefact rather than an empty
+    one.
+    """
     history: list[IterationResult] = []
     captures: list[IterationCapture] = []
     best: IterationResult | None = None
     best_index = 0
     plateau = 0
     termination = "max-iterations"
+    defect_diagnosis: str | None = None
     parameters = entry.parameters
     visited: set[tuple[Any, ...]] = set()
     for index in range(entry.max_iterations):
         visited.add(_configuration_identity(definition.type, parameters))
         point = instantiate_optimize_point(declaration, definition, parameters, samples)
         label = f"{entry.run_id} iteration {index}"
-        result = execute(
-            point.contract,
-            point.plan,
-            on_sample=_tty_progress(label) if emit else None,
-            record_samples=True,  # projections and exemplars are the payload
-        )
+        try:
+            result = execute(
+                point.contract,
+                point.plan,
+                on_sample=_tty_progress(label) if emit else None,
+                record_samples=True,  # projections and exemplars are the payload
+            )
+        except DefectDiagnosisError as defect:
+            defect_diagnosis = str(defect)
+            termination = "defect"
+            if emit:
+                print(f"note: {label} aborted — {defect}", file=sys.stderr)
+            break
         summary = _iteration_summary(result)
         score = float(entry.score(summary))
         iteration_result = IterationResult(
@@ -505,6 +592,20 @@ def _drive_optimization(
             )
         parameters = next_parameters
 
+    if not captures:
+        # A defect stopped the search before any iteration produced a scored
+        # data point: there is no history to persist. Report the aborted
+        # entry (no artefact) and let sibling entries run.
+        if emit:
+            print(
+                f"note: optimization {entry.run_id!r} produced no scored iteration "
+                "— aborted by a defect before iteration 0 completed; no artefact written",
+                file=sys.stderr,
+            )
+        return OptimizationOutcome(
+            run_id=entry.run_id, record=None, path=None, defect=defect_diagnosis
+        )
+
     record = OptimizationRecord(
         contract_id=declaration.contract,
         experiment_id=entry.run_id,
@@ -533,7 +634,9 @@ def _drive_optimization(
                 artefact.as_posix(),
             )
         )
-    return OptimizationOutcome(run_id=entry.run_id, record=record, path=artefact)
+    return OptimizationOutcome(
+        run_id=entry.run_id, record=record, path=artefact, defect=defect_diagnosis
+    )
 
 
 def _iteration_summary(result: RunResult) -> IterationSummary:

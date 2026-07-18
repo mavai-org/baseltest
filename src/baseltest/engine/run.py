@@ -14,6 +14,7 @@ from baseltest.contract import (
     CriterionTally,
     ServiceContract,
     ServiceDeliveryError,
+    TrialDefectError,
     TrialEvaluation,
     TrialViews,
     evaluate_trial,
@@ -22,7 +23,9 @@ from baseltest.statistics import check_feasibility
 from baseltest.statistics.verdict import Verdict, evaluate_regression
 from baseltest.statistics.wilson import wilson_lower_bound
 
+from .defect import DefectDiagnosisError
 from .latency import evaluate_latency
+from .naming import bounded_excerpt
 
 if TYPE_CHECKING:
     from .latency import LatencyEvaluation
@@ -374,7 +377,24 @@ def execute(
         outcomes: list[tuple[str, str]] = []
         failure_reasons: list[tuple[str, str]] = []
         for criterion in contract.criteria:
-            evaluation = evaluate_trial(criterion, views)
+            try:
+                evaluation = evaluate_trial(criterion, views)
+            except TrialDefectError as defect:
+                # A defect (not a TransformError) escaped this trial's
+                # transform or postcondition. It is not a countable outcome
+                # and not a sample: rather than let a bare traceback unwind
+                # the run, enrich it with the driving input's structural
+                # context and let it propagate for the orchestration layer to
+                # contain at the configuration boundary.
+                raise DefectDiagnosisError(
+                    view=defect.view,
+                    criterion=defect.criterion,
+                    postcondition=defect.postcondition,
+                    exception_type=type(defect.original).__name__,
+                    exception_text=str(defect.original),
+                    input_index=input_index,
+                    input_excerpt=bounded_excerpt(str(plan.inputs[input_index])),
+                ) from defect.original
             tallies[criterion.name].record(evaluation)
             trial_passed = trial_passed and evaluation.passed
             outcomes.extend(evaluation.outcomes)

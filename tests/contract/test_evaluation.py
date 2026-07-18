@@ -10,6 +10,7 @@ from baseltest.contract import (
     CriterionTally,
     ServiceContract,
     TransformError,
+    TrialDefectError,
     TrialViews,
     contains,
     equals,
@@ -134,22 +135,33 @@ class TestViews:
                 views={"raw": lambda raw: raw},
             )
 
-    def test_defect_in_view_propagates(self) -> None:
+    def test_defect_in_view_is_wrapped_as_a_trial_defect(self) -> None:
+        # A non-TransformError escaping a transform is a defect, not a failed
+        # trial: it is wrapped in a TrialDefectError carrying the criterion,
+        # postcondition, and view, with the original exception preserved.
         def broken(raw: str) -> Any:
             raise RuntimeError("bug in transformation")
 
         views = TrialViews("anything", {"doc": broken})
         criterion = Criterion(name="c", postconditions=(satisfies("any", bool, view="doc"),))
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TrialDefectError) as raised:
             evaluate_trial(criterion, views)
+        defect = raised.value
+        assert defect.view == "doc"
+        assert defect.criterion == "c"
+        assert defect.postcondition == "any"
+        assert isinstance(defect.original, RuntimeError)
+        assert str(defect.original) == "bug in transformation"
 
-    def test_defect_in_postcondition_propagates(self) -> None:
+    def test_defect_in_postcondition_is_wrapped_as_a_trial_defect(self) -> None:
         criterion = Criterion(
             name="c",
             postconditions=(satisfies("buggy", lambda v: 1 / 0 > 0),),
         )
-        with pytest.raises(ZeroDivisionError):
+        with pytest.raises(TrialDefectError) as raised:
             evaluate(criterion, "anything")
+        assert isinstance(raised.value.original, ZeroDivisionError)
+        assert raised.value.postcondition == "buggy"
 
 
 class TestTally:

@@ -19,7 +19,13 @@ hand-authored contract and one instantiated from a contract file are the same
 type.
 """
 
-from .evaluation import CriterionTally, TrialEvaluation, TrialViews, evaluate_trial
+from .evaluation import (
+    CriterionTally,
+    TrialDefectError,
+    TrialEvaluation,
+    TrialViews,
+    evaluate_trial,
+)
 from .model import (
     PERCENTILE_LEVELS,
     Criterion,
@@ -52,6 +58,7 @@ __all__ = [
     "ServiceDeliveryError",
     "ThresholdProvenance",
     "TransformError",
+    "TrialDefectError",
     "TrialEvaluation",
     "TrialViews",
     "contains",
