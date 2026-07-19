@@ -51,10 +51,11 @@ You'll see a verdict with its uncertainty stated — run the test a few times an
 
 ## The command line
 
-The `baseltest` package ships one command, `basel`, with five run and reporting verbs. The contract file carries the claim; the verb carries the posture; the invocation carries the budget.
+The `baseltest` package ships one command, `basel`, with six run and reporting verbs. The contract file carries the claim; the verb carries the posture; the invocation carries the budget.
 
 | Verb | What it does | Sizing |
 |---|---|---|
+| `basel check <contract.yaml>` | Validates the contract against its services file, bindings, and `path:` expressions — every load-time join, **zero samples**: the authoring loop's compile step. | No sampling. |
 | `basel test <contract.yaml>` | Judges the thresholded criteria (and any declared latency bounds): a statistical verdict with its uncertainty stated, persisted as a verdict record. | Empirical criteria are sized from your stated risk: `--tolerate` (or the criterion's `tolerate:` key) and `--confidence` compute the required n, prompted for on a terminal when unclaimed. Declared bars default to their feasibility minimum (a silently derived n above 100 is refused); `--samples N` sizes it yourself — explained, and confirmed when weak (`--accept-weak-design` for automation). |
 | `basel measure <contract.yaml> --samples N` | Records **every** criterion and persists the baseline artefact — the durable record future empirical bars derive from, latency profile included. | `--samples` is required: a measurement's budget is an experimental-design decision. |
 | `basel explore <contract.yaml>` | Runs every configuration in the service's grid and writes one descriptive artefact per configuration — triage, no verdicts. | `--samples-per-config` (default 5; no count is ever refused as too small). |
@@ -65,9 +66,9 @@ Frequently reached-for flags: `--html-report <path>` on `test` renders the repor
 
 Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration, nothing to render) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it, and the [user guide](docs/USER-GUIDE.md) is the complete reference — every verb, every file, every option.
 
-## Where the project is going
+## The declarative core
 
-baseltest is being built **declarative-first**. The primary way to author a test will be a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
+baseltest is **declarative-first**. The primary way to author a test is a small, language-agnostic contract file — inputs, expectations, a service binding, a threshold — which baseltest turns into a full service contract evaluated by the statistical machinery. No statistical vocabulary is required to get a first honest result:
 
 ```yaml
 format: mavai-contract/1
@@ -81,18 +82,20 @@ criteria:
     contains: "hello"
 ```
 
-Planned around that core:
+What that core gives you today:
 
 - **Honest output**: a declared threshold yields a statistical verdict with its uncertainty stated; no threshold yields a measurement explicitly labelled as an observation, never dressed up as a pass.
 - **Multiple criteria per contract**: a service examined through several Bernoulli streams in one run — relevance at one bar, well-formedness at another.
 - **Structured-response checks**: JSON, XML, and YAML transforms with standards-pinned path expressions (RFC 9535 JSONPath, XPath 1.0) — and the same `path:` expressions address the structured value of any transform you register in code.
-- **Measurement runs** that persist a baseline artefact — the empirical record future regression tests will verify against.
-- **A graduation path**: when the contract file runs out of expressive power, baseltest emits the equivalent contract as Python source you take ownership of — the same object you were already running, not a migration.
+- **Measurement runs** that persist a baseline artefact — the empirical record future regression tests verify against.
+
+On the roadmap:
+
 - **An lm-eval bridge** (separate package): mavai-grade statistics over [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) runs, with baseltest as the statistical engine underneath.
 
 ## Status
 
-Pre-release (`0.1.0.dev0`). APIs and the contract-file surface are settling; nothing here is stable yet. If the approach interests you, [mavai.org](https://mavai.org) explains the methodology, and punit's user guide shows the mature end of the same ideas.
+Pre-release (`0.3.0.dev0`). APIs and the contract-file surface are settling; nothing here is stable yet. If the approach interests you, [mavai.org](https://mavai.org) explains the methodology, and punit's user guide shows the mature end of the same ideas.
 
 ## Licence
 

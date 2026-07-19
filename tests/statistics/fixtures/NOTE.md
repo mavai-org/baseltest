@@ -11,6 +11,15 @@ byte-identical with 0.8.4). `test_conformance.py` verifies each
 vendored suite against the manifest's content hash, so drift from the
 pin fails the build rather than passing silently.
 
+These statistics fixtures remain **current as of `mavai-R` `v0.9.0`**:
+that release changed only the interchange schemas (which this package
+pins separately, in the artefact writers/readers), and its manifest
+still declares `fixtureVersion 0.8.5` — the vendored suites here are
+byte-identical (matching md5s) with what `v0.9.0` ships. The
+statistics-fixture pin and the interchange-schema pin name *different*
+oracle artefacts and version independently by design; the two are not
+expected to match.
+
 The manifest-driven coverage obligation is the oracle's family-mandatory
 tier plus the committed `SCOPE.json` beside these fixtures (extend-only;
 see `../conformance.py`). Manifest suites outside both tiers are printed
