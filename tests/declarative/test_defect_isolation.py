@@ -36,7 +36,6 @@ services:
         temperature: 0.7
 """
 
-# A contract whose criterion judges a custom transform's structured view.
 CONTRACT = """
 format: mavai-contract/1
 contract: support-agent-tuning
@@ -116,9 +115,8 @@ class TestExploreContainsDefects:
     def test_one_configurations_defect_does_not_abort_the_others(
         self, tmp_path: Path, poison_one_configuration: None
     ) -> None:
-        # The regression being fixed: this once unwound the whole run,
-        # discarding every configuration's paid spend. Now the defect is
-        # contained to its configuration and the rest run to completion.
+        # Field regression (hibu-bkb-kg spec 007): one defect discarded every
+        # configuration's paid spend.
         register_choking_judge()
         exploration = explore(
             write_files(tmp_path),
@@ -126,13 +124,10 @@ class TestExploreContainsDefects:
             explorations_dir=tmp_path / "x",
             emit=False,
         )
-        # Three configurations completed and wrote artefacts; one aborted.
         assert len(exploration.completed) == 3
         assert len(exploration.aborted) == 1
         artefacts = sorted(p.name for p in (tmp_path / "x" / "support-agent-tuning").glob("*.yaml"))
         assert len(artefacts) == 3
-        # The aborted configuration is named, with its factors, and no
-        # artefact was written for it.
         aborted = exploration.aborted[0]
         assert aborted.factors["model"] == "other-model"
         assert "model-other-model" not in " ".join(artefacts)
@@ -144,7 +139,6 @@ class TestExploreContainsDefects:
         code = main(
             ["explore", str(write_files(tmp_path)), "--explorations-dir", str(tmp_path / "x")]
         )
-        # A partial run is signalled, not silently reported as success.
         assert code == 1
         captured = capsys.readouterr()
         assert "explored 3 configuration" in captured.out
@@ -164,18 +158,13 @@ class TestDefectDiagnosisErrorMessage:
             emit=False,
         )
         diagnosis = exploration.aborted[0].diagnosis
-        # (a) the offending transform/view
         assert "judged" in diagnosis
-        # (b) the criterion and postcondition under evaluation
         assert "verdict-ok" in diagnosis
         assert "at $.ok" in diagnosis
-        # (c) the exception type and text
         assert "ValueError" in diagnosis
         assert "degenerate draw: unusable response" in diagnosis
-        # (d) a bounded excerpt of the driving input, by structural index
         assert "input 0" in diagnosis
         assert "Where is my order?" in diagnosis
-        # cites the TransformError contract
         assert "raising TransformError" in diagnosis
         assert "treated as a defect" in diagnosis
 
@@ -184,8 +173,7 @@ class TestSingleConfigCliBackstop:
     def test_measure_defect_surfaces_the_diagnosis_not_a_traceback(
         self, tmp_path: Path, capsys: Any
     ) -> None:
-        # A single-configuration run has no siblings to save, but a defect
-        # must still stop with the diagnosis, not a bare stack trace.
+        # No siblings to save here — the diagnosis is the whole point.
         @binding("bulk-svc")
         def invoke(value: str) -> str:
             return "POISON"
@@ -258,9 +246,7 @@ services:
             emit=False,
         )
         outcome = outcomes[0]
-        # Iteration 0 (temperature 0.0) scored; iteration 1 defected. The
-        # search stopped with a defect, the defected iteration is not a data
-        # point in the persisted history, and the artefact is written.
+        # Iteration 0 (temperature 0.0) scored; iteration 1 drew the poison.
         assert outcome.defect is not None
         assert outcome.record is not None
         assert outcome.record.termination == "defect"
@@ -270,8 +256,8 @@ services:
     def test_a_first_iteration_defect_yields_no_artefact_but_is_reported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Every draw is poison: iteration 0 itself defects, so there is no
-        # scored history to persist — reported as aborted, no artefact.
+        # Every draw is poison, so iteration 0 itself defects: no scored
+        # history to persist.
         class FakeResponse(io.BytesIO):
             def __enter__(self) -> "FakeResponse":
                 return self
