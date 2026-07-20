@@ -286,7 +286,7 @@ def _parse_definition(
     )
 
 
-# javai-ref: JVI-GGCWP5H — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-GGCWP5H — do not remove (resolves in mavai-orchestrator)
 def parse_services(text: str) -> dict[str, ServiceDefinition]:
     """Parse a service-definition file's text."""
     yaml = YAML(typ="safe", pure=True)

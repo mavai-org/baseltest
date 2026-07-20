@@ -85,7 +85,7 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
     return "\n".join(lines)
 
 
-# javai-ref: JVI-CP4XG45 — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-CP4XG45 — do not remove (resolves in mavai-orchestrator)
 def materialise(declaration: ContractDeclaration) -> str:
     """Render the contract declaration as a standalone Python module."""
     source = declaration.source_path.name if declaration.source_path else "a contract file"

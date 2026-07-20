@@ -318,7 +318,7 @@ class ExplorationRun:
         return self.completed[index]
 
 
-# javai-ref: JVI-HGF78G* — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-HGF78G* — do not remove (resolves in mavai-orchestrator)
 def explore(
     path: str | Path,
     *,
@@ -432,7 +432,7 @@ class OptimizationOutcome:
     defect: str | None = None
 
 
-# javai-ref: JVI-PS5XC2C — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-PS5XC2C — do not remove (resolves in mavai-orchestrator)
 def optimize(
     path: str | Path,
     *,

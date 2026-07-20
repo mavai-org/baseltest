@@ -177,7 +177,7 @@ def _ordinal(rank: int) -> str:
     return f"{rank}{suffix}"
 
 
-# javai-ref: JVI-51ASAR0 — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-51ASAR0 — do not remove (resolves in mavai-orchestrator)
 def render_run(result: RunResult, baseline_path: str | None = None) -> str:
     """Render a run result in the honest-output shapes.
 

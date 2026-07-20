@@ -18,7 +18,7 @@ from .record import OptimizationRecord
 SCHEMA_VERSION = "mavai-optimize-1"
 
 
-# javai-ref: JVI-FJK9SN9 — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-FJK9SN9 — do not remove (resolves in mavai-orchestrator)
 def render_optimization(record: OptimizationRecord) -> str:
     """Serialise one optimize run to the family schema, deterministically.
 
