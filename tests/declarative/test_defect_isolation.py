@@ -1,0 +1,300 @@
+"""Transform defect isolation: a defect stops its configuration, not the run.
+
+A non-``TransformError`` exception escaping a view transformation is a
+*defect* — a bug in the testing machinery, never a countable outcome and
+never a sample. It must stop *its* configuration with an actionable
+diagnosis, but it must not forfeit every other configuration's paid spend.
+These tests pin that containment, the diagnosis message's content, and the
+stock ``json`` view's honest reporting of CPython's int-string guard.
+"""
+
+import io
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from baseltest.declarative import binding, explore, optimize, transform
+from baseltest.declarative._cli import main
+from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
+from baseltest.declarative._registry import clear_registries
+
+SERVICES = """
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a support agent."
+      model: small-model
+      temperature: 0.2
+    explorations:
+      - temperature: 0.0
+      - temperature: 0.7
+      - model: other-model
+        temperature: 0.7
+"""
+
+# A contract whose criterion judges a custom transform's structured view.
+CONTRACT = """
+format: mavai-contract/1
+contract: support-agent-tuning
+service: support-agent
+inputs: ["Where is my order?", "Do you ship abroad?"]
+transforms:
+  judged: judge
+criteria:
+  - name: verdict-ok
+    threshold: 0.5
+    postconditions:
+      - in: judged
+        path: "$.ok"
+        equals: "true"
+"""
+
+
+@pytest.fixture(autouse=True)
+def fresh_registries():  # type: ignore[no-untyped-def]
+    clear_registries()
+    yield
+    clear_registries()
+
+
+@pytest.fixture()
+def poison_one_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stubbed endpoint that returns a degenerate draw for one configuration.
+
+    Every configuration but ``other-model`` gets valid JSON; ``other-model``
+    gets a non-JSON body that the custom transform below chokes on with a
+    plain ``ValueError`` — the field's failure mode reproduced at the grid
+    level.
+    """
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    def fake_urlopen(request: Any) -> FakeResponse:
+        payload = json.loads(request.data.decode("utf-8"))
+        content = "POISON" if payload["model"] == "other-model" else '{"ok": true}'
+        reply = {"choices": [{"message": {"content": content}}]}
+        return FakeResponse(json.dumps(reply).encode("utf-8"))
+
+    monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+    monkeypatch.setenv(ENV_MODEL, "env-default-model")
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+
+def register_choking_judge() -> None:
+    """A custom transform that raises a non-TransformError on a degenerate draw.
+
+    It catches nothing: a real custom transform cannot anticipate the
+    exception it did not foresee. On a poison body ``json.loads`` never
+    runs — the plain ``ValueError`` here stands in for that unforeseen
+    escape.
+    """
+
+    @transform("judge")
+    def judge(raw: str) -> dict[str, object]:
+        if "POISON" in raw:
+            raise ValueError("degenerate draw: unusable response")
+        return json.loads(raw)  # type: ignore[no-any-return]
+
+
+def write_files(tmp_path: Path, contract: str = CONTRACT, services: str = SERVICES) -> Path:
+    (tmp_path / "mavai-services.yaml").write_text(services, encoding="utf-8")
+    path = tmp_path / "contract.yaml"
+    path.write_text(contract, encoding="utf-8")
+    return path
+
+
+class TestExploreContainsDefects:
+    def test_one_configurations_defect_does_not_abort_the_others(
+        self, tmp_path: Path, poison_one_configuration: None
+    ) -> None:
+        # The regression being fixed: this once unwound the whole run,
+        # discarding every configuration's paid spend. Now the defect is
+        # contained to its configuration and the rest run to completion.
+        register_choking_judge()
+        exploration = explore(
+            write_files(tmp_path),
+            samples_per_config=3,
+            explorations_dir=tmp_path / "x",
+            emit=False,
+        )
+        # Three configurations completed and wrote artefacts; one aborted.
+        assert len(exploration.completed) == 3
+        assert len(exploration.aborted) == 1
+        artefacts = sorted(p.name for p in (tmp_path / "x" / "support-agent-tuning").glob("*.yaml"))
+        assert len(artefacts) == 3
+        # The aborted configuration is named, with its factors, and no
+        # artefact was written for it.
+        aborted = exploration.aborted[0]
+        assert aborted.factors["model"] == "other-model"
+        assert "model-other-model" not in " ".join(artefacts)
+
+    def test_cli_reports_the_partial_run_with_a_non_zero_exit(
+        self, tmp_path: Path, poison_one_configuration: None, capsys: Any
+    ) -> None:
+        register_choking_judge()
+        code = main(
+            ["explore", str(write_files(tmp_path)), "--explorations-dir", str(tmp_path / "x")]
+        )
+        # A partial run is signalled, not silently reported as success.
+        assert code == 1
+        captured = capsys.readouterr()
+        assert "explored 3 configuration" in captured.out
+        assert "aborted with a defect" in captured.out
+        assert "other-model" in captured.err
+
+
+class TestDefectDiagnosisErrorMessage:
+    def test_message_names_transform_criterion_postcondition_exception_and_input(
+        self, tmp_path: Path, poison_one_configuration: None
+    ) -> None:
+        register_choking_judge()
+        exploration = explore(
+            write_files(tmp_path),
+            samples_per_config=2,
+            explorations_dir=tmp_path / "x",
+            emit=False,
+        )
+        diagnosis = exploration.aborted[0].diagnosis
+        # (a) the offending transform/view
+        assert "judged" in diagnosis
+        # (b) the criterion and postcondition under evaluation
+        assert "verdict-ok" in diagnosis
+        assert "at $.ok" in diagnosis
+        # (c) the exception type and text
+        assert "ValueError" in diagnosis
+        assert "degenerate draw: unusable response" in diagnosis
+        # (d) a bounded excerpt of the driving input, by structural index
+        assert "input 0" in diagnosis
+        assert "Where is my order?" in diagnosis
+        # cites the TransformError contract
+        assert "raising TransformError" in diagnosis
+        assert "treated as a defect" in diagnosis
+
+
+class TestSingleConfigCliBackstop:
+    def test_measure_defect_surfaces_the_diagnosis_not_a_traceback(
+        self, tmp_path: Path, capsys: Any
+    ) -> None:
+        # A single-configuration run has no siblings to save, but a defect
+        # must still stop with the diagnosis, not a bare stack trace.
+        @binding("bulk-svc")
+        def invoke(value: str) -> str:
+            return "POISON"
+
+        register_choking_judge()
+        contract = CONTRACT.replace("service: support-agent", "service: bulk-svc")
+        path = tmp_path / "contract.yaml"
+        path.write_text(contract, encoding="utf-8")
+        code = main(["measure", str(path), "--samples", "4", "--baseline-dir", str(tmp_path / "b")])
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "a defect stopped the run" in err
+        assert "judged" in err
+        assert "ValueError" in err
+        assert "raising TransformError" in err
+
+
+class TestOptimizeContainsDefects:
+    OPTIMIZE_SERVICES = """
+format: mavai-services/1
+services:
+  bulk-svc:
+    type: language-model
+    configuration:
+      system-prompt: "s"
+      model: small-model
+      temperature: 0.0
+    optimizations:
+      - id: warm-up
+        stepper: linear-sweep
+        stepper-config: {key: temperature, step: 0.2, stop: 0.6}
+        max-iterations: 3
+"""
+
+    def _write(self, tmp_path: Path) -> Path:
+        (tmp_path / "mavai-services.yaml").write_text(self.OPTIMIZE_SERVICES, encoding="utf-8")
+        path = tmp_path / "contract.yaml"
+        path.write_text(CONTRACT.replace("service: support-agent", "service: bulk-svc"), "utf-8")
+        return path
+
+    @pytest.fixture()
+    def poison_after_first_iteration(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Valid JSON at temperature 0.0, a poison body once the sweep moves on."""
+
+        class FakeResponse(io.BytesIO):
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                self.close()
+
+        def fake_urlopen(request: Any) -> FakeResponse:
+            payload = json.loads(request.data.decode("utf-8"))
+            content = '{"ok": true}' if payload["temperature"] == 0.0 else "POISON"
+            reply = {"choices": [{"message": {"content": content}}]}
+            return FakeResponse(json.dumps(reply).encode("utf-8"))
+
+        monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+        monkeypatch.setenv(ENV_MODEL, "env-default-model")
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    def test_defected_iteration_stops_the_search_and_keeps_the_history(
+        self, tmp_path: Path, poison_after_first_iteration: None
+    ) -> None:
+        register_choking_judge()
+        outcomes = optimize(
+            self._write(tmp_path),
+            samples_per_iteration=2,
+            optimizations_dir=tmp_path / "o",
+            emit=False,
+        )
+        outcome = outcomes[0]
+        # Iteration 0 (temperature 0.0) scored; iteration 1 defected. The
+        # search stopped with a defect, the defected iteration is not a data
+        # point in the persisted history, and the artefact is written.
+        assert outcome.defect is not None
+        assert outcome.record is not None
+        assert outcome.record.termination == "defect"
+        assert len(outcome.record.iterations) == 1
+        assert outcome.path is not None and outcome.path.is_file()
+
+    def test_a_first_iteration_defect_yields_no_artefact_but_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Every draw is poison: iteration 0 itself defects, so there is no
+        # scored history to persist — reported as aborted, no artefact.
+        class FakeResponse(io.BytesIO):
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                self.close()
+
+        def fake_urlopen(request: Any) -> FakeResponse:
+            reply = {"choices": [{"message": {"content": "POISON"}}]}
+            return FakeResponse(json.dumps(reply).encode("utf-8"))
+
+        monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+        monkeypatch.setenv(ENV_MODEL, "env-default-model")
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        register_choking_judge()
+        outcomes = optimize(
+            self._write(tmp_path),
+            samples_per_iteration=2,
+            optimizations_dir=tmp_path / "o",
+            emit=False,
+        )
+        outcome = outcomes[0]
+        assert outcome.defect is not None
+        assert outcome.record is None
+        assert outcome.path is None
+        assert not (tmp_path / "o").exists() or not list((tmp_path / "o").rglob("*.yaml"))

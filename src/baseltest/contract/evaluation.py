@@ -20,6 +20,35 @@ from .model import Criterion, TransformError
 _TRANSFORM_REASON_PREFIX = "transform failed"
 
 
+class TrialDefectError(Exception):
+    """A defect escaping a trial's transform or postcondition evaluation.
+
+    A transform signals an unusable response by raising
+    :class:`TransformError`, an anticipated failed trial. *Any other*
+    exception escaping a view's transformation or a postcondition's
+    evaluation is a **defect** — a bug in the testing machinery, never a
+    countable outcome and never a sample. Rather than let it propagate as a
+    bare traceback, :func:`evaluate_trial` wraps it in this carrier with the
+    criterion, postcondition, and view under evaluation; the sampling loop
+    enriches it with the driving input's context into an actionable
+    diagnosis, and the orchestration layer contains it at the configuration
+    boundary. The original exception travels on ``original`` so no context
+    is lost.
+    """
+
+    def __init__(
+        self, *, view: str, criterion: str, postcondition: str, original: Exception
+    ) -> None:
+        self.view = view
+        self.criterion = criterion
+        self.postcondition = postcondition
+        self.original = original
+        super().__init__(
+            f"defect in view {view!r} evaluating criterion {criterion!r}, "
+            f"postcondition {postcondition!r}: {type(original).__name__}: {original}"
+        )
+
+
 class TrialViews:
     """One trial's lazy, memoised view resolution.
 
@@ -76,7 +105,11 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
     ``reason`` is the first failure's. A :class:`TransformError` from a
     view's computation fails that postcondition and skips the rest — the
     views cache would fail them all identically. Any other exception
-    propagates as a defect.
+    escaping a view's transformation or a postcondition's evaluation is a
+    defect: it is wrapped in a :class:`TrialDefectError` carrying the criterion,
+    postcondition, and view, and re-raised for the sampling loop to diagnose
+    and the orchestration layer to contain — never laundered into a failed
+    trial.
     """
     outcomes: list[tuple[str, str]] = []
     first_reason: str | None = None
@@ -91,7 +124,22 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
             return TrialEvaluation(
                 passed=False, reason=first_reason or reason, outcomes=tuple(outcomes)
             )
-        result = postcondition.evaluate(subject)
+        except Exception as defect:
+            raise TrialDefectError(
+                view=postcondition.view,
+                criterion=criterion.name,
+                postcondition=postcondition.name,
+                original=defect,
+            ) from defect
+        try:
+            result = postcondition.evaluate(subject)
+        except Exception as defect:
+            raise TrialDefectError(
+                view=postcondition.view,
+                criterion=criterion.name,
+                postcondition=postcondition.name,
+                original=defect,
+            ) from defect
         if result.passed:
             outcomes.append((postcondition.name, "passed"))
         else:

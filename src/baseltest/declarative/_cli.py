@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from baseltest.engine import InfeasibleRunError, RunResult, Verdict
+from baseltest.engine import DefectDiagnosisError, InfeasibleRunError, RunResult, Verdict
 from baseltest.reporting import bar_standing, render_infeasible
 
 from ._errors import ContractConfigurationError
@@ -285,24 +285,28 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            optimize(
+            optimize_outcomes = optimize(
                 arguments.contract_file,
                 run_id=arguments.run_id,
                 all_entries=arguments.all_entries,
                 samples_per_iteration=arguments.samples_per_iteration,
                 optimizations_dir=arguments.optimizations_dir,
             )
-            return 0
+            # A defect stopped at least one entry's search: a partial run,
+            # reported and signalled — not a silent success.
+            return 1 if any(o.defect is not None for o in optimize_outcomes) else 0
         if arguments.command == "explore":
             if arguments.html_report is not None:
                 print(MAVAI_EXPLORE_POINTER, file=sys.stderr)
                 return 2
-            explore(
+            exploration = explore(
                 arguments.contract_file,
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
             )
-            return 0
+            # A defect contained to a configuration leaves the others' artefacts
+            # written; the partial run is signalled by a non-zero exit.
+            return 1 if exploration.aborted else 0
         verdict_dir = None
         emit = True
         sizing = ResolvedSizing(samples=arguments.samples)
@@ -340,6 +344,14 @@ def main(argv: list[str] | None = None) -> int:
     except InfeasibleRunError as infeasible:
         print(render_infeasible(arguments.contract_file.stem, infeasible), file=sys.stderr)
         return 2
+    except DefectDiagnosisError as defect:
+        # A defect escaped a transform in a single-configuration run (test or
+        # measure): stop with the diagnosis, not a stack trace. Multi-config
+        # explore/optimize contain defects per configuration and never reach
+        # here.
+        print(f"contract {arguments.contract_file}: a defect stopped the run", file=sys.stderr)
+        print(f"  {defect}", file=sys.stderr)
+        return 1
     if arguments.command == "test":
         if result.composite is Verdict.FAIL:
             return 1

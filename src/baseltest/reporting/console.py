@@ -300,6 +300,7 @@ _TERMINATION_PHRASES = {
     "max-iterations": "iteration cap reached",
     "no-improvement-window": "no improvement within the window",
     "stepper-stopped": "the stepper stopped the search",
+    "defect": "a defect aborted the search (history through the last scored iteration is kept)",
 }
 
 
