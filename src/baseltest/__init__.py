@@ -5,4 +5,6 @@ mavai framework family — statistical inference over repeated samples,
 not a single pass/fail assertion.
 """
 
-__version__ = "0.1.0.dev0"
+from importlib import metadata
+
+__version__ = metadata.version("baseltest")

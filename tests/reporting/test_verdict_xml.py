@@ -3,6 +3,7 @@
 from pathlib import Path
 from xml.etree import ElementTree
 
+import baseltest
 from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
 from baseltest.engine import Intent, RunKind, RunPlan, execute
 from baseltest.reporting import (
@@ -60,7 +61,7 @@ class TestVerdictRecord:
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
         assert root.get("version") == "1.2"
-        assert "baseltest" in (root.get("generator") or "")
+        assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
         identity = root.find(f"{NS}identity")
         assert identity is not None and identity.get("use-case-id") == "refund-confirmation"
