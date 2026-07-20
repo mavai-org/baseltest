@@ -39,12 +39,8 @@ _YAML_NODE_BUDGET = 1_000_000
 def json_transform(raw: str) -> Any:
     """Stock ``transform: json``.
 
-    Any response that does not yield a usable JSON value — malformed JSON, or
-    a degenerate but syntactically valid draw the platform will not realise
-    (e.g. an enormous integer) — is a transform/no-value failed trial, never
-    an abort. The broad ``ValueError`` catch is deliberate: it is exactly the
-    exceptions ``json.loads`` raises beyond ``JSONDecodeError`` that a narrow
-    catch would let escape as a spurious defect.
+    Broad by design: ``json.loads`` raises bare ``ValueError`` — not always
+    ``JSONDecodeError`` — on degenerate draws such as an unrealisable integer.
     """
     try:
         return json.loads(raw)
