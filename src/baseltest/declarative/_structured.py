@@ -37,11 +37,15 @@ _YAML_NODE_BUDGET = 1_000_000
 
 
 def json_transform(raw: str) -> Any:
-    """Stock ``transform: json``."""
+    """Stock ``transform: json``.
+
+    Broad by design: ``json.loads`` raises bare ``ValueError`` — not always
+    ``JSONDecodeError`` — on degenerate draws such as an unrealisable integer.
+    """
     try:
         return json.loads(raw)
     except ValueError as error:
-        raise TransformError(f"response does not parse as json: {error}") from error
+        raise TransformError(f"response did not yield a usable JSON value: {error}") from error
 
 
 def xml_transform(raw: str) -> ElementTree.Element:

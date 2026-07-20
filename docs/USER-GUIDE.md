@@ -443,7 +443,9 @@ def basket_judge(raw: str) -> dict[str, object]:
     return {"namesUnique": len(names) == len(set(names))}
 ```
 
-Registers a transformation for the contract's `transforms:` block. The callable receives the raw response string and returns the value under judgement — text (for the string forms) or structure (a dict/list for JSONPath `path:` checks, a parsed `ElementTree.Element` for XPath ones). Raise `baseltest.contract.TransformError` when the response cannot be transformed: that is a **failed trial** with a transform-failure reason, never an abort; any other exception is a defect and propagates. The stock names `json`, `xml`, `yaml` are reserved.
+Registers a transformation for the contract's `transforms:` block. The callable receives the raw response string and returns the value under judgement — text (for the string forms) or structure (a dict/list for JSONPath `path:` checks, a parsed `ElementTree.Element` for XPath ones). Raise `baseltest.contract.TransformError` when the response cannot be transformed: that is a **failed trial** with a transform-failure reason, never an abort. The stock names `json`, `xml`, `yaml` are reserved.
+
+**Catch broadly when you parse.** Turn a foreseeable bad response into a `TransformError` rather than letting it escape as a defect — and catch **broadly** (`except ValueError`), not narrowly (`except json.JSONDecodeError`). A stochastic service emits degenerate draws, and `json.loads` raises a plain `ValueError` — not always a `JSONDecodeError` — on some of them, such as an enormous but syntactically valid integer the platform will not realise. A narrow catch lets that through as a spurious defect; a broad one records it as the failed trial it is. The stock `json`, `xml`, and `yaml` transforms already catch broadly.
 
 A transformation computing derived values can declare its output's shape — `output_schema=` takes the JSON Schema as a mapping or a path to a schema file (`.json`, `.yaml`/`.yml`; a malformed schema is refused at registration):
 
