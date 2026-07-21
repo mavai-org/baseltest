@@ -146,7 +146,9 @@ class TestZeroCodePath:
         payload = llm_environment[0]
         assert payload["model"] == "small-model"
         assert payload["temperature"] == 0.7
-        assert "max_tokens" not in payload
+        # The output ceiling is always sent, resolved to its default when
+        # unstated — no provider inherits a silent, unrecorded ceiling.
+        assert payload["max_tokens"] == 4096
 
     def test_missing_endpoint_is_a_constructive_refusal(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

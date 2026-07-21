@@ -21,13 +21,13 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
             {"role": "user", "content": user_prompt},
         ],
     }
-    options: dict[str, Any] = {}
+    # Ollama names the output ceiling `num_predict`, nested under `options`.
+    options: dict[str, Any] = {"num_predict": parameters.max_tokens}
     if parameters.temperature is not None:
         options["temperature"] = parameters.temperature
     if parameters.top_p is not None:
         options["top_p"] = parameters.top_p
-    if options:
-        body["options"] = options
+    body["options"] = options
     if parameters.response_schema is not None:
         body["format"] = parameters.response_schema
     return body
