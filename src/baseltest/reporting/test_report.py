@@ -85,7 +85,7 @@ def _append_row(
     _append_clauses(html, record)
     html.append("</details>\n</td>\n")
 
-    html.append(f'<td class="{verdict_css_class(record.verdict)}">{record.verdict}</td>\n')
+    html.append(f'<td class="{verdict_css_class(record.verdict)}">{escape(record.verdict)}</td>\n')
     total = record.successes + record.failures
     html.append(f"<td>{record.successes}/{total}</td>\n")
     for label in ("p50", "p95", "p99"):
@@ -185,7 +185,7 @@ def _append_per_criterion(html: list[str], record: VerdictRecord) -> None:
         html.append('<div class="criterion-block">\n')
         html.append(
             f"<h4>{escape(row.criterion_id)} "
-            f'<span class="{verdict_css_class(row.verdict)}">{row.verdict}</span></h4>\n'
+            f'<span class="{verdict_css_class(row.verdict)}">{escape(row.verdict)}</span></h4>\n'
         )
         html.append("<dl>\n")
         html.append(f"<dt>Pass</dt><dd>{row.passes}</dd>\n")
@@ -213,7 +213,8 @@ def _append_latency_detail(html: list[str], latency: LatencyRecord | None) -> No
             detail += f" at confidence {row.baseline_confidence:g}"
         html.append(
             f"<dt>{escape(row.percentile)}</dt>"
-            f'<dd><span class="{status_class}">{row.status}</span> — {escape(detail)}</dd>\n'
+            f'<dd><span class="{status_class}">{escape(row.status)}</span>'
+            f" — {escape(detail)}</dd>\n"
         )
     html.append("</dl>\n</div>\n</div>\n</details>\n")
 
