@@ -7,10 +7,11 @@ The run mode is supplied by the invocation (the verb), never by the file:
 """
 
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import replace as _replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -529,9 +530,12 @@ class ExploreConfiguration:
 
     parameters: Any
     factors: dict[str, Any]
-    configuration: dict[str, Any]
+    configuration: Mapping[str, Any]
     contract: ServiceContract[Any]
     plan: RunPlan
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
 
 
 def instantiate_explore(
@@ -634,9 +638,12 @@ class OptimizePoint:
     """
 
     parameters: Any
-    configuration: dict[str, Any]
+    configuration: Mapping[str, Any]
     contract: ServiceContract[Any]
     plan: RunPlan
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "configuration", MappingProxyType(dict(self.configuration)))
 
 
 def optimize_definition(
