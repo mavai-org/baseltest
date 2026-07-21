@@ -15,6 +15,7 @@ from baseltest.engine import (
     execute,
     inputs_fingerprint,
 )
+from baseltest.engine.run.execute import _reduce_samples, _run_one_sample
 from baseltest.statistics import check_feasibility
 from baseltest.statistics.verdict import Verdict
 
@@ -224,3 +225,31 @@ class TestRegressionPosture:
     def test_cutoff_without_threshold_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="cannot stand without"):
             Criterion(name="c", postconditions=(contains("ok"),), cutoff=5)
+
+
+class TestReduceOrderIndependence:
+    def test_reordered_outcomes_reduce_to_identical_artefacts(self) -> None:
+        # The funnel folds by ordinal, so however the samples complete (serial
+        # today, reordered/parallel later) the tallies, per-sample records, and
+        # durations are byte-identical. Reducing forward vs reversed proves it.
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=lambda text: text,  # echoes the input, so records differ by ordinal
+            criteria=(Criterion(name="c", postconditions=(contains("a"),)),),
+        )
+        inputs = ("a", "b", "c")
+        outcomes = [_run_one_sample(contract, i, inputs, record_samples=True) for i in range(6)]
+
+        f_tallies, f_successes, f_records, f_durations = _reduce_samples(contract, outcomes)
+        r_tallies, r_successes, r_records, r_durations = _reduce_samples(
+            contract, list(reversed(outcomes))
+        )
+
+        assert f_records == r_records  # frozen SampleRecords, sequence included
+        assert f_successes == r_successes
+        assert f_durations == r_durations
+        assert f_tallies["c"].trials == r_tallies["c"].trials
+        assert f_tallies["c"].successes == r_tallies["c"].successes
+        assert f_tallies["c"].failure_reasons == r_tallies["c"].failure_reasons
+        # Records are restored to run order, not left reversed.
+        assert tuple(rec.content for rec in f_records) == ("a", "b", "c", "a", "b", "c")
