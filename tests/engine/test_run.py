@@ -15,7 +15,8 @@ from baseltest.engine import (
     execute,
     inputs_fingerprint,
 )
-from baseltest.engine.run.execute import _reduce_samples, _run_one_sample
+from baseltest.engine.run.execute import _reduce_samples
+from baseltest.engine.run.sample import _run_one_sample
 from baseltest.statistics import check_feasibility
 from baseltest.statistics.verdict import Verdict
 
