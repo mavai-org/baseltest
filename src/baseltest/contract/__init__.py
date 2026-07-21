@@ -19,6 +19,7 @@ hand-authored contract and one instantiated from a contract file are the same
 type.
 """
 
+from .errors import BaseltestError, ContractValidationError, PreconditionError
 from .evaluation import (
     CriterionTally,
     Outcome,
@@ -49,11 +50,14 @@ from .postconditions import (
 
 __all__ = [
     "PERCENTILE_LEVELS",
+    "BaseltestError",
+    "ContractValidationError",
     "Criterion",
     "LatencyBar",
     "LatencyBound",
     "CriterionTally",
     "Outcome",
+    "PreconditionError",
     "Postcondition",
     "PostconditionResult",
     "ServiceContract",

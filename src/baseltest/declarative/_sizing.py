@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
+from baseltest.contract import BaseltestError
 from baseltest.engine import inputs_fingerprint
 from baseltest.statistics import (
     check_feasibility,
@@ -49,7 +50,7 @@ _WEAK_DESIGN_MARGIN = 0.05
 LARGE_RUN_NOTE_LIMIT = 1000
 
 
-class SizingRefusalError(Exception):
+class SizingRefusalError(BaseltestError):
     """A run refused (or declined) before any service invocation; exit 2."""
 
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Generic, Protocol, TypeVar
 
+from .errors import BaseltestError
 from .postconditions import Postcondition
 
 _RequestContra = TypeVar("_RequestContra", contravariant=True)
@@ -25,7 +26,7 @@ class Service(Protocol[_RequestContra]):
 RequestT = TypeVar("RequestT")
 
 
-class TransformError(Exception):
+class TransformError(BaseltestError):
     """An anticipated transformation failure: the response could not be turned
     into the value under judgement.
 
@@ -37,7 +38,7 @@ class TransformError(Exception):
     """
 
 
-class ServiceDeliveryError(Exception):
+class ServiceDeliveryError(BaseltestError):
     """An anticipated delivery failure: the service did not produce a response.
 
     Raised by an invocation when the service could not be reached or
