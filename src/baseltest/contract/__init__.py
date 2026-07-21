@@ -21,6 +21,7 @@ type.
 
 from .evaluation import (
     CriterionTally,
+    Outcome,
     TrialDefectError,
     TrialEvaluation,
     TrialViews,
@@ -52,6 +53,7 @@ __all__ = [
     "LatencyBar",
     "LatencyBound",
     "CriterionTally",
+    "Outcome",
     "Postcondition",
     "PostconditionResult",
     "ServiceContract",

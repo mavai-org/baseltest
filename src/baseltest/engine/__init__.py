@@ -13,6 +13,7 @@ from baseltest.statistics.verdict import Verdict
 from .defect import TRANSFORM_CONTRACT_NOTE, DefectDiagnosisError
 from .latency import (
     BoundEvaluation,
+    BoundStatus,
     LatencyBlock,
     LatencyEvaluation,
     evaluate_latency,
@@ -20,6 +21,7 @@ from .latency import (
     minimum_contributing_samples,
 )
 from .run import (
+    BarStanding,
     CriterionResult,
     InfeasibleCriterion,
     InfeasibleRunError,
@@ -36,7 +38,9 @@ from .run import (
 
 __all__ = [
     "TRANSFORM_CONTRACT_NOTE",
+    "BarStanding",
     "BoundEvaluation",
+    "BoundStatus",
     "CriterionResult",
     "DefectDiagnosisError",
     "LatencyEvaluation",

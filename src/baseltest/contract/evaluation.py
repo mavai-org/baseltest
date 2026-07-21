@@ -13,11 +13,24 @@ defects abort the run rather than being laundered into failed samples.
 from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from .model import Criterion, TransformError
 
 _TRANSFORM_REASON_PREFIX = "transform failed"
+
+
+class Outcome(StrEnum):
+    """A postcondition's three-valued status within a trial.
+
+    ``SKIPPED`` marks a postcondition left unevaluated because a view's
+    transformation failed earlier in the same trial.
+    """
+
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class TrialDefectError(Exception):
@@ -86,14 +99,13 @@ class TrialEvaluation:
             failure, or the first postcondition that did not hold);
             ``None`` on a pass.
         outcomes: Per-postcondition ``(name, status)`` pairs in
-            declaration order, with the family's three-valued status:
-            ``passed``, ``failed``, or ``skipped`` (not evaluated because
-            a view's transformation failed earlier in the trial).
+            declaration order, with the family's three-valued
+            :class:`Outcome` status.
     """
 
     passed: bool
     reason: str | None = None
-    outcomes: tuple[tuple[str, str], ...] = ()
+    outcomes: tuple[tuple[str, Outcome], ...] = ()
 
 
 def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
@@ -111,7 +123,7 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
     and the orchestration layer to contain — never laundered into a failed
     trial.
     """
-    outcomes: list[tuple[str, str]] = []
+    outcomes: list[tuple[str, Outcome]] = []
     first_reason: str | None = None
     postconditions = list(criterion.postconditions)
     for index, postcondition in enumerate(postconditions):
@@ -119,8 +131,8 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
             subject = views.get(postcondition.view)
         except TransformError as failure:
             reason = f"{_TRANSFORM_REASON_PREFIX} ({postcondition.view}): {failure}"
-            outcomes.append((postcondition.name, "failed"))
-            outcomes.extend((later.name, "skipped") for later in postconditions[index + 1 :])
+            outcomes.append((postcondition.name, Outcome.FAILED))
+            outcomes.extend((later.name, Outcome.SKIPPED) for later in postconditions[index + 1 :])
             return TrialEvaluation(
                 passed=False, reason=first_reason or reason, outcomes=tuple(outcomes)
             )
@@ -141,9 +153,9 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
                 original=defect,
             ) from defect
         if result.passed:
-            outcomes.append((postcondition.name, "passed"))
+            outcomes.append((postcondition.name, Outcome.PASSED))
         else:
-            outcomes.append((postcondition.name, "failed"))
+            outcomes.append((postcondition.name, Outcome.FAILED))
             if first_reason is None:
                 first_reason = (
                     result.reason or f"postcondition {postcondition.name!r} not satisfied"

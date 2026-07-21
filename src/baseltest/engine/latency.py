@@ -12,11 +12,24 @@ vector rather than any derived value is what the artefacts persist.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from baseltest.contract import PERCENTILE_LEVELS, LatencyBar, LatencyBound
 from baseltest.statistics import latency_percentile
 from baseltest.statistics.verdict import Verdict
+
+
+class BoundStatus(StrEnum):
+    """One asserted latency bound's outcome over a run.
+
+    ``INFEASIBLE`` means too few samples passed to estimate the percentile
+    at all — no judgement was possible, distinct from a breach.
+    """
+
+    PASS = "pass"
+    FAIL = "fail"
+    INFEASIBLE = "infeasible"
 
 if TYPE_CHECKING:  # a type-only edge: the run module imports this one at runtime
     from .run import SampleRecord
@@ -85,15 +98,15 @@ class BoundEvaluation:
         observed_ms: The observed nearest-rank percentile over passing
             samples, or ``None`` when too few samples passed to estimate
             this percentile at all.
-        status: ``"pass"`` (observed at or below the bound), ``"fail"``
-            (observed above it), or ``"infeasible"`` (not enough passing
-            samples to estimate the percentile — no judgement possible).
+        status: :class:`BoundStatus` — ``PASS`` (observed at or below the
+            bound), ``FAIL`` (observed above it), or ``INFEASIBLE`` (not
+            enough passing samples to estimate the percentile).
         reason: For an infeasible outcome, the plain-language why.
     """
 
     bound: LatencyBound
     observed_ms: int | None
-    status: str
+    status: BoundStatus
     reason: str | None = None
 
 
@@ -122,9 +135,9 @@ class LatencyEvaluation:
         """FAIL if any bound is breached; INCONCLUSIVE if any could not be
         judged; PASS when every asserted bound held."""
         statuses = {evaluation.status for evaluation in self.evaluations}
-        if "fail" in statuses:
+        if BoundStatus.FAIL in statuses:
             return Verdict.FAIL
-        if "infeasible" in statuses:
+        if BoundStatus.INFEASIBLE in statuses:
             return Verdict.INCONCLUSIVE
         return Verdict.PASS
 
@@ -154,7 +167,7 @@ def evaluate_latency(
                 BoundEvaluation(
                     bound=bound,
                     observed_ms=None,
-                    status="infeasible",
+                    status=BoundStatus.INFEASIBLE,
                     reason=(
                         f"{bound.percentile} needs at least {minimum} passing samples "
                         f"to estimate; this run had {len(contributing)} of "
@@ -168,7 +181,7 @@ def evaluate_latency(
             BoundEvaluation(
                 bound=bound,
                 observed_ms=observed_ms,
-                status="pass" if observed_ms <= bound.threshold_ms else "fail",
+                status=BoundStatus.PASS if observed_ms <= bound.threshold_ms else BoundStatus.FAIL,
             )
         )
     return LatencyEvaluation(
