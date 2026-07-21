@@ -211,7 +211,7 @@ def path_qualified(
         if not texts:
             return PostconditionResult.failed(f"path {expression} selected nothing")
         for text in texts:
-            result = inner.evaluate(text)
+            result = inner.check(text)
             if not result.passed:
                 return PostconditionResult.failed(f"path {expression}: {result.reason}")
         return PostconditionResult.ok()

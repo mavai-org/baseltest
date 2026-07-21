@@ -14,6 +14,7 @@ from typing import Any
 from baseltest.contract import (
     Criterion,
     CriterionTally,
+    EvaluationContext,
     Outcome,
     ServiceContract,
     ServiceDeliveryError,
@@ -89,9 +90,10 @@ def execute(
     passing_durations_ms: list[int] = []
     for i in range(plan.samples):
         input_index = i % len(plan.inputs)
+        context = EvaluationContext(index=input_index, input=plan.inputs[input_index])
         invoked_at = time.perf_counter()
         try:
-            response = contract.invoke(plan.inputs[input_index])
+            response = contract.invoke(context.input)
         except ServiceDeliveryError as failure:
             # An anticipated failed delivery: a failed sample, counted
             # against every criterion with the cause as its reason — the
@@ -112,7 +114,7 @@ def execute(
         failure_reasons: list[tuple[str, str]] = []
         for criterion in contract.criteria:
             try:
-                evaluation = evaluate_trial(criterion, views)
+                evaluation = evaluate_trial(criterion, views, context)
             except TrialDefectError as defect:
                 # A defect (not a TransformError) escaped this trial's
                 # transform or postcondition. It is not a countable outcome
@@ -126,8 +128,8 @@ def execute(
                     postcondition=defect.postcondition,
                     exception_type=type(defect.original).__name__,
                     exception_text=str(defect.original),
-                    input_index=input_index,
-                    input_excerpt=bounded_excerpt(str(plan.inputs[input_index])),
+                    input_index=context.index,
+                    input_excerpt=bounded_excerpt(str(context.input)),
                 ) from defect.original
             tallies[criterion.name].record(evaluation)
             trial_passed = trial_passed and evaluation.passed

@@ -1,6 +1,7 @@
 """Per-trial evaluation: views, conjunction, failure reasons, tallies."""
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from baseltest.contract import (
     Criterion,
     CriterionTally,
+    EvaluationContext,
     ServiceContract,
     TransformError,
     TrialDefectError,
@@ -19,6 +21,10 @@ from baseltest.contract import (
     one_of,
     satisfies,
 )
+
+# These evaluate_trial tests exercise general (non-per-input) postconditions,
+# so any context serves — the input index only gates per-input expectations.
+_CONTEXT = EvaluationContext(index=0, input=None)
 
 
 def json_view(raw: str) -> Any:
@@ -36,7 +42,7 @@ def views_for(response: str) -> TrialViews:
 
 
 def evaluate(criterion: Criterion, response: str):  # type: ignore[no-untyped-def]
-    return evaluate_trial(criterion, views_for(response))
+    return evaluate_trial(criterion, views_for(response), _CONTEXT)
 
 
 class TestStringForms:
@@ -110,8 +116,8 @@ class TestViews:
             name="first", postconditions=(satisfies("has a", lambda v: "a" in v, view="doc"),)
         )
         second = Criterion(name="second", postconditions=(satisfies("truthy", bool, view="doc"),))
-        assert evaluate_trial(first, views).passed
-        assert evaluate_trial(second, views).passed
+        assert evaluate_trial(first, views, _CONTEXT).passed
+        assert evaluate_trial(second, views, _CONTEXT).passed
         assert len(calls) == 1  # one computation, both criteria served
 
     def test_string_form_on_structured_view_is_a_type_failure(self) -> None:
@@ -145,7 +151,7 @@ class TestViews:
         views = TrialViews("anything", {"doc": broken})
         criterion = Criterion(name="c", postconditions=(satisfies("any", bool, view="doc"),))
         with pytest.raises(TrialDefectError) as raised:
-            evaluate_trial(criterion, views)
+            evaluate_trial(criterion, views, _CONTEXT)
         defect = raised.value
         assert defect.view == "doc"
         assert defect.criterion == "c"
@@ -186,6 +192,31 @@ class TestTally:
         reasons = list(tally.failure_reasons)
         assert any(r.startswith("transform failed") for r in reasons)
         assert any("truthy" in r for r in reasons)
+
+
+class TestPerInputGating:
+    def test_per_input_expectation_gates_on_index_not_value(self) -> None:
+        # Two inputs may share a value yet hold different expectations; the
+        # trial's input INDEX selects which applies, so equal input values are
+        # never conflated (the defect the module-global value channel had).
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                replace(equals("A"), applies_to_input=0),
+                replace(equals("B"), applies_to_input=1),
+            ),
+        )
+        shared = "duplicate-input-value"
+        at_0 = EvaluationContext(index=0, input=shared)
+        at_1 = EvaluationContext(index=1, input=shared)
+
+        # Response "A" satisfies input 0's expectation but not input 1's —
+        # decided by index, though both contexts carry the same input value.
+        assert evaluate_trial(criterion, views_for("A"), at_0).passed
+        assert not evaluate_trial(criterion, views_for("A"), at_1).passed
+        # And symmetrically for "B".
+        assert not evaluate_trial(criterion, views_for("B"), at_0).passed
+        assert evaluate_trial(criterion, views_for("B"), at_1).passed
 
 
 class TestModelValidation:
