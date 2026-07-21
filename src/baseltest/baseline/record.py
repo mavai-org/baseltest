@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from types import MappingProxyType
 
 from baseltest.engine import LatencyBlock, RunResult, latency_block
 
@@ -57,6 +58,11 @@ class CriterionCharacterisation:
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
     judgement: NormativeJudgement | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "failure_distribution", MappingProxyType(dict(self.failure_distribution))
+        )
+
     @property
     def observed_rate(self) -> float:
         """The observed pass rate; 0.0 with no trials."""
@@ -97,6 +103,9 @@ class BaselineRecord:
     provenance: Mapping[str, str] = field(default_factory=dict)
     latency: LatencyBlock | None = None
     views: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "views", MappingProxyType(dict(self.views)))
 
     @staticmethod
     def from_run_result(

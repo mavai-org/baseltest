@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Generic, Protocol, TypeVar
 
 from .postconditions import Postcondition
@@ -270,6 +271,7 @@ class ServiceContract(Generic[RequestT]):
                         f"{postcondition.name!r} names undeclared view "
                         f"{postcondition.view!r}"
                     )
+        object.__setattr__(self, "views", MappingProxyType(dict(self.views)))
 
     @property
     def thresholded_criteria(self) -> tuple[Criterion, ...]:

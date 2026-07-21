@@ -6,6 +6,7 @@ projection — extended with the iteration index, the full configuration it
 ran under, and the score the run's scorer assigned.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -66,7 +67,7 @@ class IterationCapture:
 
     @staticmethod
     def from_run_result(
-        index: int, result: RunResult, factors: dict[str, Any], score: float
+        index: int, result: RunResult, factors: Mapping[str, Any], score: float
     ) -> "IterationCapture":
         """Build one iteration's capture from its completed run."""
         return IterationCapture(

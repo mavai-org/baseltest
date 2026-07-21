@@ -16,8 +16,9 @@ degenerate zero-configuration instance.
 """
 
 import difflib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from ._errors import ContractConfigurationError
@@ -69,7 +70,7 @@ class ServiceTypeContract:
     name: str
     builtin: bool
     addressable: bool
-    covariates: dict[str, str]
+    covariates: Mapping[str, str]
     parse: Callable[[str, dict[str, Any], str], Any]
     parameter_order: Callable[[tuple[str, ...]], tuple[str, ...]]
     resolved_values: Callable[[Any], dict[str, Any]]
@@ -79,6 +80,9 @@ class ServiceTypeContract:
     prepare_explore_point: Callable[[Any], tuple[Any, str | None]] = field(
         default=_identity_explore_point
     )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "covariates", MappingProxyType(dict(self.covariates)))
 
 
 _builtin_types: dict[str, ServiceTypeContract] = {}
