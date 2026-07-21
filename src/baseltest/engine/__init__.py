@@ -14,6 +14,7 @@ from .defect import TRANSFORM_CONTRACT_NOTE, DefectDiagnosisError
 from .latency import (
     BoundEvaluation,
     BoundStatus,
+    LatencyBasis,
     LatencyBlock,
     LatencyEvaluation,
     evaluate_latency,
@@ -42,6 +43,7 @@ __all__ = [
     "BoundEvaluation",
     "BoundStatus",
     "CriterionResult",
+    "LatencyBasis",
     "DefectDiagnosisError",
     "LatencyEvaluation",
     "InfeasibleCriterion",

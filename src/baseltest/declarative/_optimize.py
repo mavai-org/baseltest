@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from baseltest.optimization import Objective
+
 from ._errors import ContractConfigurationError
 from ._steppers import (
     ScorerFunction,
@@ -41,7 +43,6 @@ _ENTRY_KEYS = {
     "no-improvement-window",
     "initial",
 }
-_OBJECTIVES = ("maximize", "minimize")
 _DEFAULT_SCORER = "pass-rate"
 _ID_SHAPE = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -77,7 +78,7 @@ class OptimizationDeclaration:
     step: StepFunction
     scorer_name: str
     score: ScorerFunction
-    objective: str
+    objective: Objective
     max_iterations: int
     no_improvement_window: int | None
     initial: dict[str, Any]
@@ -150,14 +151,15 @@ def _resolve_scorer(name: str, where: str, entry: dict[str, Any]) -> tuple[str, 
     return scorer_name, resolved
 
 
-def _resolve_objective(name: str, where: str, entry: dict[str, Any]) -> str:
-    objective = entry.get("objective", "maximize")
-    if objective not in _OBJECTIVES:
+def _resolve_objective(name: str, where: str, entry: dict[str, Any]) -> Objective:
+    raw = entry.get("objective", Objective.MAXIMIZE.value)
+    try:
+        return Objective(raw)
+    except ValueError:
         raise _fail(
             f"service {name!r}: {where}: `objective:` must be one of "
-            f"{', '.join(_OBJECTIVES)}, got {objective!r}"
-        )
-    return str(objective)
+            f"{', '.join(o.value for o in Objective)}, got {raw!r}"
+        ) from None
 
 
 def _validate_configuration_keys(

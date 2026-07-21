@@ -59,6 +59,7 @@ from ._parser import (
     RAW_VIEW,
     ContractDeclaration,
     CriterionDeclaration,
+    Form,
     FormDeclaration,
 )
 from ._registry import resolve_check, transform_registration
@@ -150,10 +151,10 @@ def _parses_postcondition(view: str) -> Postcondition:
 def _build_form(
     declaration: FormDeclaration, transforms: dict[str, str], where: str
 ) -> Postcondition:
-    if declaration.form == "satisfies":
+    if declaration.form is Form.SATISFIES:
         name = str(declaration.argument)
         return satisfies(name, resolve_check(name), view=declaration.view)
-    if declaration.form == "parses":
+    if declaration.form is Form.PARSES:
         return _parses_postcondition(str(declaration.argument))
     builder = _STRING_FORMS[declaration.form]
     if declaration.path is None:
@@ -358,7 +359,7 @@ class RunSizing:
 
 def _resolve_run_size(
     mode: RunKind,
-    intent: str,
+    intent: Intent,
     samples: int | None,
     judged: Sequence[Criterion],
     samples_provenance: str | None = None,
@@ -389,7 +390,7 @@ def _resolve_run_size(
         for c in judged
         if c.threshold is not None
     ]
-    if intent == "verification" and anchors:
+    if intent is Intent.VERIFICATION and anchors:
         minimum, criterion = max(anchors, key=lambda pair: pair[0])
         if minimum > SILENT_DERIVATION_LIMIT:
             raise ContractConfigurationError(
@@ -944,6 +945,10 @@ def instantiate(
         views=views,
         latency=latency_bar,
     )
-    intent = Intent.VERIFICATION if declaration.intent == "verification" else Intent.SMOKE
-    plan = RunPlan(samples=sizing.samples, inputs=declaration.inputs, kind=mode, intent=intent)
+    plan = RunPlan(
+        samples=sizing.samples,
+        inputs=declaration.inputs,
+        kind=mode,
+        intent=declaration.intent,
+    )
     return contract, plan, sizing, service_provenance, tuple(skipped), baseline_context

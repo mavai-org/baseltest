@@ -9,12 +9,20 @@ Like exploration, optimization is descriptive: scores and rates are
 observed values; no inferential claim is made about the optimum.
 """
 
-from .record import IterationCapture, OptimizationRecord, wire_scorer_name
+from .record import (
+    IterationCapture,
+    Objective,
+    OptimizationRecord,
+    Termination,
+    wire_scorer_name,
+)
 from .writer import render_optimization, write_optimization
 
 __all__ = [
     "IterationCapture",
+    "Objective",
     "OptimizationRecord",
+    "Termination",
     "render_optimization",
     "wire_scorer_name",
     "write_optimization",

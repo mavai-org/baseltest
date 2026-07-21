@@ -6,7 +6,7 @@ criteria, thresholds, views, and run plan — expressed directly against
 after materialising, the source is the developer's; nothing round-trips.
 """
 
-from ._parser import ContractDeclaration, CriterionDeclaration, FormDeclaration
+from ._parser import ContractDeclaration, CriterionDeclaration, Form, FormDeclaration
 
 _HEADER = '''"""Materialised from {contract_file}: the contract the contract file was running.
 
@@ -31,15 +31,15 @@ from baseltest.reporting import render_run
 
 def _form_source(declaration: FormDeclaration) -> str:
     argument = declaration.argument
-    if declaration.form == "equals":
+    if declaration.form is Form.EQUALS:
         base = f"equals({str(argument)!r})"
-    elif declaration.form == "contains":
+    elif declaration.form is Form.CONTAINS:
         base = f"contains({str(argument)!r})"
-    elif declaration.form == "matches":
+    elif declaration.form is Form.MATCHES:
         base = f"matches({str(argument)!r})"
-    elif declaration.form == "one-of":
+    elif declaration.form is Form.ONE_OF:
         base = f"one_of({[str(a) for a in argument]!r})"
-    elif declaration.form == "satisfies":
+    elif declaration.form is Form.SATISFIES:
         base = (
             f"satisfies({str(argument)!r}, {_identifier(str(argument))})"
             "  # TODO: import your registered predicate"
@@ -56,7 +56,7 @@ def _form_source(declaration: FormDeclaration) -> str:
             "choice inside a satisfies() predicate\n"
             f"        {base}"
         )
-    if declaration.view != "raw" and declaration.form != "parses":
+    if declaration.view != "raw" and declaration.form is not Form.PARSES:
         return base[:-1] + f", view={declaration.view!r})"
     return base
 

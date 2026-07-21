@@ -33,6 +33,7 @@ import difflib
 import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from baseltest.statistics import wilson_interval
@@ -48,6 +49,15 @@ from ._signatures import (
 
 StepFunction = Callable[[dict[str, Any], "OptimizeContext"], dict[str, Any] | None]
 ScorerFunction = Callable[["IterationSummary"], float]
+
+
+class Phase(StrEnum):
+    """The refining-grid stepper's finite-state machine phase."""
+
+    START = "start"
+    GRID = "grid"
+    CONFIRM = "confirm"
+    DONE = "done"
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,7 +491,7 @@ def _refining_grid(
         )
 
     state: dict[str, Any] = {
-        "phase": "start",  # start → grid → confirm → done
+        "phase": Phase.START,  # START → GRID → CONFIRM → DONE
         "pending": [],  # values scheduled for measurement, in order
         "step": step,
         "candidates": (),  # the current round's grid values
@@ -550,7 +560,7 @@ def _refining_grid(
         state["pending"] = list(values)
 
     def finish(winner: _Standing, rows: list[_Standing], confirmed: bool) -> None:
-        state["phase"] = "done"
+        state["phase"] = Phase.DONE
         rendered = "; ".join(
             f"{row.value:g} (rate {row.rate:.4f}, {row.passes}/{row.trials}, "
             f"interval {row.low:.4f}-{row.high:.4f})"
@@ -589,7 +599,7 @@ def _refining_grid(
             state["finalists"] = tuple(row.value for row in finalists)
             finish(leader, finalists, confirmed=False)
             return
-        state["phase"] = "confirm"
+        state["phase"] = Phase.CONFIRM
         state["finalists"] = (leader.value, strongest.value)
         state["pending"] = list(state["finalists"]) * confirmation_epochs
 
@@ -609,15 +619,15 @@ def _refining_grid(
 
     def advance(current: dict[str, Any], ctx: OptimizeContext) -> dict[str, Any] | None:
         _numeric(current.get(key), "refining-grid", key)  # fail fast on a non-numeric key
-        if state["phase"] == "start":
-            state["phase"] = "grid"
+        if state["phase"] is Phase.START:
+            state["phase"] = Phase.GRID
             schedule(_grid_values(lo, hi, state["step"]))
-        while not state["pending"] and state["phase"] in ("grid", "confirm"):
-            if state["phase"] == "grid":
+        while not state["pending"] and state["phase"] in (Phase.GRID, Phase.CONFIRM):
+            if state["phase"] is Phase.GRID:
                 decide_after_grid(ctx)
             else:
                 decide_after_confirmation(ctx)
-        if state["phase"] == "done":
+        if state["phase"] is Phase.DONE:
             return None
         return {**current, key: state["pending"].pop(0)}
 

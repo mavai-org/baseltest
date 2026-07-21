@@ -11,11 +11,14 @@ invocation verb, never a key.
 
 import io
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
+
+from baseltest.engine import Intent
 
 from ._errors import ContractConfigurationError
 
@@ -72,6 +75,17 @@ _CRITERION_KEYS = {
     "parses",
     "satisfies",
 }
+class Form(StrEnum):
+    """A postcondition's form — the single key an author writes under a clause."""
+
+    EQUALS = "equals"
+    ONE_OF = "one-of"
+    CONTAINS = "contains"
+    MATCHES = "matches"
+    PARSES = "parses"
+    SATISFIES = "satisfies"
+
+
 _FORM_KEYS = ("equals", "one-of", "contains", "matches", "parses", "satisfies")
 _STRING_FORMS = ("equals", "one-of", "contains", "matches")
 _SEAM_POINTER = (
@@ -84,7 +98,7 @@ _SEAM_POINTER = (
 class FormDeclaration:
     """One postcondition form as declared: form key, argument, subject view, path."""
 
-    form: str
+    form: Form
     argument: Any
     view: str = RAW_VIEW
     path: str | None = None
@@ -137,7 +151,7 @@ class ContractDeclaration:
     inputs: tuple[Any, ...]
     expected_pairs: tuple[tuple[int, Any, tuple[FormDeclaration, ...]], ...]
     criteria: tuple[CriterionDeclaration, ...]
-    intent: str
+    intent: Intent
     confidence: float
     latency: LatencyDeclaration | None = None
     source_path: Path | None = field(default=None, compare=False)
@@ -252,7 +266,7 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
         if not isinstance(target, str) or target not in views:
             declared = ", ".join(sorted(views)) or "none declared"
             raise _fail(f"{where}: `parses:` references a declared view (declared: {declared})")
-    return FormDeclaration(form=form, argument=entry[form], view=view, path=path)
+    return FormDeclaration(form=Form(form), argument=entry[form], view=view, path=path)
 
 
 _INPUT_SCALARS = (str, int, float, bool)
@@ -309,7 +323,7 @@ def _parse_inputs(
             for form_entry in expected
         )
         for declaration in forms:
-            if declaration.form == "parses":
+            if declaration.form is Form.PARSES:
                 raise _fail(f"{where}: `parses:` is a criterion-level form")
         # The input's position in the full input list — the structural
         # identity per-input checks carry (entries without `expected:`
@@ -496,9 +510,11 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
     """
     data = _require_mapping(_load_yaml(text), "the contract file")
     _check_top_level_keys(data)
-    intent = data.get("intent", "verification")
-    if intent not in ("verification", "smoke"):
-        raise _fail(f"unknown `intent: {intent}` — expected verification or smoke")
+    intent_raw = data.get("intent", Intent.VERIFICATION.value)
+    try:
+        intent = Intent(intent_raw)
+    except ValueError:
+        raise _fail(f"unknown `intent: {intent_raw}` — expected verification or smoke") from None
 
     views = _parse_transforms(data)
     inputs, expected_pairs = _parse_inputs(data["inputs"], views)

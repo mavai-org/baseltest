@@ -11,7 +11,9 @@ from baseltest.engine import DefectDiagnosisError, RunKind, RunResult, execute, 
 from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
 from baseltest.optimization import (
     IterationCapture,
+    Objective,
     OptimizationRecord,
+    Termination,
     wire_scorer_name,
     write_optimization,
 )
@@ -530,7 +532,7 @@ def _drive_optimization(
     best: IterationResult | None = None
     best_index = 0
     plateau = 0
-    termination = "max-iterations"
+    termination = Termination.MAX_ITERATIONS
     defect_diagnosis: str | None = None
     parameters = entry.parameters
     visited: set[tuple[Any, ...]] = set()
@@ -547,7 +549,7 @@ def _drive_optimization(
             )
         except DefectDiagnosisError as defect:
             defect_diagnosis = str(defect)
-            termination = "defect"
+            termination = Termination.DEFECT
             if emit:
                 print(f"note: {label} aborted — {defect}", file=sys.stderr)
             break
@@ -565,7 +567,7 @@ def _drive_optimization(
         else:
             plateau += 1
             if entry.no_improvement_window is not None and plateau >= entry.no_improvement_window:
-                termination = "no-improvement-window"
+                termination = Termination.NO_IMPROVEMENT_WINDOW
                 break
         if index + 1 == entry.max_iterations:
             break  # the cap is reached; no next configuration to propose
@@ -579,7 +581,7 @@ def _drive_optimization(
             entry, definition, context, iteration_result.config, index + 1
         )
         if next_parameters is None:
-            termination = "stepper-stopped"
+            termination = Termination.STEPPER_STOPPED
             break
         if emit and _configuration_identity(definition.type, next_parameters) in visited:
             # Deliberate, not a defect: under a stochastic service a single
@@ -699,8 +701,8 @@ def _select_entries(
     )
 
 
-def _improved(score: float, best: float, objective: str) -> bool:
-    return score > best if objective == "maximize" else score < best
+def _improved(score: float, best: float, objective: Objective) -> bool:
+    return score > best if objective is Objective.MAXIMIZE else score < best
 
 
 def _stepper_block(entry: OptimizationDeclaration) -> tuple[tuple[str, object], ...]:

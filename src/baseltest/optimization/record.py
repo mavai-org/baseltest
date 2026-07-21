@@ -8,12 +8,29 @@ ran under, and the score the run's scorer assigned.
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from baseltest.engine import RunResult
 from baseltest.exploration import ExplorationRecord
 
 _WIRE_SCORER_NAMES = {"pass-rate": "observed-pass-rate"}
+
+
+class Objective(StrEnum):
+    """The direction an optimization drives its scorer."""
+
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+
+
+class Termination(StrEnum):
+    """Why an optimization run stopped."""
+
+    MAX_ITERATIONS = "max-iterations"
+    NO_IMPROVEMENT_WINDOW = "no-improvement-window"
+    STEPPER_STOPPED = "stepper-stopped"
+    DEFECT = "defect"
 
 
 def wire_scorer_name(registered_name: str) -> str:
@@ -75,8 +92,7 @@ class OptimizationRecord:
         iterations: The full history, in execution order — never elided
             or truncated; the history is the artefact.
         best_index: Index of the selected optimum in ``iterations``.
-        termination: Why the run stopped — ``max-iterations``,
-            ``no-improvement-window``, or ``stepper-stopped``.
+        termination: Why the run stopped — a :class:`Termination`.
         stepper: The stepper's identity and configuration, recorded as
             mutator provenance (an emitter-specific block the schema's
             additive-evolution rule permits).
@@ -84,12 +100,12 @@ class OptimizationRecord:
 
     contract_id: str
     experiment_id: str
-    objective: str
+    objective: Objective
     scorer: str
     generated_at: datetime
     iterations: tuple[IterationCapture, ...]
     best_index: int
-    termination: str
+    termination: Termination
     stepper: tuple[tuple[str, Any], ...] = ()
 
     @property
