@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from scipy.stats import norm
 
-from ._constants import SOUNDNESS_FLOOR_CONFIDENCE
+from ._constants import DEFAULT_CONFIDENCE_LEVEL, SOUNDNESS_FLOOR_CONFIDENCE
 from .wilson import wilson_lower_bound_from_rate
 
 
@@ -43,7 +43,7 @@ class FeasibilityCheck:
 def check_feasibility(
     sample_size: int,
     target_proportion: float,
-    confidence_level: float = 0.95,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
 ) -> FeasibilityCheck:
     """Check whether a test configuration is statistically sound.
 

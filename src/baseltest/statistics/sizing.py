@@ -31,6 +31,7 @@ import math
 
 from scipy.stats import norm
 
+from ._constants import DEFAULT_CONFIDENCE_LEVEL, DEFAULT_POWER
 from ._validation import validate_unit_interval
 from .wilson import wilson_lower_bound_from_rate
 
@@ -58,7 +59,7 @@ def power_at(
     sample_size: int,
     baseline_rate: float,
     minimum_acceptable_rate: float,
-    confidence_level: float = 0.95,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
 ) -> float:
     """Compute the self-consistent power of a test of `sample_size` samples.
 
@@ -101,8 +102,8 @@ def power_at(
 def required_samples_for_power(
     baseline_rate: float,
     minimum_acceptable_rate: float,
-    confidence_level: float = 0.95,
-    target_power: float = 0.8,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
+    target_power: float = DEFAULT_POWER,
 ) -> int:
     """Compute the smallest sample size whose self-consistent power meets
     `target_power`.
@@ -164,8 +165,8 @@ def required_samples_for_power(
 def detectable_rate(
     sample_size: int,
     baseline_rate: float,
-    confidence_level: float = 0.95,
-    target_power: float = 0.8,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
+    target_power: float = DEFAULT_POWER,
 ) -> float:
     """Compute the largest tolerable true rate detectable at `target_power`
     with `sample_size` samples.

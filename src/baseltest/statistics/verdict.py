@@ -32,6 +32,7 @@ from enum import Enum
 
 from scipy.stats import norm
 
+from ._constants import DEFAULT_CONFIDENCE_LEVEL
 from ._validation import validate_counts
 
 
@@ -64,7 +65,7 @@ def evaluate_compliance(
     successes: int,
     trials: int,
     threshold: float,
-    confidence_level: float = 0.95,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
 ) -> ComplianceVerdict:
     """Evaluate an observed rate against a threshold (compliance posture).
 

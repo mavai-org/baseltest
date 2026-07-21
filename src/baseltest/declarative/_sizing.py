@@ -27,6 +27,7 @@ from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_basel
 from baseltest.contract import BaseltestError
 from baseltest.engine import inputs_fingerprint
 from baseltest.statistics import (
+    DEFAULT_POWER,
     check_feasibility,
     detectable_rate,
     power_at,
@@ -38,8 +39,6 @@ from baseltest.statistics import (
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, CriterionDeclaration
 from ._services import ServiceDefinition
 from ._types import find_type
-
-DEFAULT_TARGET_POWER = 0.8
 
 # An unclaimed explicit-samples design is called weak when the drop it can
 # actually catch sits more than this far below the proven baseline.
@@ -675,7 +674,7 @@ def resolve_test_sizing(
         ask=ask if ask is not None else input,
         say=say if say is not None else print,
     )
-    target_power = _parse_rate(power, "--power") if power is not None else DEFAULT_TARGET_POWER
+    target_power = _parse_rate(power, "--power") if power is not None else DEFAULT_POWER
     confidence_flag = _parse_rate(confidence, "--confidence") if confidence is not None else None
 
     empirical_names = [c.name for c in declaration.criteria if c.threshold is None]

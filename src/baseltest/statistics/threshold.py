@@ -31,7 +31,7 @@ from enum import Enum
 
 from scipy.stats import binom
 
-from ._constants import SOUNDNESS_FLOOR_CONFIDENCE
+from ._constants import DEFAULT_CONFIDENCE_LEVEL, DEFAULT_POWER, SOUNDNESS_FLOOR_CONFIDENCE
 from ._validation import validate_confidence_level
 from .power import required_sample_size
 from .wilson import wilson_lower_bound, wilson_lower_bound_from_rate
@@ -99,7 +99,7 @@ def derive_sample_size_first(
     baseline_successes: int,
     baseline_trials: int,
     test_samples: int,
-    confidence_level: float = 0.95,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
 ) -> SampleSizeFirstThreshold:
     """Derive a pass-rate threshold from a baseline and a planned sample size.
 
@@ -236,8 +236,8 @@ class ConfidenceFirstThreshold:
 def derive_confidence_first(
     baseline_rate: float,
     effect_size: float,
-    confidence_level: float = 0.95,
-    power: float = 0.8,
+    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
+    power: float = DEFAULT_POWER,
 ) -> ConfidenceFirstThreshold:
     """Derive the sample size and threshold needed to detect an effect size.
 

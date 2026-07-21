@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Generic, Protocol, TypeVar
 
+from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
+
 from .errors import BaseltestError
 from .postconditions import Postcondition
 
@@ -99,7 +101,7 @@ class Criterion:
     name: str
     postconditions: tuple[Postcondition, ...]
     threshold: float | None = None
-    confidence: float = 0.95
+    confidence: float = DEFAULT_CONFIDENCE_LEVEL
     cutoff: int | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
 
@@ -198,7 +200,7 @@ class LatencyBar:
 
     bounds: tuple[LatencyBound, ...]
     origin: str = "explicit"
-    confidence: float = 0.95
+    confidence: float = DEFAULT_CONFIDENCE_LEVEL
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
 
     def __post_init__(self) -> None:

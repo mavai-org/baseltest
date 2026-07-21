@@ -17,6 +17,7 @@ Every public name here is validated against the mavai-R statistical oracle
 tolerance, and nothing in this package has side effects.
 """
 
+from ._constants import DEFAULT_CONFIDENCE_LEVEL, DEFAULT_POWER
 from .feasibility import FeasibilityCheck, check_feasibility
 from .latency import (
     LatencyThreshold,
@@ -53,6 +54,8 @@ from .wilson import (
 )
 
 __all__ = [
+    "DEFAULT_CONFIDENCE_LEVEL",
+    "DEFAULT_POWER",
     "ComplianceVerdict",
     "ConfidenceFirstThreshold",
     "DerivationApproach",

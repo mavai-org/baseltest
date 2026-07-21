@@ -10,9 +10,7 @@ their disclosures are identical by construction.
 """
 
 from baseltest.reporting import SizingDisclosure, VerdictRecord
-from baseltest.statistics import detectable_rate
-
-from ._sizing import DEFAULT_TARGET_POWER
+from baseltest.statistics import DEFAULT_POWER, detectable_rate
 
 
 def sizing_disclosure(record: VerdictRecord) -> SizingDisclosure | None:
@@ -26,7 +24,7 @@ def sizing_disclosure(record: VerdictRecord) -> SizingDisclosure | None:
     design = record.design
     if design is None:
         return None
-    target_power = design.claims[0].target_power if design.claims else DEFAULT_TARGET_POWER
+    target_power = design.claims[0].target_power if design.claims else DEFAULT_POWER
 
     baseline = design.baseline
     downsized = (
