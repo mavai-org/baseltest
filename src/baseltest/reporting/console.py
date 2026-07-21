@@ -10,7 +10,7 @@ from baseltest.engine import (
     RunKind,
     RunResult,
     Verdict,
-    bar_standing,
+    bar_attainment,
 )
 
 
@@ -116,7 +116,7 @@ def _recorded_bar_lines(result: CriterionResult) -> list[str]:
     """A declared bar under measure: noted against the evidence — data, not a verdict."""
     criterion = result.criterion
     assert result.lower_bound is not None and criterion.threshold is not None
-    standing = bar_standing(result)
+    standing = bar_attainment(result)
     if standing == "unsupportable":
         note = (
             f"    declared bar {criterion.threshold}: judgement unsupportable at "

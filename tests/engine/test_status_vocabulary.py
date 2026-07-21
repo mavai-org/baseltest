@@ -10,7 +10,7 @@ string and serialising to it — so writers that stringify them stay unchanged.
 import json
 
 from baseltest.contract import Outcome
-from baseltest.engine import BarStanding, BoundStatus
+from baseltest.engine import BarAttainment, BoundStatus
 
 
 def test_outcome_wire_values() -> None:
@@ -21,13 +21,13 @@ def test_bound_status_wire_values() -> None:
     assert {s.value for s in BoundStatus} == {"pass", "fail", "infeasible"}
 
 
-def test_bar_standing_wire_values() -> None:
-    assert {b.value for b in BarStanding} == {"met", "not met", "unsupportable"}
+def test_bar_attainment_wire_values() -> None:
+    assert {b.value for b in BarAttainment} == {"met", "not met", "unsupportable"}
 
 
 def test_members_are_byte_identical_to_their_strings() -> None:
     # str-equality and str-serialisation are what keep every emitter unchanged.
-    for member in (Outcome.FAILED, BoundStatus.INFEASIBLE, BarStanding.NOT_MET):
+    for member in (Outcome.FAILED, BoundStatus.INFEASIBLE, BarAttainment.NOT_MET):
         assert member == member.value
         assert str(member) == member.value
         assert json.dumps(member) == json.dumps(member.value)

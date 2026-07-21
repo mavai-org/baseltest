@@ -10,7 +10,7 @@ from baseltest.engine import (
     Intent,
     RunKind,
     RunPlan,
-    bar_standing,
+    bar_attainment,
     derive_minimum_samples,
     execute,
     inputs_fingerprint,
@@ -219,7 +219,7 @@ class TestRegressionPosture:
         result = execute(contract, RunPlan(samples=50, inputs=("a",)))
         r = result.criterion_results[0]
         assert r.verdict is Verdict.FAIL
-        assert bar_standing(r) == "unsupportable"
+        assert bar_attainment(r) == "unsupportable"
 
     def test_cutoff_without_threshold_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="cannot stand without"):
