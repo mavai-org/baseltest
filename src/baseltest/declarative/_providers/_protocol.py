@@ -89,6 +89,7 @@ def openai_compatible_body(
             {"role": "system", "content": parameters.system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        "max_tokens": parameters.max_tokens,
     }
     if parameters.temperature is not None:
         body["temperature"] = parameters.temperature

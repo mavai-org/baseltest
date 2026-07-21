@@ -34,7 +34,6 @@ from ruamel.yaml.error import YAMLError
 from ._errors import ContractConfigurationError
 from ._optimize import OptimizationDeclaration, parse_optimizations
 from ._providers import (
-    ANTHROPIC_REQUIRED_MAX_TOKENS,
     ENV_MODEL,
     build_invoker,
     resolve_provider,
@@ -60,6 +59,7 @@ _CONFIGURATION_KEYS = {
     "thinking",
     "prompt-caching",
     "response-schema",
+    "max-tokens",
 }
 # Canonical parameter order: stems and factor blocks list swept covariates
 # in this order so artefacts from one grid stay field-for-field diffable.
@@ -72,9 +72,22 @@ _PARAMETER_ORDER = (
     "thinking",
     "prompt-caching",
     "response-schema",
+    "max-tokens",
 )
 
 _THINKING_VALUES = ("adaptive", "none")
+
+# The output ceiling is a resolved-and-recorded parameter, never a hidden
+# constant: unstated, it defaults to DEFAULT_MAX_TOKENS uniformly across
+# providers (so a provider grid holds it constant), and the resolved value
+# is fingerprinted into identity and the artefact. The upper bound is the
+# largest ceiling the non-streaming adapters can carry without risking an
+# HTTP timeout; larger ceilings await streaming support. Under
+# `thinking: adaptive` the ceiling bounds thinking and answer together, so a
+# value at or below the model's thinking floor leaves no room to answer.
+DEFAULT_MAX_TOKENS = 4096
+MAX_TOKENS_CEILING = 16000
+_THINKING_MIN_MAX_TOKENS = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +102,7 @@ class LanguageModelParameters:
     thinking: str | None = None
     prompt_caching: bool | None = None
     response_schema: dict[str, Any] | None = None
+    max_tokens: int = DEFAULT_MAX_TOKENS
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +181,26 @@ def _validate_configuration(
             f"service {name!r}: `response-schema:` must be a mapping (the JSON "
             "Schema the model is instructed to satisfy)"
         )
+    max_tokens = configuration.get("max-tokens", DEFAULT_MAX_TOKENS)
+    if (
+        isinstance(max_tokens, bool)
+        or not isinstance(max_tokens, int)
+        or not 1 <= max_tokens <= MAX_TOKENS_CEILING
+    ):
+        raise _fail(
+            f"service {name!r}: `max-tokens:` must be a whole number of output tokens "
+            f"between 1 and {MAX_TOKENS_CEILING} — the ceiling on what the model may "
+            "return; ceilings above this need streaming, which this reader does not yet "
+            f"do. Unstated, it defaults to {DEFAULT_MAX_TOKENS} and is recorded as such."
+        )
+    if thinking == "adaptive" and max_tokens <= _THINKING_MIN_MAX_TOKENS:
+        raise _fail(
+            f"service {name!r}: `max-tokens: {max_tokens}` is too small for "
+            "`thinking: adaptive` — the ceiling bounds thinking and answer together, so "
+            f"at or below the model's {_THINKING_MIN_MAX_TOKENS}-token thinking floor the "
+            "reasoning consumes the whole budget and the answer is truncated to nothing. "
+            "Raise the ceiling or set `thinking: none`."
+        )
     return LanguageModelParameters(
         system_prompt=system_prompt,
         provider=provider_name,
@@ -176,6 +210,7 @@ def _validate_configuration(
         thinking=thinking,
         prompt_caching=prompt_caching,
         response_schema=response_schema,
+        max_tokens=max_tokens,
     )
 
 
@@ -348,8 +383,11 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     if parameters.response_schema is not None:
         canonical = json.dumps(parameters.response_schema, sort_keys=True)
         entries["responseSchemaFingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    if parameters.provider == "anthropic":
-        entries["providerRequiredMaxTokens"] = str(ANTHROPIC_REQUIRED_MAX_TOKENS)
+    # The output ceiling shapes the response as strongly as any sampling
+    # parameter, so it is fingerprinted like one: a baseline taken under a
+    # different ceiling is a different population, and a later test refuses
+    # against it, naming the drifted key.
+    entries["maxTokens"] = str(parameters.max_tokens)
     return entries
 
 
@@ -363,6 +401,7 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
         "thinking": parameters.thinking,
         "prompt-caching": parameters.prompt_caching,
         "response-schema": parameters.response_schema,
+        "max-tokens": parameters.max_tokens,
     }
 
 

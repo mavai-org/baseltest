@@ -1,9 +1,9 @@
 """Anthropic: the messages protocol (system top-level, x-api-key header).
 
-The protocol requires a generation cap on every request. The family defers
-token vocabulary to its established token concepts, so this adapter pins
-the protocol-required value at a documented constant, recorded in
-provenance whenever the adapter is used.
+The protocol requires a generation cap on every request. It is carried by
+the declared ``max-tokens:`` configuration key (resolved to its default when
+unstated) and sent as the protocol's ``max_tokens`` field, recorded in
+provenance like any other configuration value.
 
 A declared ``response-schema:`` is passed through the protocol's
 structured-output mechanism (``output_config.format`` with a JSON
@@ -33,7 +33,6 @@ from ._protocol import Provider
 if TYPE_CHECKING:
     from .._services import LanguageModelParameters
 
-REQUIRED_MAX_TOKENS = 4096
 _VERSION = "2023-06-01"
 
 
@@ -50,7 +49,7 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
     body: dict[str, Any] = {
         "model": model,
         "system": system,
-        "max_tokens": REQUIRED_MAX_TOKENS,
+        "max_tokens": parameters.max_tokens,
         "messages": [{"role": "user", "content": user_prompt}],
     }
     if parameters.thinking == "adaptive":

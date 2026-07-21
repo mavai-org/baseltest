@@ -39,15 +39,12 @@ from ._protocol import (
 if TYPE_CHECKING:
     from .._services import LanguageModelParameters
 
-ANTHROPIC_REQUIRED_MAX_TOKENS = _anthropic.REQUIRED_MAX_TOKENS
-
 _VENDOR_MODULES = (_openai, _anthropic, _ollama, _mistral, _apertus)
 PROVIDERS: dict[str, Provider] = {
     module.PROVIDER.name: module.PROVIDER for module in _VENDOR_MODULES
 }
 
 __all__ = [
-    "ANTHROPIC_REQUIRED_MAX_TOKENS",
     "ENV_API_KEY",
     "ENV_ENDPOINT",
     "ENV_MODEL",
