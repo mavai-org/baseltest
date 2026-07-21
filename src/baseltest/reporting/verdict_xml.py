@@ -19,6 +19,7 @@ from baseltest.engine import CriterionResult, RunResult
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
+_FORMAT_VERSION = "1.2"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -51,7 +52,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     as ``environment`` entries."""
     ElementTree.register_namespace("", _NAMESPACE)
     root = ElementTree.Element(f"{{{_NAMESPACE}}}verdict-record")
-    root.set("version", "1.2")
+    root.set("version", _FORMAT_VERSION)
     root.set("timestamp", result.finished_at.isoformat())
     root.set("generator", _generator())
 

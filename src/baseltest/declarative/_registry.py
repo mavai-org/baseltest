@@ -27,6 +27,7 @@ from ._signatures import rendered_signature as _rendered_signature
 from ._signatures import snake as _snake
 from ._signatures import value_fits as _value_fits
 from ._steppers import clear_user_steppers
+from ._structured import STOCK_TRANSFORMS
 from ._types import (
     ServiceTypeContract,
     clear_user_types,
@@ -37,7 +38,7 @@ from ._types import (
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
-_STOCK_TRANSFORMS = ("json", "xml", "yaml")
+_STOCK_TRANSFORMS = tuple(STOCK_TRANSFORMS)
 
 # Provenance keys the framework itself writes into every baseline artefact:
 # the binding name, the run-identity keys, and the service-type marker. A

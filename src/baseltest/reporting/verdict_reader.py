@@ -11,8 +11,11 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from .run_design import BaselineDisclosure, ClaimDisclosure, RunDesign
+from .verdict_xml import _NAMESPACE
 
-_NS = "{http://mavai.org/verdict/1.0}"
+# The Clark-notation namespace prefix ElementTree tags every parsed element
+# with — derived from the writer's namespace so the two never drift apart.
+_NS = f"{{{_NAMESPACE}}}"
 
 
 @dataclass(frozen=True, slots=True)

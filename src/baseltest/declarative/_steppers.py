@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from baseltest.statistics import wilson_interval
+from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL, wilson_interval
 
 from ._errors import ContractConfigurationError
 from ._signatures import (
@@ -442,7 +442,7 @@ def _refining_grid(
     hi: float,
     step: float,
     min_step: float,
-    confidence: float = 0.95,
+    confidence: float = DEFAULT_CONFIDENCE_LEVEL,
     min_improvement: float = 0.02,
     confirmation_epochs: int = 2,
     prefer: str = "low",

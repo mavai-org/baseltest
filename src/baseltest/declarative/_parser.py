@@ -18,12 +18,13 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from baseltest.contract import PERCENTILE_LEVELS
 from baseltest.engine import Intent
+from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
 
 from ._errors import ContractConfigurationError
 
 FORMAT_IDENTIFIER = "mavai-contract/1"
-DEFAULT_CONFIDENCE = 0.95
 RAW_VIEW = "raw"
 
 _TOP_LEVEL_KEYS = {
@@ -405,7 +406,7 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
     )
 
 
-_PERCENTILE_KEYS = ("p50", "p90", "p95", "p99")
+_PERCENTILE_KEYS = tuple(PERCENTILE_LEVELS)
 _LATENCY_KEYS = {*_PERCENTILE_KEYS, "empirical", "confidence", "threshold-origin", "contract-ref"}
 
 
@@ -537,7 +538,7 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
     if not any(c.forms for c in criteria) and not expected_pairs:
         raise _fail("every criterion declares at least one postcondition form")
 
-    confidence = data.get("confidence", DEFAULT_CONFIDENCE)
+    confidence = data.get("confidence", DEFAULT_CONFIDENCE_LEVEL)
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:
         raise _fail("`confidence:` must be a number in (0, 1)")
 

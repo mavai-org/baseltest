@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 from statsmodels.stats.proportion import proportion_confint
 
+from ._constants import DEFAULT_CONFIDENCE_LEVEL
 from ._validation import validate_confidence_level, validate_counts
 
 
@@ -53,7 +54,9 @@ class WilsonInterval:
         return self.width / 2
 
 
-def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95) -> WilsonInterval:
+def wilson_interval(
+    successes: int, trials: int, confidence_level: float = DEFAULT_CONFIDENCE_LEVEL
+) -> WilsonInterval:
     """Compute the two-sided Wilson score confidence interval.
 
     Args:
@@ -95,7 +98,9 @@ def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95)
     )
 
 
-def wilson_lower_bound(successes: int, trials: int, confidence_level: float = 0.95) -> float:
+def wilson_lower_bound(
+    successes: int, trials: int, confidence_level: float = DEFAULT_CONFIDENCE_LEVEL
+) -> float:
     """Compute the one-sided Wilson score lower bound for a proportion.
 
     Spends the full `1 - confidence_level` error budget on the lower
@@ -122,7 +127,7 @@ def wilson_lower_bound(successes: int, trials: int, confidence_level: float = 0.
 
 
 def wilson_lower_bound_from_rate(
-    observed_rate: float, trials: int, confidence_level: float = 0.95
+    observed_rate: float, trials: int, confidence_level: float = DEFAULT_CONFIDENCE_LEVEL
 ) -> float:
     """Compute the one-sided Wilson score lower bound from a continuous rate.
 
