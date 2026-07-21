@@ -6,12 +6,13 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Any
 
 from baseltest.contract import (
     Criterion,
     CriterionTally,
+    Outcome,
     ServiceContract,
     ServiceDeliveryError,
     TrialDefectError,
@@ -127,8 +128,8 @@ class SampleRecord:
         input_index: Position of the driving input in the plan's input
             list (the index, not the value — the developer has the list).
         postconditions: ``(name, status)`` pairs across every criterion's
-            postconditions, in evaluation order; status is ``passed``,
-            ``failed``, or ``skipped``.
+            postconditions, in evaluation order, with the three-valued
+            :class:`~baseltest.contract.Outcome` status.
         execution_time_ms: Wall-clock duration of the service invocation
             only — evaluation and bookkeeping are excluded.
         content: The service's response, verbatim.
@@ -139,7 +140,7 @@ class SampleRecord:
     """
 
     input_index: int
-    postconditions: tuple[tuple[str, str], ...]
+    postconditions: tuple[tuple[str, Outcome], ...]
     execution_time_ms: int
     content: str
     passed: bool
@@ -255,8 +256,8 @@ def _preflight(contract: ServiceContract, plan: RunPlan) -> None:
         raise InfeasibleRunError(plan.samples, infeasible)
 
 
-def _skipped_outcomes(criterion: Criterion) -> tuple[tuple[str, str], ...]:
-    return tuple((p.name, "skipped") for p in criterion.postconditions)
+def _skipped_outcomes(criterion: Criterion) -> tuple[tuple[str, Outcome], ...]:
+    return tuple((p.name, Outcome.SKIPPED) for p in criterion.postconditions)
 
 
 def _record_failed_delivery(
@@ -273,7 +274,7 @@ def _failed_delivery_record(
     contract: ServiceContract, input_index: int, duration_ms: int
 ) -> SampleRecord:
     """The per-sample record of an undelivered response: no content, all skipped."""
-    outcomes: list[tuple[str, str]] = []
+    outcomes: list[tuple[str, Outcome]] = []
     for criterion in contract.criteria:
         outcomes.extend(_skipped_outcomes(criterion))
     return SampleRecord(
@@ -309,24 +310,35 @@ def _judge(criterion: Criterion, tally: CriterionTally) -> tuple[float | None, V
     return bound, verdict
 
 
-def bar_standing(result: "CriterionResult") -> str:
-    """The recorded standing of a declared bar: ``met``, ``not met``, or
-    ``unsupportable`` when even a perfect run of this size could not have
-    supported the bar — the family's three-way experiment-time judgement."""
+class BarStanding(StrEnum):
+    """A declared bar's experiment-time standing.
+
+    ``UNSUPPORTABLE`` marks a bar that even a perfect run of this size could
+    not have supported — the family's three-way experiment-time judgement,
+    distinct from a bar that was simply not met.
+    """
+
+    MET = "met"
+    NOT_MET = "not met"
+    UNSUPPORTABLE = "unsupportable"
+
+
+def bar_standing(result: "CriterionResult") -> BarStanding:
+    """The recorded standing of a declared bar."""
     criterion = result.criterion
     if criterion.threshold is None:
         raise ValueError(f"criterion {criterion.name!r} declares no bar")
     if result.verdict is Verdict.PASS:
-        return "met"
+        return BarStanding.MET
     trials = result.tally.trials
     if criterion.cutoff is not None:
         # Regression posture: a perfect run supports the bar iff the run is
         # at least as long as the cutoff demands.
-        return "unsupportable" if criterion.cutoff > trials else "not met"
+        return BarStanding.UNSUPPORTABLE if criterion.cutoff > trials else BarStanding.NOT_MET
     best_possible = wilson_lower_bound(trials, trials, criterion.confidence)
     if best_possible < criterion.threshold:
-        return "unsupportable"
-    return "not met"
+        return BarStanding.UNSUPPORTABLE
+    return BarStanding.NOT_MET
 
 
 def execute(
@@ -374,7 +386,7 @@ def execute(
         duration_ms = round((time.perf_counter() - invoked_at) * 1000)
         views = TrialViews(response, contract.views)  # one cache per trial, all criteria
         trial_passed = True
-        outcomes: list[tuple[str, str]] = []
+        outcomes: list[tuple[str, Outcome]] = []
         failure_reasons: list[tuple[str, str]] = []
         for criterion in contract.criteria:
             try:
