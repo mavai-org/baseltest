@@ -7,8 +7,6 @@ uncertainty stated; a run without thresholds is labelled a measurement
 and uses no verdict vocabulary.
 """
 
-from baseltest.engine import bar_standing
-
 from .console import (
     render_explorations,
     render_infeasible,
@@ -40,7 +38,6 @@ __all__ = [
     "SizingDisclosure",
     "VerdictRecord",
     "VerdictSweep",
-    "bar_standing",
     "parse_verdict_record",
     "read_verdict_directory",
     "render_explorations",

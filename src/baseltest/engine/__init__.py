@@ -22,7 +22,7 @@ from .latency import (
     minimum_contributing_samples,
 )
 from .run import (
-    BarStanding,
+    BarAttainment,
     CriterionResult,
     InfeasibleCriterion,
     InfeasibleRunError,
@@ -31,7 +31,7 @@ from .run import (
     RunPlan,
     RunResult,
     SampleRecord,
-    bar_standing,
+    bar_attainment,
     derive_minimum_samples,
     execute,
     inputs_fingerprint,
@@ -39,7 +39,7 @@ from .run import (
 
 __all__ = [
     "TRANSFORM_CONTRACT_NOTE",
-    "BarStanding",
+    "BarAttainment",
     "BoundEvaluation",
     "BoundStatus",
     "CriterionResult",
@@ -55,7 +55,7 @@ __all__ = [
     "RunResult",
     "SampleRecord",
     "Verdict",
-    "bar_standing",
+    "bar_attainment",
     "derive_minimum_samples",
     "evaluate_latency",
     "execute",

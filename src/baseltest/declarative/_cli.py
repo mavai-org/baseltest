@@ -4,8 +4,14 @@ import argparse
 import sys
 from pathlib import Path
 
-from baseltest.engine import DefectDiagnosisError, InfeasibleRunError, RunResult, Verdict
-from baseltest.reporting import bar_standing, render_infeasible
+from baseltest.engine import (
+    DefectDiagnosisError,
+    InfeasibleRunError,
+    RunResult,
+    Verdict,
+    bar_attainment,
+)
+from baseltest.reporting import render_infeasible
 
 from ._errors import ContractConfigurationError
 from ._parser import load_contract
@@ -387,7 +393,7 @@ def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
 def _assert_recorded_bars(result: RunResult) -> int:
     """The opt-in assertion: fail after recording, unsupportable distinguished."""
     standings = {
-        r.name: bar_standing(r)
+        r.name: bar_attainment(r)
         for r in result.criterion_results
         if r.criterion.threshold is not None
     }
