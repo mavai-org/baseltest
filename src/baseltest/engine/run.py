@@ -10,6 +10,7 @@ from enum import Enum, StrEnum
 from typing import TYPE_CHECKING, Any
 
 from baseltest.contract import (
+    BaseltestError,
     Criterion,
     CriterionTally,
     Outcome,
@@ -81,7 +82,7 @@ class InfeasibleCriterion:
     minimum_samples: int
 
 
-class InfeasibleRunError(Exception):
+class InfeasibleRunError(BaseltestError):
     """The declared sample count cannot support every declared threshold.
 
     Raised before any invocation, under verification intent only. Carries

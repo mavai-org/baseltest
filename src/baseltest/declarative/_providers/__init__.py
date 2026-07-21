@@ -24,7 +24,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from baseltest.contract import ServiceDeliveryError
+from baseltest.contract import BaseltestError, ServiceDeliveryError
 
 from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _mistral, _ollama, _openai
@@ -59,7 +59,7 @@ __all__ = [
 ]
 
 
-class ProviderResponseError(Exception):
+class ProviderResponseError(BaseltestError):
     """The provider rejected the request — a configuration defect, never a sample.
 
     A client-side error status (a rejected schema, an unknown model id,
