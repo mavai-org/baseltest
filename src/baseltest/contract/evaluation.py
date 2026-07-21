@@ -189,7 +189,6 @@ class CriterionTally:
 
     @property
     def observed_rate(self) -> float:
-        """The observed pass rate; 0.0 before any trial is recorded."""
-        if self.trials == 0:
-            return 0.0
+        """The observed pass rate. Read only after the run, when the tally
+        has at least one trial."""
         return self.successes / self.trials

@@ -16,6 +16,8 @@ import math
 
 from scipy.stats import norm
 
+from ._validation import validate_unit_interval
+
 
 def _validate_rates(baseline_rate: float, effect_size: float) -> float:
     if not (0.0 < baseline_rate <= 1.0) or math.isnan(baseline_rate):
@@ -26,11 +28,6 @@ def _validate_rates(baseline_rate: float, effect_size: float) -> float:
     if alternative_rate <= 0.0:
         raise ValueError("effect_size cannot exceed baseline_rate")
     return alternative_rate
-
-
-def _validate_unit_interval(name: str, value: float) -> None:
-    if math.isnan(value) or not (0.0 < value < 1.0):
-        raise ValueError(f"{name} must be strictly between 0 and 1")
 
 
 def required_sample_size(
@@ -59,8 +56,8 @@ def required_sample_size(
             is at least as large as `baseline_rate` (the alternative
             rate would be non-positive).
     """
-    _validate_unit_interval("confidence_level", confidence_level)
-    _validate_unit_interval("power", power)
+    validate_unit_interval("confidence_level", confidence_level)
+    validate_unit_interval("power", power)
     alternative_rate = _validate_rates(baseline_rate, effect_size)
 
     z_alpha = float(norm.ppf(confidence_level))
@@ -103,7 +100,7 @@ def achieved_power(
     """
     if sample_size <= 0:
         raise ValueError("sample_size must be a positive integer")
-    _validate_unit_interval("confidence_level", confidence_level)
+    validate_unit_interval("confidence_level", confidence_level)
     alternative_rate = _validate_rates(baseline_rate, effect_size)
 
     z_alpha = float(norm.ppf(confidence_level))
