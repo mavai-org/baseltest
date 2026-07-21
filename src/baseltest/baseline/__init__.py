@@ -21,7 +21,12 @@ from .reader import (
     read_baseline,
     resolve_baseline,
 )
-from .record import BaselineRecord, CriterionCharacterisation, NormativeJudgement
+from .record import (
+    BaselineRecord,
+    CriterionCharacterisation,
+    JudgementState,
+    NormativeJudgement,
+)
 from .writer import baseline_filename, render_baseline, write_baseline
 
 __all__ = [
@@ -33,6 +38,7 @@ __all__ = [
     "resolve_baseline",
     "BaselineRecord",
     "CriterionCharacterisation",
+    "JudgementState",
     "NormativeJudgement",
     "baseline_filename",
     "render_baseline",

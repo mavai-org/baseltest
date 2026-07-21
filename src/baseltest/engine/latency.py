@@ -31,6 +31,16 @@ class BoundStatus(StrEnum):
     FAIL = "fail"
     INFEASIBLE = "infeasible"
 
+
+class LatencyBasis(StrEnum):
+    """Which population a latency summary's durations were drawn from.
+
+    Latency is conditioned on functional success throughout the family, so
+    the only basis is the passing samples.
+    """
+
+    PASSING_SAMPLES = "passing-samples"
+
 if TYPE_CHECKING:  # a type-only edge: the run module imports this one at runtime
     from .run import SampleRecord
 
@@ -63,14 +73,14 @@ class LatencyBlock:
         sorted_passing_latencies_ms: Every contributing duration in
             milliseconds, ascending — length ``contributing_samples`` when
             built from a run.
-        basis: The population token naming which samples contributed.
+        basis: The :class:`LatencyBasis` naming which samples contributed.
     """
 
     contributing_samples: int
     total_samples: int
     percentiles: tuple[tuple[str, int], ...]
     sorted_passing_latencies_ms: tuple[int, ...] = ()
-    basis: str = "passing-samples"
+    basis: LatencyBasis = LatencyBasis.PASSING_SAMPLES
 
 
 def minimum_contributing_samples(percentile: str) -> int:

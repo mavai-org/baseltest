@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from baseltest.engine import LatencyBasis
+
 from .writer import SCHEMA_VERSION
 
 _READABLE_SCHEMAS = frozenset({SCHEMA_VERSION, "baseltest-baseline-1"})
@@ -47,7 +49,7 @@ class StoredLatency:
     the percentiles are the measurement run's descriptive summary.
     """
 
-    basis: str
+    basis: LatencyBasis
     contributing_samples: int
     total_samples: int
     percentiles: tuple[tuple[str, int], ...]
@@ -166,7 +168,7 @@ def _parse_latency(body: dict[str, Any] | None) -> StoredLatency | None:
     )
     vector = tuple(int(v) for v in body.get("sortedPassingLatenciesMs", []))
     return StoredLatency(
-        basis=str(body["basis"]),
+        basis=LatencyBasis(body["basis"]),
         contributing_samples=int(body["contributingSamples"]),
         total_samples=int(body["totalSamples"]),
         percentiles=percentiles,

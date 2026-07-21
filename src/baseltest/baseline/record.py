@@ -3,8 +3,21 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 
 from baseltest.engine import LatencyBlock, RunResult, latency_block
+
+
+class JudgementState(StrEnum):
+    """A measurement-time normative judgement's outcome.
+
+    The schema also reserves ``unsupportable`` for callers whose sample size
+    was not validated up front; baseltest validates every run's size before
+    sampling, so it emits only ``met`` or ``failed``.
+    """
+
+    MET = "met"
+    FAILED = "failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,14 +29,12 @@ class NormativeJudgement:
     time. It never affects how the artefact is consumed.
 
     Attributes:
-        state: ``"met"`` or ``"failed"`` (the schema reserves
-            ``"unsupportable"`` for callers whose sample size was not
-            validated up front).
+        state: The :class:`JudgementState` reached against the bar.
         stipulated_threshold: The declared threshold judged against.
         confidence: The confidence level of the judgement.
     """
 
-    state: str
+    state: JudgementState
     stipulated_threshold: float
     confidence: float
 
@@ -106,7 +117,9 @@ class BaselineRecord:
                 criterion = criterion_result.criterion
                 assert criterion.threshold is not None
                 judgement = NormativeJudgement(
-                    state="met" if criterion_result.verdict.value == "pass" else "failed",
+                    state=JudgementState.MET
+                    if criterion_result.verdict.value == "pass"
+                    else JudgementState.FAILED,
                     stipulated_threshold=criterion.threshold,
                     confidence=criterion.confidence,
                 )
