@@ -30,6 +30,8 @@ from dataclasses import dataclass
 
 from statsmodels.stats.proportion import proportion_confint
 
+from ._validation import validate_confidence_level, validate_counts
+
 
 @dataclass(frozen=True, slots=True)
 class WilsonInterval:
@@ -49,20 +51,6 @@ class WilsonInterval:
     def margin_of_error(self) -> float:
         """Half the interval width."""
         return self.width / 2
-
-
-def _validate_counts(successes: int, trials: int) -> None:
-    if trials <= 0:
-        raise ValueError("trials must be a positive integer")
-    if successes < 0:
-        raise ValueError("successes must be non-negative")
-    if successes > trials:
-        raise ValueError("successes cannot exceed trials")
-
-
-def _validate_confidence_level(confidence_level: float) -> None:
-    if math.isnan(confidence_level) or not (0.0 < confidence_level < 1.0):
-        raise ValueError("confidence_level must be strictly between 0 and 1")
 
 
 def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95) -> WilsonInterval:
@@ -90,8 +78,8 @@ def wilson_interval(successes: int, trials: int, confidence_level: float = 0.95)
     the point of using the Wilson construction for near-extreme
     pass rates.
     """
-    _validate_counts(successes, trials)
-    _validate_confidence_level(confidence_level)
+    validate_counts(successes, trials)
+    validate_confidence_level(confidence_level)
 
     observed_rate = successes / trials
     alpha = 1 - confidence_level
@@ -129,7 +117,7 @@ def wilson_lower_bound(successes: int, trials: int, confidence_level: float = 0.
         ValueError: If `trials <= 0`, `successes` is out of range, or
             `confidence_level` is not strictly between 0 and 1.
     """
-    _validate_counts(successes, trials)
+    validate_counts(successes, trials)
     return wilson_lower_bound_from_rate(successes / trials, trials, confidence_level)
 
 
@@ -162,7 +150,7 @@ def wilson_lower_bound_from_rate(
         raise ValueError("observed_rate must be between 0 and 1")
     if trials <= 0:
         raise ValueError("trials must be a positive integer")
-    _validate_confidence_level(confidence_level)
+    validate_confidence_level(confidence_level)
 
     # Spend the full alpha budget on the lower tail: `proportion_confint`
     # always splits its `alpha` in half between the two tails, so doubling

@@ -37,3 +37,29 @@ def test_statistics_package_imports_nothing_from_other_baseltest_packages() -> N
                 offending.append((source_path, module_name))
 
     assert not offending, f"baseltest.statistics must not import outside itself: {offending}"
+
+
+# The shared boundary preconditions. Each is defined once, in `_validation.py`,
+# and imported by the modules that share it; re-defining any of them in a
+# sibling module resurrects the byte-identical duplication this consolidation
+# removed. (Function-specific groupers like `_validate_rates` are deliberately
+# not listed -- those belong to their one caller.)
+_SHARED_VALIDATORS = frozenset(
+    {"validate_counts", "validate_confidence_level", "validate_unit_interval"}
+)
+
+
+def _defined_function_names(source_path: Path) -> set[str]:
+    tree = ast.parse(source_path.read_text(), filename=str(source_path))
+    return {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+
+
+def test_shared_validators_are_single_sourced() -> None:
+    definitions: dict[str, list[str]] = {name: [] for name in _SHARED_VALIDATORS}
+
+    for source_path in _PACKAGE_ROOT.rglob("*.py"):
+        for name in _defined_function_names(source_path) & _SHARED_VALIDATORS:
+            definitions[name].append(source_path.name)
+
+    duplicated = {name: files for name, files in definitions.items() if files != ["_validation.py"]}
+    assert not duplicated, f"shared validators must live only in _validation.py: {duplicated}"

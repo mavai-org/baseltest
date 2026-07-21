@@ -51,9 +51,9 @@ class CriterionStatistics:
 
     @property
     def observed_rate(self) -> float:
-        """The observed pass rate; 0.0 with no trials."""
-        trials = self.passes + self.fails
-        return self.passes / trials if trials else 0.0
+        """The observed pass rate. A recorded criterion has at least one
+        trial (a pass or a fail)."""
+        return self.passes / (self.passes + self.fails)
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +98,9 @@ class ExplorationRecord:
 
     @property
     def observed_rate(self) -> float:
-        """The aggregate observed pass rate; 0.0 with no samples."""
-        return self.successes / self.samples_executed if self.samples_executed else 0.0
+        """The aggregate observed pass rate. A recorded exploration executed
+        at least one sample."""
+        return self.successes / self.samples_executed
 
     @staticmethod
     def from_run_result(

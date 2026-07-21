@@ -32,6 +32,8 @@ from enum import Enum
 
 from scipy.stats import norm
 
+from ._validation import validate_counts
+
 
 class Verdict(Enum):
     """The outcome of a single test criterion."""
@@ -39,15 +41,6 @@ class Verdict(Enum):
     PASS = "pass"
     FAIL = "fail"
     INCONCLUSIVE = "inconclusive"
-
-
-def _validate_counts(successes: int, trials: int) -> None:
-    if trials <= 0:
-        raise ValueError("trials must be a positive integer")
-    if successes < 0:
-        raise ValueError("successes must be non-negative")
-    if successes > trials:
-        raise ValueError("successes cannot exceed trials")
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +90,7 @@ def evaluate_compliance(
         ValueError: If `trials <= 0`, `successes` is out of range, or
             `confidence_level` is not strictly between 0 and 1.
     """
-    _validate_counts(successes, trials)
+    validate_counts(successes, trials)
     if math.isnan(threshold) or not (0.0 <= threshold <= 1.0):
         raise ValueError("threshold must be between 0 and 1")
     if math.isnan(confidence_level) or not (0.0 < confidence_level < 1.0):
@@ -161,7 +154,7 @@ def evaluate_regression(successes: int, trials: int, cutoff: int) -> RegressionV
         ValueError: If `trials <= 0`, `successes` is out of range, or
             `cutoff` is outside `[0, trials]`.
     """
-    _validate_counts(successes, trials)
+    validate_counts(successes, trials)
     if cutoff < 0 or cutoff > trials:
         raise ValueError("cutoff must be between 0 and trials")
 

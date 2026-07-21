@@ -31,6 +31,7 @@ import math
 
 from scipy.stats import norm
 
+from ._validation import validate_unit_interval
 from .wilson import wilson_lower_bound_from_rate
 
 # A requirement beyond this is a misconfigured tolerance, not a plan.
@@ -40,14 +41,9 @@ _REQUIRED_SAMPLES_CAP = 10_000_000
 _DETECTABLE_RATE_TOLERANCE = 1e-10
 
 
-def _validate_unit_interval(name: str, value: float) -> None:
-    if math.isnan(value) or not (0.0 < value < 1.0):
-        raise ValueError(f"{name} must be strictly between 0 and 1")
-
-
 def _validate_sizing_domain(baseline_rate: float, minimum_acceptable_rate: float) -> None:
-    _validate_unit_interval("baseline_rate", baseline_rate)
-    _validate_unit_interval("minimum_acceptable_rate", minimum_acceptable_rate)
+    validate_unit_interval("baseline_rate", baseline_rate)
+    validate_unit_interval("minimum_acceptable_rate", minimum_acceptable_rate)
     if minimum_acceptable_rate >= baseline_rate:
         raise ValueError(
             f"minimum_acceptable_rate ({minimum_acceptable_rate}) must sit strictly "
@@ -93,7 +89,7 @@ def power_at(
     if sample_size <= 0:
         raise ValueError("sample_size must be a positive integer")
     _validate_sizing_domain(baseline_rate, minimum_acceptable_rate)
-    _validate_unit_interval("confidence_level", confidence_level)
+    validate_unit_interval("confidence_level", confidence_level)
 
     floor = wilson_lower_bound_from_rate(baseline_rate, sample_size, confidence_level)
     standard_error = math.sqrt(
@@ -135,8 +131,8 @@ def required_samples_for_power(
             that baseline is a misconfiguration, not a plan.
     """
     _validate_sizing_domain(baseline_rate, minimum_acceptable_rate)
-    _validate_unit_interval("confidence_level", confidence_level)
-    _validate_unit_interval("target_power", target_power)
+    validate_unit_interval("confidence_level", confidence_level)
+    validate_unit_interval("target_power", target_power)
 
     def power_of(n: int) -> float:
         return power_at(n, baseline_rate, minimum_acceptable_rate, confidence_level)
@@ -198,9 +194,9 @@ def detectable_rate(
     """
     if sample_size <= 0:
         raise ValueError("sample_size must be a positive integer")
-    _validate_unit_interval("baseline_rate", baseline_rate)
-    _validate_unit_interval("confidence_level", confidence_level)
-    _validate_unit_interval("target_power", target_power)
+    validate_unit_interval("baseline_rate", baseline_rate)
+    validate_unit_interval("confidence_level", confidence_level)
+    validate_unit_interval("target_power", target_power)
 
     lower = 1e-9
     upper = baseline_rate - 1e-9

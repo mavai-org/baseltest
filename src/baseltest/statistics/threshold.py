@@ -32,6 +32,7 @@ from enum import Enum
 from scipy.stats import binom
 
 from ._constants import SOUNDNESS_FLOOR_CONFIDENCE
+from ._validation import validate_confidence_level
 from .power import required_sample_size
 from .wilson import wilson_lower_bound, wilson_lower_bound_from_rate
 
@@ -51,11 +52,6 @@ def _validate_baseline(baseline_successes: int, baseline_trials: int) -> None:
         raise ValueError("baseline_successes must be non-negative")
     if baseline_successes > baseline_trials:
         raise ValueError("baseline_successes cannot exceed baseline_trials")
-
-
-def _validate_confidence_level(confidence_level: float) -> None:
-    if math.isnan(confidence_level) or not (0.0 < confidence_level < 1.0):
-        raise ValueError("confidence_level must be strictly between 0 and 1")
 
 
 def _effective_baseline_rate(
@@ -128,7 +124,7 @@ def derive_sample_size_first(
     _validate_baseline(baseline_successes, baseline_trials)
     if test_samples <= 0:
         raise ValueError("test_samples must be a positive integer")
-    _validate_confidence_level(confidence_level)
+    validate_confidence_level(confidence_level)
 
     effective_rate = _effective_baseline_rate(baseline_successes, baseline_trials, confidence_level)
     min_pass_rate = wilson_lower_bound_from_rate(effective_rate, test_samples, confidence_level)

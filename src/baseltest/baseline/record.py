@@ -65,8 +65,9 @@ class CriterionCharacterisation:
 
     @property
     def observed_rate(self) -> float:
-        """The observed pass rate; 0.0 with no trials."""
-        return self.successes / self.trials if self.trials else 0.0
+        """The observed pass rate. A recorded characterisation has at least
+        one trial."""
+        return self.successes / self.trials
 
 
 @dataclass(frozen=True, slots=True)
