@@ -212,7 +212,7 @@ def inputs_fingerprint(inputs: Sequence[Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def derive_minimum_samples(contract: ServiceContract) -> int:
+def derive_minimum_samples(contract: ServiceContract[Any]) -> int:
     """The smallest sample count supporting every declared threshold.
 
     Per-criterion, the minimum feasible sample size at that criterion's
@@ -233,7 +233,7 @@ def derive_minimum_samples(contract: ServiceContract) -> int:
     )
 
 
-def _preflight(contract: ServiceContract, plan: RunPlan) -> None:
+def _preflight(contract: ServiceContract[Any], plan: RunPlan) -> None:
     """Refuse an infeasible verification test before any invocation.
 
     Only a test is refused: feasibility guards verdicts, and a measure run
@@ -261,7 +261,7 @@ def _skipped_outcomes(criterion: Criterion) -> tuple[tuple[str, Outcome], ...]:
 
 
 def _record_failed_delivery(
-    contract: ServiceContract, tallies: dict[str, CriterionTally], reason: str
+    contract: ServiceContract[Any], tallies: dict[str, CriterionTally], reason: str
 ) -> None:
     """Count one undelivered sample as a failure of every criterion."""
     for criterion in contract.criteria:
@@ -271,7 +271,7 @@ def _record_failed_delivery(
 
 
 def _failed_delivery_record(
-    contract: ServiceContract, input_index: int, duration_ms: int
+    contract: ServiceContract[Any], input_index: int, duration_ms: int
 ) -> SampleRecord:
     """The per-sample record of an undelivered response: no content, all skipped."""
     outcomes: list[tuple[str, Outcome]] = []
@@ -342,7 +342,7 @@ def bar_standing(result: "CriterionResult") -> BarStanding:
 
 
 def execute(
-    contract: ServiceContract,
+    contract: ServiceContract[Any],
     plan: RunPlan,
     on_sample: Callable[[int, int], None] | None = None,
     record_samples: bool = False,
