@@ -193,21 +193,26 @@ def _expected_postconditions(
     pairs: Sequence[tuple[int, Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
 ) -> list[Postcondition]:
-    """Per-input expectations: each check dispatches on the trial's input."""
+    """Per-input expectations: each check applies only to its own input."""
     dispatching: list[Postcondition] = []
     for input_index, input_value, declarations in pairs:
         for declaration in declarations:
             where = f"expected for input {input_index} ({bounded_excerpt(str(input_value), 64)!r})"
             inner = _build_form(declaration, transforms, where)
-            dispatching.append(_dispatch_on_input(input_index, input_value, inner))
+            dispatching.append(_dispatch_on_input(input_index, inner))
     return dispatching
 
 
-def _dispatch_on_input(input_index: int, input_value: Any, inner: Postcondition) -> Postcondition:
+def _dispatch_on_input(input_index: int, inner: Postcondition) -> Postcondition:
+    """A per-input expectation: the inner check scoped to one input.
+
+    Scoping is declarative — ``applies_to_input`` carries the index, and the
+    engine gates on the trial's own input index — so nothing here reads shared
+    run state, and inputs with equal values are never conflated.
+    """
+
     def check(subject: Any) -> PostconditionResult:
-        if _CURRENT_INPUT.get("value") != input_value:
-            return PostconditionResult.ok()
-        result = inner.evaluate(subject)
+        result = inner.check(subject)
         if result.passed:
             return result
         # Attribute the failure to its input structurally: identities and
@@ -218,20 +223,19 @@ def _dispatch_on_input(input_index: int, input_value: Any, inner: Postcondition)
         reason = result.reason or f"postcondition {inner.name!r} not satisfied"
         return PostconditionResult.failed(f"input {input_index}: {reason}")
 
-    return Postcondition(name=per_input_name(inner.name, input_index), check=check, view=inner.view)
+    return Postcondition(
+        name=per_input_name(inner.name, input_index),
+        check=check,
+        view=inner.view,
+        applies_to_input=input_index,
+    )
 
 
-# The engine evaluates postconditions without threading the input through;
-# per-input dispatch needs it. The instrumented invoke below records the
-# current input -- single-threaded per run by design.
-_CURRENT_INPUT: dict[str, Any] = {}
-
-
-def _instrumented_invoke(invoke: Callable[..., str]) -> Callable[[Any], str]:
-    """Record the driving input, and splat a tuple-valued one positionally."""
+def _splat_tuple_invoke(invoke: Callable[..., str]) -> Callable[[Any], str]:
+    """Splat a tuple-valued input across the service's positional parameters;
+    a scalar input passes straight through."""
 
     def wrapped(value: Any) -> str:
-        _CURRENT_INPUT["value"] = value
         return invoke(*value) if isinstance(value, tuple) else invoke(value)
 
     return wrapped
@@ -606,7 +610,7 @@ def instantiate_explore(
         _validate_inputs(declaration.service, per_sample, declaration.inputs)
         contract = ServiceContract(
             contract_id=declaration.contract,
-            invoke=_instrumented_invoke(per_sample),
+            invoke=_splat_tuple_invoke(per_sample),
             criteria=criteria,
             views=views,
         )
@@ -704,7 +708,7 @@ def instantiate_optimize_point(
     )
     contract = ServiceContract(
         contract_id=declaration.contract,
-        invoke=_instrumented_invoke(per_sample),
+        invoke=_splat_tuple_invoke(per_sample),
         criteria=criteria,
         views=views,
     )
@@ -900,7 +904,7 @@ def instantiate(
         getattr(definition.configuration, "response_schema", None) if definition else None
     )
     validate_declared_paths(declaration, response_schema, declaration.service)
-    invoke = _instrumented_invoke(resolved)
+    invoke = _splat_tuple_invoke(resolved)
     transforms = declaration.transforms
     views = _build_views(declaration)
     expected = _expected_postconditions(declaration.expected_pairs, transforms)

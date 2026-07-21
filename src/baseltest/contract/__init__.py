@@ -22,6 +22,7 @@ type.
 from .errors import BaseltestError, ContractValidationError, PreconditionError
 from .evaluation import (
     CriterionTally,
+    EvaluationContext,
     Outcome,
     TrialDefectError,
     TrialEvaluation,
@@ -66,6 +67,7 @@ __all__ = [
     "TransformError",
     "TrialDefectError",
     "TrialEvaluation",
+    "EvaluationContext",
     "TrialViews",
     "contains",
     "equals",

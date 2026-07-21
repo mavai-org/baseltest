@@ -54,14 +54,25 @@ class Postcondition:
             PostconditionResult``.
         view: The name of the view the check judges; ``"raw"`` (the
             untransformed response) by default.
+        applies_to_input: For a per-input expectation, the index of the
+            input this check judges; the trial's own input index gates it,
+            so on any other input the check trivially passes. ``None`` (the
+            default) means the check applies to every input.
     """
 
     name: str
     check: Callable[[Any], PostconditionResult]
     view: str = "raw"
+    applies_to_input: int | None = None
 
-    def evaluate(self, subject: Any) -> PostconditionResult:
-        """Apply the check to the resolved subject."""
+    def evaluate(self, subject: Any, input_index: int) -> PostconditionResult:
+        """Apply the check to the resolved subject, gated on the driving input.
+
+        A per-input expectation (``applies_to_input`` set) is judged only on
+        its own input; on any other it passes without running the check.
+        """
+        if self.applies_to_input is not None and self.applies_to_input != input_index:
+            return PostconditionResult.ok()
         return self.check(subject)
 
 

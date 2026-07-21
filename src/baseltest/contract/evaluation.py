@@ -108,7 +108,27 @@ class TrialEvaluation:
     outcomes: tuple[tuple[str, Outcome], ...] = ()
 
 
-def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
+@dataclass(frozen=True, slots=True)
+class EvaluationContext:
+    """The per-iteration bundle threaded through evaluation.
+
+    Carries which input drove this sample and its position in the plan's
+    input list. It replaces the module-global input channel the per-input
+    dispatch once read: each trial is now judged against an explicit,
+    self-contained context, so the per-sample unit is a pure function of its
+    inputs — the groundwork for future bounded-parallel sampling. The
+    ``index`` is what per-input expectations dispatch on (unique per input
+    position, so equal input values are never conflated); ``input`` is the
+    driving value, carried for diagnosis.
+    """
+
+    index: int
+    input: Any
+
+
+def evaluate_trial(
+    criterion: Criterion, views: TrialViews, context: EvaluationContext
+) -> TrialEvaluation:
     """Evaluate one response (via its view cache) against one criterion.
 
     Applies every postcondition in declaration order to its named subject;
@@ -144,7 +164,7 @@ def evaluate_trial(criterion: Criterion, views: TrialViews) -> TrialEvaluation:
                 original=defect,
             ) from defect
         try:
-            result = postcondition.evaluate(subject)
+            result = postcondition.evaluate(subject, context.index)
         except Exception as defect:
             raise TrialDefectError(
                 view=postcondition.view,
