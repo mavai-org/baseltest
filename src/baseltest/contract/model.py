@@ -2,9 +2,26 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Generic, Protocol, TypeVar
 
 from .postconditions import Postcondition
+
+_RequestContra = TypeVar("_RequestContra", contravariant=True)
+
+
+class Service(Protocol[_RequestContra]):
+    """The stochastic service under test: one request in, one response out.
+
+    Structural, so an author's plain function or lambda ``(request) -> str``
+    is a ``Service`` without inheriting anything. An anticipated bad response
+    is *returned* for the criteria to judge; only a genuine defect raises,
+    aborting the run.
+    """
+
+    def __call__(self, request: _RequestContra, /) -> str: ...
+
+
+RequestT = TypeVar("RequestT")
 
 
 class TransformError(Exception):
@@ -204,17 +221,17 @@ class LatencyBar:
 
 
 @dataclass(frozen=True, slots=True)
-class ServiceContract:
+class ServiceContract(Generic[RequestT]):
     """A stochastic service under test: identity, invocation, and criteria.
 
     Attributes:
         contract_id: The contract's stable identifier; names run artefacts.
-        invoke: The invocation callable -- accepts one input value (opaque
-            to the engine; the declarative layer splats a tuple-valued
-            input as positional arguments before it gets here), returns one
-            response. An anticipated bad response is *returned* (for the
-            criteria to judge); only genuine defects raise, and a raising
-            invocation aborts the run.
+        invoke: The service under test (a :class:`Service`) -- accepts one
+            input value (opaque to the engine; the declarative layer splats a
+            tuple-valued input as positional arguments before it gets here),
+            returns one response. An anticipated bad response is *returned*
+            (for the criteria to judge); only genuine defects raise, and a
+            raising invocation aborts the run.
         criteria: One or more criteria, each judged independently over the
             same samples.
         views: Named transformations of the response -- the transformation
@@ -229,9 +246,9 @@ class ServiceContract:
     """
 
     contract_id: str
-    invoke: Callable[[Any], str]
+    invoke: Service[RequestT]
     criteria: tuple[Criterion, ...]
-    views: Mapping[str, Callable[[str], Any]] = field(default_factory=dict)
+    views: Mapping[str, Callable[[str], object]] = field(default_factory=dict)
     latency: LatencyBar | None = None
 
     def __post_init__(self) -> None:

@@ -530,7 +530,7 @@ class ExploreConfiguration:
     parameters: Any
     factors: dict[str, Any]
     configuration: dict[str, Any]
-    contract: ServiceContract
+    contract: ServiceContract[Any]
     plan: RunPlan
 
 
@@ -635,7 +635,7 @@ class OptimizePoint:
 
     parameters: Any
     configuration: dict[str, Any]
-    contract: ServiceContract
+    contract: ServiceContract[Any]
     plan: RunPlan
 
 
@@ -857,7 +857,7 @@ def instantiate(
     baseline_dir: Path | None = None,
     samples_provenance: str | None = None,
 ) -> tuple[
-    ServiceContract,
+    ServiceContract[Any],
     RunPlan,
     RunSizing,
     dict[str, str],
