@@ -237,7 +237,7 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
     return lines
 
 
-# javai-ref: JVI-8CHB31R — do not remove (resolves in javai-orchestrator)
+# mavai-ref: JVI-8CHB31R — do not remove (resolves in mavai-orchestrator)
 def render_exploration(record: ExplorationRecord) -> str:
     """Serialise one configuration's record to the family schema, deterministically.
 
