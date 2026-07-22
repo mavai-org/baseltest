@@ -37,13 +37,13 @@ from ._disclosure import sizing_disclosure
 from ._errors import ContractConfigurationError
 from ._instantiate import (
     BaselineContext,
-    _validate_inputs,
     descriptive_view_fingerprints,
     instantiate,
     instantiate_explore,
     instantiate_optimize_point,
     optimize_definition,
 )
+from ._instantiate._service import _validate_inputs
 from ._optimize import OptimizationDeclaration
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, load_contract
 from ._registrations import discover_registrations
@@ -158,7 +158,7 @@ def run(
     if registry is None:
         registry = discover_registrations(contract_path)
     services = discover_services(contract_path, registry)
-    contract, plan, sizing, service_provenance, skipped, baseline_context = instantiate(
+    instantiation = instantiate(
         declaration,
         services,
         registry,
@@ -167,6 +167,12 @@ def run(
         baseline_dir=Path(baseline_dir),
         samples_provenance=samples_provenance,
     )
+    contract = instantiation.contract
+    plan = instantiation.plan
+    sizing = instantiation.sizing
+    service_provenance = instantiation.service_provenance
+    skipped = instantiation.skipped
+    baseline_context = instantiation.baseline_context
     design = None
     if run_mode is RunKind.TEST:
         design = _run_design(sizing_resolution, baseline_context)
