@@ -177,6 +177,39 @@ class TestProgressLine:
         assert _tty_progress("anything") is None  # captured stderr is not a TTY
 
 
+class TestSingleParse:
+    def test_test_run_parses_each_input_once(self, tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
+        """A ``test`` invocation reads the contract, its registrations, and its
+        services exactly once — the sizing pass and the run share one parse."""
+        monkeypatch.chdir(tmp_path)
+        contract = write_contract(tmp_path)
+        from baseltest.declarative._runner import _load
+
+        counts = {"contract": 0, "registrations": 0, "services": 0}
+        real_contract = _load.load_contract
+        real_registrations = _load.discover_registrations
+        real_services = _load.discover_services
+
+        def counting_contract(path):  # type: ignore[no-untyped-def]
+            counts["contract"] += 1
+            return real_contract(path)
+
+        def counting_registrations(path):  # type: ignore[no-untyped-def]
+            counts["registrations"] += 1
+            return real_registrations(path)
+
+        def counting_services(path, registry):  # type: ignore[no-untyped-def]
+            counts["services"] += 1
+            return real_services(path, registry)
+
+        monkeypatch.setattr(_load, "load_contract", counting_contract)
+        monkeypatch.setattr(_load, "discover_registrations", counting_registrations)
+        monkeypatch.setattr(_load, "discover_services", counting_services)
+
+        assert main(["test", str(contract), "--samples", "60"]) == 0
+        assert counts == {"contract": 1, "registrations": 1, "services": 1}
+
+
 def test_the_command_is_basel() -> None:
     """The baseltest package ships exactly one console script, named basel."""
     from importlib.metadata import entry_points
