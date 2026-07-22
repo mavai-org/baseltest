@@ -19,14 +19,6 @@ def _percent(confidence: float) -> str:
     return f"{percent:.0f}%" if percent == int(percent) else f"{percent}%"
 
 
-def _variance(successes: int, trials: int) -> float:
-    """Sample variance of the observed Bernoulli rate."""
-    if trials == 0:
-        return 0.0
-    rate = successes / trials
-    return rate * (1 - rate)
-
-
 def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str]:
     """One judged criterion's table cells: name, verdict, passed, required,
     threshold, basis."""
@@ -106,7 +98,7 @@ def _characterised_lines(
         (
             f"    {tally.successes} of {tally.trials} responses met expectations "
             f"(observed rate {tally.observed_rate:.4f}, "
-            f"variance {_variance(tally.successes, tally.trials):.4f})"
+            f"variance {tally.variance:.4f})"
         ),
         *_failure_reason_lines(result),
     ]
@@ -278,12 +270,10 @@ def render_explorations(
         "renders no verdict)"
     ]
     for label, result, path in entries:
-        successes = result.overall_successes
-        total = result.plan.samples
-        rate = successes / total if total else 0.0
         lines.append(
-            f"  configuration {label}: {successes} of {total} responses met "
-            f"expectations (observed rate {rate:.4f})"
+            f"  configuration {label}: {result.overall_successes} of "
+            f"{result.plan.samples} responses met expectations "
+            f"(observed rate {result.observed_rate:.4f})"
         )
         reasons: Counter[str] = Counter()
         for criterion_result in result.criterion_results:

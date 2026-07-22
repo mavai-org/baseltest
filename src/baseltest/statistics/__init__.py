@@ -28,6 +28,7 @@ from .latency import (
     latency_percentile,
 )
 from .power import achieved_power, required_sample_size
+from .proportion import proportion_standard_error, proportion_variance
 from .sizing import detectable_rate, power_at, required_samples_for_power
 from .summary import MultiRunSummary, RunOutcome, summarize_runs
 from .threshold import (
@@ -82,6 +83,8 @@ __all__ = [
     "evaluate_compliance",
     "evaluate_regression",
     "power_at",
+    "proportion_standard_error",
+    "proportion_variance",
     "required_sample_size",
     "required_samples_for_power",
     "summarize_runs",
