@@ -374,8 +374,8 @@ def main(argv: list[str] | None = None) -> int:
 def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
     """The ``test`` verb's sizing conversation, before any invocation."""
     declaration = load_contract(arguments.contract_file)
-    discover_registrations(arguments.contract_file)
-    services = discover_services(arguments.contract_file)
+    registry = discover_registrations(arguments.contract_file)
+    services = discover_services(arguments.contract_file, registry)
     return resolve_test_sizing(
         declaration,
         services,
@@ -387,6 +387,7 @@ def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
         accept_weak_design=arguments.accept_weak_design,
         emit_json=arguments.emit_json,
         force=arguments.force,
+        registry=registry,
     )
 
 

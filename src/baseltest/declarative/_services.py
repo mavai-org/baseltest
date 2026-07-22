@@ -26,7 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import replace as _replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
@@ -38,13 +38,10 @@ from ._providers import (
     build_invoker,
     resolve_provider,
 )
-from ._types import (
-    ServiceTypeContract,
-    closest_type_hint,
-    find_type,
-    register_builtin_type,
-    registered_type_names,
-)
+from ._types import ServiceTypeContract
+
+if TYPE_CHECKING:
+    from ._registry import Registry
 
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
 SERVICES_FILENAME = "mavai-services.yaml"
@@ -322,8 +319,8 @@ def _parse_definition(
 
 
 # mavai-ref: JVI-GGCWP5H — do not remove (resolves in mavai-orchestrator)
-def parse_services(text: str) -> dict[str, ServiceDefinition]:
-    """Parse a service-definition file's text."""
+def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefinition]:
+    """Parse a service-definition file's text, resolving types against the registry."""
     yaml = YAML(typ="safe", pure=True)
     yaml.version = (1, 2)
     try:
@@ -342,25 +339,27 @@ def parse_services(text: str) -> dict[str, ServiceDefinition]:
         if not isinstance(entry, dict):
             raise _fail(f"service {name!r} must be a mapping")
         service_type = entry.get("type")
-        type_contract = find_type(str(service_type)) if service_type is not None else None
+        type_contract = registry.find_type(str(service_type)) if service_type is not None else None
         if type_contract is None:
-            registered = ", ".join(registered_type_names())
+            registered = ", ".join(registry.registered_type_names())
             raise _fail(
                 f"service {name!r}: unknown `type: {service_type}` — registered types: "
-                f"{registered}{closest_type_hint(str(service_type))} (built-in types "
+                f"{registered}{registry.closest_type_hint(str(service_type))} (built-in types "
                 "ship with the framework; user types are registered in "
-                "mavai-bindings.py with @binding_factory)"
+                "mavai-bindings.py with @registry.binding_factory)"
             )
         definitions[str(name)] = _parse_definition(str(name), entry, type_contract)
     return definitions
 
 
-def discover_services(contract_path: Path) -> dict[str, ServiceDefinition]:
+def discover_services(
+    contract_path: Path, registry: "Registry"
+) -> dict[str, ServiceDefinition]:
     """Load definitions from the conventional locations, nearest first."""
     for directory in (contract_path.parent, Path.cwd()):
         candidate = directory / SERVICES_FILENAME
         if candidate.is_file():
-            return parse_services(candidate.read_text(encoding="utf-8"))
+            return parse_services(candidate.read_text(encoding="utf-8"), registry)
     return {}
 
 
@@ -490,6 +489,3 @@ def _language_model_type() -> ServiceTypeContract:
         accepts_configuration_key=lambda key: key in _CONFIGURATION_KEYS,
         prepare_explore_point=_language_model_explore_point,
     )
-
-
-register_builtin_type(_language_model_type())

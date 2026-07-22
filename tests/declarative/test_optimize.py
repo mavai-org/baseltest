@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import optimize, scorer, stepper
+from baseltest.declarative import Registry, optimize, scorer, stepper
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
@@ -122,7 +122,7 @@ def write_files(tmp_path: Path, services: str, contract: str = CONTRACT) -> Path
 
 def refused(services: str) -> str:
     with pytest.raises(ContractConfigurationError) as caught:
-        parse_services(services)
+        parse_services(services, Registry())
     return str(caught.value)
 
 
@@ -158,7 +158,8 @@ class TestEntryValidation:
 
     def test_a_lone_entry_defaults_its_id_to_the_service_name(self) -> None:
         definitions = parse_services(
-            services_yaml(LINEAR_ENTRY.replace("id: temperature-linear\n        ", ""))
+            services_yaml(LINEAR_ENTRY.replace("id: temperature-linear\n        ", "")),
+            Registry(),
         )
         (entry,) = definitions["support-agent"].optimizations
         assert entry.run_id == "support-agent"
@@ -355,7 +356,8 @@ class TestEntryValidation:
         max-iterations: 3
         no-improvement-window: 3
 """
-            )
+            ),
+            Registry(),
         )
         (entry,) = definitions["support-agent"].optimizations
         assert any("plateau detection is inert" in note for note in entry.notes)
@@ -371,7 +373,8 @@ class TestEntryValidation:
       - stepper: hold-still
         max-iterations: 3
 """
-            )
+            ),
+            Registry(),
         )
         (entry,) = definitions["support-agent"].optimizations
         assert entry.stepper_name == "hold-still"

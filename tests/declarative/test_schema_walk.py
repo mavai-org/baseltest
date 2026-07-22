@@ -6,20 +6,12 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import binding, run, transform
+from baseltest.declarative import Registry, check_contract, run
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT
-from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._services import parse_services
 from baseltest.statistics.verdict import Verdict
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 @pytest.fixture(autouse=True)
@@ -213,17 +205,18 @@ inputs: ["a"]
 """
 
 
-def register_echo_service() -> None:
-    @binding("echo-service")
+def register_echo_service(registry: Registry) -> None:
+    @registry.binding("echo-service")
     def echo(value: str) -> str:
         return value
 
 
 class TestOutputSchemaJoin:
     def test_mistyped_path_over_a_derived_view_is_refused(self, tmp_path: Path) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
@@ -231,7 +224,7 @@ class TestOutputSchemaJoin:
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(contract, encoding="utf-8")
         with pytest.raises(ContractConfigurationError) as refusal:
-            run(contract_path, emit=False)
+            run(contract_path, emit=False, registry=registry)
         message = str(refusal.value)
         assert "`closedWord` names no declared key here (declared: closedWorld)" in message
         assert "did you mean `closedWorld`?" in message
@@ -240,31 +233,30 @@ class TestOutputSchemaJoin:
     def test_resolving_derived_view_path_counts_in_check_facts(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(DERIVED_CONTRACT, encoding="utf-8")
-        assert main(["check", str(contract_path)]) == 0
-        out = capsys.readouterr().out
-        assert (
-            "ok: 1 path expression resolves against the declared output schema "
-            "of view 'verdict'" in out
-        )
+        facts = check_contract(contract_path, registry=registry)
+        expected = "1 path expression resolves against the declared output schema of view 'verdict'"
+        assert any(expected in fact for fact in facts)
 
     def test_schema_violating_output_is_a_named_trial_failure(self, tmp_path: Path) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": "yes"}}  # boolean expected
 
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(DERIVED_CONTRACT, encoding="utf-8")
-        result = run(contract_path, emit=False)
+        result = run(contract_path, emit=False, registry=registry)
         assert result.composite is Verdict.FAIL
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
@@ -274,30 +266,33 @@ class TestOutputSchemaJoin:
         )
 
     def test_schema_file_path_form_is_accepted(self, tmp_path: Path) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
         schema_file = tmp_path / "verdict-view.schema.json"
         schema_file.write_text(json.dumps(VERDICT_SCHEMA), encoding="utf-8")
 
-        @transform("derive-verdict", output_schema=schema_file)
+        @registry.transform("derive-verdict", output_schema=schema_file)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(DERIVED_CONTRACT, encoding="utf-8")
-        result = run(contract_path, emit=False)
+        result = run(contract_path, emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_malformed_declared_schema_is_refused_at_registration(self) -> None:
+        registry = Registry()
         with pytest.raises(ContractConfigurationError, match="not a valid JSON Schema"):
 
-            @transform("derive-verdict", output_schema={"type": "verdict"})
+            @registry.transform("derive-verdict", output_schema={"type": "verdict"})
             def derive(raw: str) -> dict[str, Any]:
                 return {}
 
     def test_xpath_over_a_derived_view_has_no_schema_join(self, tmp_path: Path) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
@@ -307,21 +302,29 @@ class TestOutputSchemaJoin:
         )
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(contract, encoding="utf-8")
-        assert main(["check", str(contract_path)]) == 0  # no join, no refusal
+        check_contract(contract_path, registry=registry)  # no join, no refusal
 
 
 class TestDescriptiveRecording:
     def test_fingerprint_lands_in_views_block_never_in_provenance(self, tmp_path: Path) -> None:
-        register_echo_service()
+        registry = Registry()
+        register_echo_service(registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
         contract = DERIVED_CONTRACT.replace("    threshold: 0.5\n", "")
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(contract, encoding="utf-8")
-        run(contract_path, mode="measure", samples=20, baseline_dir=tmp_path / "b", emit=False)
+        run(
+            contract_path,
+            mode="measure",
+            samples=20,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=registry,
+        )
         content = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
         assert "views:" in content
         assert '"verdict":' in content
@@ -333,26 +336,40 @@ class TestDescriptiveRecording:
         # The output schema is instrument-side: it has no influence on the
         # service, so it is never a covariate — a changed schema must NOT
         # refuse an existing baseline.
-        register_echo_service()
+        measure_registry = Registry()
+        register_echo_service(measure_registry)
 
-        @transform("derive-verdict", output_schema=VERDICT_SCHEMA)
+        @measure_registry.transform("derive-verdict", output_schema=VERDICT_SCHEMA)
         def derive(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
         contract = DERIVED_CONTRACT.replace("    threshold: 0.5\n", "")
         contract_path = tmp_path / "contract.yaml"
         contract_path.write_text(contract, encoding="utf-8")
-        run(contract_path, mode="measure", samples=20, baseline_dir=tmp_path / "b", emit=False)
+        run(
+            contract_path,
+            mode="measure",
+            samples=20,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=measure_registry,
+        )
 
-        clear_registries()
-        register_echo_service()
+        test_registry = Registry()
+        register_echo_service(test_registry)
         widened = {**VERDICT_SCHEMA, "required": []}
 
-        @transform("derive-verdict", output_schema=widened)
+        @test_registry.transform("derive-verdict", output_schema=widened)
         def derive_v2(raw: str) -> dict[str, Any]:
             return {"invariants": {"closedWorld": True}}
 
-        result = run(contract_path, mode="test", baseline_dir=tmp_path / "b", emit=False)
+        result = run(
+            contract_path,
+            mode="test",
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=test_registry,
+        )
         assert result.composite is Verdict.PASS  # judged against the baseline, no refusal
 
 
@@ -403,5 +420,6 @@ class TestNoIdentityOverride:
                 SERVICES.replace(
                     "      model: small-model",
                     "      model: small-model\n      response-schema-covariate: false",
-                )
+                ),
+                Registry(),
             )

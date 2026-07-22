@@ -4,9 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import run
+from baseltest.declarative import Registry, run
 from baseltest.declarative._errors import ContractConfigurationError
-from baseltest.declarative._registry import clear_registries
 from baseltest.statistics.verdict import Verdict
 
 CONTRACT = """
@@ -20,19 +19,14 @@ criteria:
 """
 
 BINDINGS = """
-from baseltest.declarative import binding
+from baseltest.declarative import Registry
 
-@binding("convention-service")
+registry = Registry()
+
+@registry.binding("convention-service")
 def invoke(value: str) -> str:
     return f"ok {value}"
 """
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 def test_bindings_file_beside_contract_is_discovered(tmp_path: Path) -> None:
@@ -52,12 +46,12 @@ def test_broken_bindings_file_is_a_constructive_refusal(tmp_path: Path) -> None:
 
 
 def test_absent_bindings_file_leaves_in_process_registration_working(tmp_path: Path) -> None:
-    from baseltest.declarative import binding
+    registry = Registry()
 
-    @binding("convention-service")
+    @registry.binding("convention-service")
     def invoke(value: str) -> str:
         return f"ok {value}"
 
     contract = tmp_path / "contract.yaml"
     contract.write_text(CONTRACT, encoding="utf-8")
-    assert run(contract, emit=False).composite is Verdict.PASS
+    assert run(contract, registry=registry, emit=False).composite is Verdict.PASS
