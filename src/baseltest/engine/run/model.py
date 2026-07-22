@@ -40,7 +40,7 @@ class RunPlan:
     Attributes:
         samples: Total number of invocations.
         inputs: The fixed, finite input list; invocations cycle through it.
-        kind: The run mode (test or measure), chosen at invocation.
+        kind: The run mode, chosen at invocation.
         intent: Verification (feasibility enforced) or smoke (advisory).
     """
 
