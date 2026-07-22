@@ -1,8 +1,10 @@
-"""The exploration record: what one explored configuration's run observed.
+"""The run observation: what one configuration's run of samples observed.
 
 Deliberately descriptive: rates, counts, and failure reasons — never a
-bound, a threshold, or a verdict. Triage over precision is the point of an
-exploration; judgement belongs to tests.
+bound, a threshold, or a verdict. It is the shared unit two descriptive
+experiments both produce — an explore run emits one per grid configuration,
+an optimize run one per iteration — so it lives here, below both, rather
+than in either.
 """
 
 from collections import Counter
@@ -57,11 +59,12 @@ class CriterionStatistics:
 
 
 @dataclass(frozen=True, slots=True)
-class ExplorationRecord:
-    """Everything one configuration's exploration artefact states.
+class RunObservation:
+    """Everything one configuration's run observed — the descriptive record
+    an explore configuration and an optimize iteration both carry.
 
     Attributes:
-        contract_id: The explored contract's identity.
+        contract_id: The observed contract's identity.
         generated_at: When this configuration's run finished, UTC.
         factors: The configuration's discriminating factor values — the
             grid keys that vary, with this point's resolved values, in
@@ -98,7 +101,7 @@ class ExplorationRecord:
 
     @property
     def observed_rate(self) -> float:
-        """The aggregate observed pass rate. A recorded exploration executed
+        """The aggregate observed pass rate. A recorded observation executed
         at least one sample."""
         return self.successes / self.samples_executed
 
@@ -107,8 +110,8 @@ class ExplorationRecord:
         result: RunResult,
         factors: Mapping[str, Any] | None = None,
         configuration: Mapping[str, Any] | None = None,
-    ) -> "ExplorationRecord":
-        """Build one configuration's record from its completed run."""
+    ) -> "RunObservation":
+        """Build one configuration's observation from its completed run."""
         criteria: dict[str, CriterionStatistics] = {}
         for criterion_result in result.criterion_results:
             tally = criterion_result.tally
@@ -116,7 +119,7 @@ class ExplorationRecord:
                 passes=tally.successes, fails=tally.trials - tally.successes
             )
         elapsed = (result.finished_at - result.started_at).total_seconds()
-        return ExplorationRecord(
+        return RunObservation(
             contract_id=result.contract_id,
             generated_at=result.finished_at,
             factors=tuple((factors or {}).items()),

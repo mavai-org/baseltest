@@ -10,21 +10,15 @@ descriptive statistics only: no bounds, no thresholds, no verdicts.
 
 from baseltest.engine import LatencyBlock
 
-from .record import CriterionStatistics, ExplorationRecord, FailureEntry
 from .writer import (
     exploration_stem,
-    observation_lines,
     render_exploration,
     write_exploration,
 )
 
 __all__ = [
-    "CriterionStatistics",
-    "ExplorationRecord",
-    "FailureEntry",
     "LatencyBlock",
     "exploration_stem",
-    "observation_lines",
     "render_exploration",
     "write_exploration",
 ]

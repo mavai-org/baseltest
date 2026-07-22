@@ -7,22 +7,20 @@ from ruamel.yaml import YAML
 
 from baseltest.engine import SampleRecord
 from baseltest.exploration import (
-    CriterionStatistics,
-    ExplorationRecord,
-    FailureEntry,
     LatencyBlock,
     exploration_stem,
     render_exploration,
     write_exploration,
 )
+from baseltest.observation import CriterionStatistics, FailureEntry, RunObservation
 
 
 def record(
     factors: tuple[tuple[str, object], ...] = (("temperature", 0.7),),
     successes: int = 4,
     samples: int = 5,
-) -> ExplorationRecord:
-    return ExplorationRecord(
+) -> RunObservation:
+    return RunObservation(
         contract_id="support-agent-tuning",
         generated_at=datetime(2026, 7, 7, 12, 0, 0, tzinfo=UTC),
         factors=factors,
@@ -168,7 +166,7 @@ def sample(index: int = 0, passed: bool = True, ms: int = 40) -> SampleRecord:
 class TestLatencyBlock:
     def test_present_with_gated_percentiles_when_samples_passed(self) -> None:
         r = record()
-        r = ExplorationRecord(
+        r = RunObservation(
             **{
                 **{
                     f: getattr(r, f)
@@ -209,9 +207,9 @@ class TestLatencyBlock:
 
 
 class TestResultProjection:
-    def _record_with_samples(self) -> ExplorationRecord:
+    def _record_with_samples(self) -> RunObservation:
         r = record()
-        return ExplorationRecord(
+        return RunObservation(
             **{
                 **{
                     f: getattr(r, f)

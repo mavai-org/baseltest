@@ -1,9 +1,9 @@
 """The optimization record: an Optimize experiment's full iteration history.
 
-Each iteration's descriptive observation shares its shape with the
-exploration record — the same statistics, cost, gated latency, and result
-projection — extended with the iteration index, the full configuration it
-ran under, and the score the run's scorer assigned.
+Each iteration carries a shared :class:`~baseltest.observation.RunObservation`
+— the same statistics, cost, gated latency, and result projection an explore
+configuration produces — extended with the iteration index, the full
+configuration it ran under, and the score the run's scorer assigned.
 """
 
 from collections.abc import Mapping
@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Any
 
 from baseltest.engine import RunResult
-from baseltest.exploration import ExplorationRecord
+from baseltest.observation import RunObservation
 
 _WIRE_SCORER_NAMES = {"pass-rate": "observed-pass-rate"}
 
@@ -55,15 +55,14 @@ class IterationCapture:
         index: Zero-based iteration index.
         factors: The full resolved configuration this iteration ran under.
         score: The scoring function's value, in objective units.
-        observation: The iteration's descriptive result — the same
-            per-configuration observation shape the exploration artefact
-            records.
+        observation: The iteration's descriptive result — the shared
+            per-configuration run observation an explore run also records.
     """
 
     index: int
     factors: tuple[tuple[str, Any], ...]
     score: float
-    observation: ExplorationRecord
+    observation: RunObservation
 
     @staticmethod
     def from_run_result(
@@ -74,7 +73,7 @@ class IterationCapture:
             index=index,
             factors=tuple(factors.items()),
             score=score,
-            observation=ExplorationRecord.from_run_result(result, configuration=factors),
+            observation=RunObservation.from_run_result(result, configuration=factors),
         )
 
 

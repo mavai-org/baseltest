@@ -86,7 +86,8 @@ name = "Layering: declarative on top, statistics at the bottom"
 type = "layers"
 layers = [
     "baseltest.declarative",
-    "baseltest.baseline | baseltest.exploration | baseltest.reporting",
+    "baseltest.baseline | baseltest.exploration | baseltest.optimization | baseltest.reporting",
+    "baseltest.observation",
     "baseltest.engine",
     "baseltest.contract",
     "baseltest.statistics",
@@ -99,8 +100,10 @@ source_modules = ["baseltest.statistics"]
 forbidden_modules = [
     "baseltest.contract",
     "baseltest.engine",
+    "baseltest.observation",
     "baseltest.baseline",
     "baseltest.exploration",
+    "baseltest.optimization",
     "baseltest.reporting",
     "baseltest.declarative",
 ]
@@ -119,8 +122,10 @@ source_modules = [
     "baseltest.statistics",
     "baseltest.contract",
     "baseltest.engine",
+    "baseltest.observation",
     "baseltest.baseline",
     "baseltest.exploration",
+    "baseltest.optimization",
     "baseltest.reporting",
 ]
 forbidden_modules = ["baseltest.declarative"]

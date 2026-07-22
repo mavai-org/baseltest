@@ -10,6 +10,7 @@ the *one* definition — a guard against a duplicate emitter creeping back
 from baseltest.baseline import writer as baseline_writer
 from baseltest.engine import LatencyBlock, artefact
 from baseltest.exploration import writer as exploration_writer
+from baseltest.observation import emit as observation_emit
 from baseltest.optimization import writer as optimization_writer
 
 
@@ -21,6 +22,7 @@ class TestSingleSource:
         assert vars(baseline_writer)["quote"] is artefact.quote
         assert vars(exploration_writer)["quote"] is artefact.quote
         assert vars(optimization_writer)["quote"] is artefact.quote
+        assert vars(observation_emit)["quote"] is artefact.quote
 
     def test_factor_and_scalar_emitters_are_shared(self) -> None:
         assert vars(exploration_writer)["factor_lines"] is artefact.factor_lines
@@ -28,8 +30,10 @@ class TestSingleSource:
         assert vars(optimization_writer)["scalar"] is artefact.scalar
 
     def test_latency_emitter_is_shared(self) -> None:
+        # Latency is emitted by the baseline writer directly and by the shared
+        # run-observation emitter (which the explore and optimize writers embed).
         assert vars(baseline_writer)["latency_lines"] is artefact.latency_lines
-        assert vars(exploration_writer)["latency_lines"] is artefact.latency_lines
+        assert vars(observation_emit)["latency_lines"] is artefact.latency_lines
 
 
 class TestRendering:

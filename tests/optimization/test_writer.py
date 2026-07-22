@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
-from baseltest.exploration import CriterionStatistics, ExplorationRecord, FailureEntry
+from baseltest.observation import CriterionStatistics, FailureEntry, RunObservation
 from baseltest.optimization import (
     IterationCapture,
     OptimizationRecord,
@@ -16,8 +16,8 @@ from baseltest.optimization import (
 )
 
 
-def observation(successes: int, samples: int) -> ExplorationRecord:
-    return ExplorationRecord(
+def observation(successes: int, samples: int) -> RunObservation:
+    return RunObservation(
         contract_id="support-agent-tuning",
         generated_at=datetime(2026, 7, 16, 12, 0, tzinfo=UTC),
         factors=(),
