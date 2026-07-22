@@ -7,6 +7,7 @@ provenance blocks.
 """
 
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from .._steppers import (
     IterationSummary,
     LatencySummary,
     OptimizeContext,
+    StepProposal,
 )
 from ._shared import _tty_progress
 
@@ -87,6 +89,7 @@ def _drive_optimization(
     termination = Termination.MAX_ITERATIONS
     defect_diagnosis: str | None = None
     parameters = entry.parameters
+    step_provenance: Mapping[str, object] | None = None
     visited: set[tuple[Any, ...]] = set()
     for index in range(entry.max_iterations):
         visited.add(_configuration_identity(definition.type, parameters))
@@ -129,9 +132,11 @@ def _drive_optimization(
             iteration=index + 1,
             iterations_remaining=entry.max_iterations - (index + 1),
         )
-        next_parameters = _next_parameters(
+        next_parameters, proposal_provenance = _next_parameters(
             entry, definition, context, iteration_result.config, index + 1
         )
+        if proposal_provenance is not None:
+            step_provenance = proposal_provenance
         if next_parameters is None:
             termination = Termination.STEPPER_STOPPED
             break
@@ -169,7 +174,7 @@ def _drive_optimization(
         iterations=tuple(captures),
         best_index=best_index,
         termination=termination,
-        stepper=_stepper_block(entry),
+        stepper=_stepper_block(entry, step_provenance),
     )
     artefact = write_optimization(record, optimizations_dir)
     if emit:
@@ -233,13 +238,19 @@ def _improved(score: float, best: float, objective: Objective) -> bool:
     return score > best if objective is Objective.MAXIMIZE else score < best
 
 
-def _stepper_block(entry: OptimizationDeclaration) -> tuple[tuple[str, object], ...]:
-    """The artefact's mutator-provenance block: name, config, runtime residue."""
+def _stepper_block(
+    entry: OptimizationDeclaration, provenance: Mapping[str, object] | None
+) -> tuple[tuple[str, object], ...]:
+    """The artefact's mutator-provenance block: name, config, runtime residue.
+
+    ``provenance`` is the last residue a proposal carried this run — the
+    refining-grid's selection, the prompt-engineer's meta identity — or
+    ``None`` for a stepper that carries none.
+    """
     block: list[tuple[str, object]] = [("name", entry.stepper_name)]
     block.extend((key.replace("_", "-"), value) for key, value in entry.stepper_config.items())
-    runtime = getattr(entry.step, "provenance", None)
-    if isinstance(runtime, dict):
-        block.extend(sorted(runtime.items()))
+    if provenance is not None:
+        block.extend(sorted(provenance.items()))
     return tuple(block)
 
 
@@ -249,10 +260,14 @@ def _next_parameters(
     context: OptimizeContext,
     configuration: dict[str, Any],
     iteration: int,
-) -> Any | None:
+) -> tuple[Any | None, Mapping[str, object] | None]:
     """One stepper call, its proposal validated into the next parameters.
 
-    Returns ``None`` when the stepper stopped the search. Any
+    Returns the next parameters (``None`` when the stepper stopped the
+    search) and the proposal's provenance (``None`` when it carried none).
+    A stepper may return a :class:`StepProposal` — the next configuration
+    mapping (or ``None`` to stop) with optional provenance — or, plainly, a
+    bare configuration mapping or ``None`` with no provenance. Any
     configuration the service type accepts is a legitimate proposal —
     including one this run has already measured: a stochastic score is
     noisy, and re-measuring a configuration pools into stronger evidence
@@ -266,13 +281,17 @@ def _next_parameters(
         f"optimization {entry.run_id!r}: iteration {iteration} configuration "
         f"(from stepper {entry.stepper_name!r})"
     )
-    proposal = entry.step(dict(configuration), context)
-    if proposal is None:
-        return None
-    if not isinstance(proposal, dict):
+    outcome = entry.step(dict(configuration), context)
+    if isinstance(outcome, StepProposal):
+        config, provenance = outcome.config, outcome.provenance
+    else:
+        config, provenance = outcome, None
+    if config is None:
+        return None, provenance
+    if not isinstance(config, dict):
         raise ContractConfigurationError(
-            f"{where}: the stepper returned {type(proposal).__name__}, not a "
+            f"{where}: the stepper returned {type(config).__name__}, not a "
             "configuration mapping — a stepper returns the whole next "
             "configuration, or None to stop"
         )
-    return definition.type.parse(definition.name, proposal, where)
+    return definition.type.parse(definition.name, config, where), provenance
