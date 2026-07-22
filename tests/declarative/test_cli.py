@@ -5,9 +5,9 @@ from baseltest.declarative._cli import main
 
 def write_contract(tmp_path, threshold="0.5", inputs='["a"]', name="assert-example"):  # type: ignore[no-untyped-def]
     (tmp_path / "mavai-bindings.py").write_text(
-        "from baseltest.declarative import Registry\n"
-        "registry = Registry()\n"
-        "@registry.binding('svc')\n"
+        "from baseltest.declarative import Bindings\n"
+        "bindings = Bindings()\n"
+        "@bindings.binding('svc')\n"
         "def invoke(value: str) -> str:\n"
         "    return 'ok'\n",
         encoding="utf-8",

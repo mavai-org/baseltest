@@ -1,14 +1,14 @@
 """Registration discovery: the ``mavai-bindings.py`` convention.
 
-Code registrations (``@registry.binding``, ``@registry.check``,
-``@registry.transform``) live in the developer's own Python, onto a
-:class:`Registry` the module creates. When the runner is driven from the
+Code registrations (``@bindings.binding``, ``@bindings.check``,
+``@bindings.transform``) live in the developer's own Python, onto a
+:class:`Bindings` the module creates. When the runner is driven from the
 command line, nothing would import that code — so, mirroring the
 services-file convention, a ``mavai-bindings.py`` found beside the contract
 file (then in the working directory) is imported before the contract is
-instantiated, and the ``registry`` it defines is threaded through the run.
-The same trust model as pytest's ``conftest.py`` applies: it is the user's
-own project file, executed because they placed it there.
+instantiated, and the registrations it binds as ``bindings`` are threaded
+through the run. The same trust model as pytest's ``conftest.py`` applies:
+it is the user's own project file, executed because they placed it there.
 """
 
 import importlib.util
@@ -17,27 +17,27 @@ from pathlib import Path
 from types import ModuleType
 
 from ._errors import ContractConfigurationError
-from ._registry import Registry
+from ._registry import Bindings, Registry
 
 REGISTRATIONS_FILENAME = "mavai-bindings.py"
 _MODULE_NAME = "mavai_bindings"
 
 
 def discover_registrations(contract_path: Path) -> Registry:
-    """Import the conventional registrations module and yield its registry.
+    """Import the conventional registrations module and yield its resolved registry.
 
     A ``mavai-bindings.py`` beside the contract file (then in the working
-    directory) is imported, and the :class:`Registry` it binds as
-    ``registry`` is returned. When the module defines no such registry — or
-    no conventions file exists — a fresh empty :class:`Registry` is
-    returned (an API caller holds and passes its own instead).
+    directory) is imported, and the internal registry of the :class:`Bindings`
+    it binds as ``bindings`` is returned. When the module defines no such
+    object — or no conventions file exists — a fresh empty :class:`Registry`
+    is returned (an API caller holds a :class:`Bindings` and passes it instead).
     """
     for directory in (contract_path.parent, Path.cwd()):
         candidate = directory / REGISTRATIONS_FILENAME
         if candidate.is_file():
             module = _import(candidate.resolve())
-            registry = getattr(module, "registry", None)
-            return registry if isinstance(registry, Registry) else Registry()
+            bindings = getattr(module, "bindings", None)
+            return bindings._registry if isinstance(bindings, Bindings) else Registry()
     return Registry()
 
 

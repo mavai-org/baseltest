@@ -68,10 +68,10 @@ def write_files(tmp_path: Path, latency_block: str) -> Path:
     (tmp_path / "mavai-bindings.py").write_text(
         "import itertools\n"
         "import time\n"
-        "from baseltest.declarative import Registry\n"
-        "registry = Registry()\n"
+        "from baseltest.declarative import Bindings\n"
+        "bindings = Bindings()\n"
         "_counter = itertools.count()\n"
-        "@registry.binding('svc')\n"
+        "@bindings.binding('svc')\n"
         "def invoke(value: str) -> str:\n"
         "    time.sleep(0.003)\n"
         "    return 'ok' if next(_counter) % 10 < 9 else 'nope'\n",
@@ -135,10 +135,10 @@ class TestExitCodeContract:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "mavai-bindings.py").write_text(
             "import itertools\n"
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
             "_counter = itertools.count()\n"
-            "@registry.binding('svc')\n"
+            "@bindings.binding('svc')\n"
             "def invoke(value: str) -> str:\n"
             "    return 'ok' if next(_counter) % 8 < 3 else 'nope'\n",
             encoding="utf-8",

@@ -10,10 +10,13 @@ contract checks select into it with a ``$``-rooted ``path:``.
 import json
 
 from baseltest.contract import TransformError
-from baseltest.declarative import transform
+from baseltest.declarative import Bindings
+
+# The loader discovers registrations through this name.
+bindings = Bindings()
 
 
-@transform("basket-judge")
+@bindings.transform("basket-judge")
 def basket_judge(raw: str) -> dict[str, object]:
     """Derived facts about the basket that no single raw field states."""
     try:

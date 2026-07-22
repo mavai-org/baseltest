@@ -13,12 +13,12 @@ from .._instantiate import instantiate
 from .._instantiate._service import _validate_inputs
 from .._parser import load_contract
 from .._registrations import discover_registrations
-from .._registry import Registry
+from .._registry import Bindings
 from .._schema_walk import validate_declared_paths
 from .._services import discover_services
 
 
-def check(path: str | Path, registry: Registry | None = None) -> tuple[str, ...]:
+def check(path: str | Path, bindings: Bindings | None = None) -> tuple[str, ...]:
     """Validate a contract against its services and bindings — zero samples.
 
     The authoring loop's compile step: loads the contract, discovers the
@@ -38,8 +38,7 @@ def check(path: str | Path, registry: Registry | None = None) -> tuple[str, ...]
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    if registry is None:
-        registry = discover_registrations(contract_path)
+    registry = bindings._registry if bindings is not None else discover_registrations(contract_path)
     services = discover_services(contract_path, registry)
     # The baseline path, validated by the machinery a real run uses —
     # check and run cannot drift apart.

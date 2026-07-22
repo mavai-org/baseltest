@@ -5,19 +5,20 @@ This package is the reader for the family's contract-file format
 service contract it describes, and runs it through the same engine a
 hand-authored contract uses.
 
-Its public Python surface is deliberately tiny — a caller-held registry
-and a handful of entry points:
+Its public Python surface is deliberately tiny — a caller-held bindings
+object and a handful of entry points:
 
-- :class:`Registry` is the object bindings, checks, and transforms register
-  onto (``@registry.binding(...)``, ``@registry.check(...)``,
-  ``@registry.transform(...)``), and a run threads through resolution. Two
-  registries are fully independent — two contracts with different
-  registrations run in one process without cross-talk. A
-  ``mavai-bindings.py`` file binds one as ``registry``; an API caller
-  constructs one and passes ``registry=`` to the entry points.
-  ``@registry.stepper(...)`` registers a stepper factory for the
-  ``optimizations:`` section's ``stepper:`` key; ``@registry.scorer(...)``
-  registers a scorer for its ``scorer:`` key.
+- :class:`Bindings` is the object bindings, checks, and transforms register
+  onto (``@bindings.binding(...)``, ``@bindings.check(...)``,
+  ``@bindings.transform(...)``); a run threads its registrations through
+  resolution. Two ``Bindings`` are fully independent — two contracts with
+  different registrations run in one process without cross-talk. A
+  ``mavai-bindings.py`` file binds one as ``bindings``; an API caller
+  constructs one and passes ``bindings=`` to the entry points.
+  ``@bindings.stepper(...)`` registers a stepper factory for the
+  ``optimizations:`` section's ``stepper:`` key; ``@bindings.scorer(...)``
+  registers a scorer for its ``scorer:`` key. It exposes only these
+  registration decorators — the resolution machinery is internal.
 - :func:`run` loads and executes a contract file (test or measure).
 - :func:`explore` runs a contract over every configuration in its
   service's grid, one descriptive artefact per configuration.
@@ -38,7 +39,7 @@ means authoring the contract directly (``baseltest.contract``) — at that
 point nothing here is needed any more.
 """
 
-from ._registry import Registry
+from ._registry import Bindings
 from ._runner import check as check_contract
 from ._runner import explore, optimize, run
 from ._steppers import (
@@ -55,9 +56,9 @@ __all__ = [
     "FailureExemplar",
     "IterationResult",
     "IterationSummary",
+    "Bindings",
     "LatencySummary",
     "OptimizeContext",
-    "Registry",
     "check_contract",
     "explore",
     "optimize",

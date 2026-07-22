@@ -26,7 +26,7 @@ from .._errors import ContractConfigurationError
 from .._instantiate import BaselineContext, descriptive_view_fingerprints, instantiate
 from .._parser import FORMAT_IDENTIFIER, load_contract
 from .._registrations import discover_registrations
-from .._registry import Registry
+from .._registry import Bindings
 from .._services import discover_services
 from .._sizing import ResolvedSizing
 from ._shared import DEFAULT_BASELINE_DIR, _tty_progress
@@ -43,7 +43,7 @@ def run(
     verdict_dir: str | Path | None = None,
     html_report: str | Path | None = None,
     emit: bool = True,
-    registry: Registry | None = None,
+    bindings: Bindings | None = None,
 ) -> RunResult:
     """Load and execute a contract file; render its output; persist when measuring.
 
@@ -75,8 +75,7 @@ def run(
         samples_provenance = samples_provenance or sizing_resolution.provenance
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    if registry is None:
-        registry = discover_registrations(contract_path)
+    registry = bindings._registry if bindings is not None else discover_registrations(contract_path)
     services = discover_services(contract_path, registry)
     instantiation = instantiate(
         declaration,

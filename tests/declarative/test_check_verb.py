@@ -43,9 +43,9 @@ class TestCheckVerb:
         (tmp_path / "mavai-bindings.py").write_text(
             "from collections.abc import Callable\n"
             "from pathlib import Path\n"
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
-            "@registry.binding_factory('fortune-teller')\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "@bindings.binding_factory('fortune-teller')\n"
             "def fortune_teller(mood: str = 'plain') -> Callable[[str], str]:\n"
             "    def tell(name: str) -> str:\n"
             f"        Path({str(marker)!r}).touch()\n"
@@ -65,9 +65,9 @@ class TestCheckVerb:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         (tmp_path / "mavai-bindings.py").write_text(
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
-            "@registry.binding('solo')\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "@bindings.binding('solo')\n"
             "def solo(name: str) -> str:\n"
             "    return name\n",
             encoding="utf-8",
@@ -82,12 +82,12 @@ class TestCheckVerb:
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         (tmp_path / "mavai-bindings.py").write_text(
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
-            "@registry.binding('solo')\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "@bindings.binding('solo')\n"
             "def solo(name: str) -> str:\n"
             "    return name\n"
-            "@registry.transform('judge')\n"
+            "@bindings.transform('judge')\n"
             "def judge(raw: str) -> dict[str, bool]:\n"
             "    return {'ok': True}\n",
             encoding="utf-8",
@@ -118,9 +118,9 @@ inputs: ["a"]
     ) -> None:
         (tmp_path / "mavai-bindings.py").write_text(
             "from collections.abc import Callable\n"
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
-            "@registry.binding_factory('fortune-teller')\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "@bindings.binding_factory('fortune-teller')\n"
             "def fortune_teller(tone: str = 'plain') -> Callable[[str], str]:\n"
             "    return lambda name: name\n",
             encoding="utf-8",
@@ -134,9 +134,9 @@ inputs: ["a"]
     ) -> None:
         (tmp_path / "mavai-bindings.py").write_text(
             "from collections.abc import Callable\n"
-            "from baseltest.declarative import Registry\n"
-            "registry = Registry()\n"
-            "@registry.binding_factory('fortune-teller')\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "@bindings.binding_factory('fortune-teller')\n"
             "def fortune_teller(mood: str = 'plain') -> Callable[[str, int], str]:\n"
             "    def tell(name: str, sincerity: int) -> str:\n"
             "        return f'{mood} {name} {sincerity}'\n"

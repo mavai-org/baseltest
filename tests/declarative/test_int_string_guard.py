@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 
 
 def test_oversized_integer_through_the_stock_json_view_fails_the_trial_without_aborting(
@@ -11,9 +11,9 @@ def test_oversized_integer_through_the_stock_json_view_fails_the_trial_without_a
     # Well past the ~4,300-digit int-to-str conversion limit CPython enforces.
     huge_integer_json = '{"n": ' + "9" * 5000 + "}"
 
-    registry = Registry()
+    bindings = Bindings()
 
-    @registry.binding("bulk-svc")
+    @bindings.binding("bulk-svc")
     def invoke(value: str) -> str:
         return huge_integer_json
 
@@ -35,7 +35,7 @@ inputs: ["a"]
     path = tmp_path / "contract.yaml"
     path.write_text(contract, encoding="utf-8")
     result = run(
-        path, mode="measure", samples=8, baseline_dir=tmp_path / "b", emit=False, registry=registry
+        path, mode="measure", samples=8, baseline_dir=tmp_path / "b", emit=False, bindings=bindings
     )
     tally = result.criterion_results[0].tally
     assert tally.trials == 8

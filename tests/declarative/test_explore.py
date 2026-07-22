@@ -7,10 +7,11 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import Registry, explore, run
+from baseltest.declarative import Bindings, explore, run
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
+from baseltest.declarative._registry import Registry
 from baseltest.declarative._services import parse_services
 
 SERVICES = """
@@ -255,9 +256,9 @@ class TestExploreRuns:
     def test_code_registered_binding_is_refused_with_a_pointer(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding("support-agent")
+        @bindings.binding("support-agent")
         def invoke(value: str) -> str:
             return "hello"
 
@@ -268,7 +269,7 @@ class TestExploreRuns:
             '    configuration:\n      system-prompt: "x"\n',
         )
         with pytest.raises(ContractConfigurationError, match="declared service"):
-            explore(contract, emit=False, registry=registry)
+            explore(contract, emit=False, bindings=bindings)
 
     def test_cli_samples_per_config_flag_sizes_the_run(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any

@@ -7,9 +7,10 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
+from baseltest.declarative._registry import Registry
 from baseltest.declarative._services import parse_services
 from baseltest.statistics.verdict import Verdict
 
@@ -157,35 +158,35 @@ class TestResolutionRules:
         # A registered type sharing a service definition's name is not a
         # collision: a contract's `service:` reference resolves against
         # service definitions first.
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding("greeter")
+        @bindings.binding("greeter")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        result = run(write_files(tmp_path), emit=False, registry=registry)
+        result = run(write_files(tmp_path), emit=False, bindings=bindings)
         assert llm_environment  # the definition won: the model was invoked
         assert result.composite is Verdict.PASS
 
     def test_registering_a_builtin_type_name_is_refused(self) -> None:
-        registry = Registry()
+        bindings = Bindings()
         with pytest.raises(ContractConfigurationError, match="built-in service type"):
 
-            @registry.binding("language-model")
+            @bindings.binding("language-model")
             def invoke(value: str) -> str:
                 return value
 
     def test_configurable_type_is_not_directly_addressable(self, tmp_path: Path) -> None:
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding_factory("teller")
+        @bindings.binding_factory("teller")
         def teller(mood: str = "cheerful"):  # type: ignore[no-untyped-def]
             return lambda value: f"{mood} {value}"
 
         contract = tmp_path / "contract.yaml"
         contract.write_text(CONTRACT.replace("service: greeter", "service: teller"))
         with pytest.raises(ContractConfigurationError, match="mavai-services.yaml"):
-            run(contract, emit=False, registry=registry)
+            run(contract, emit=False, bindings=bindings)
 
 
 class TestProvenance:

@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
+from baseltest.declarative._registry import Registry
 from baseltest.engine import Verdict
 
 
@@ -28,7 +29,7 @@ inputs: ["a", "b"]
 """
 
 
-def register_pipeline(registry: Registry, covariates: dict[str, str] | None) -> None:
+def register_pipeline(registry: Bindings | Registry, covariates: dict[str, str] | None) -> None:
     @registry.binding("pipeline", covariates=covariates)
     def invoke(value: str) -> str:
         return f"ok {value}"
@@ -59,29 +60,29 @@ class TestRegistration:
             Registry().binding("svc", covariates={"": "x"})
 
     def test_covariates_of_an_unregistered_binding_are_refused(self) -> None:
-        with pytest.raises(ContractConfigurationError, match="@registry.binding"):
+        with pytest.raises(ContractConfigurationError, match="@bindings.binding"):
             Registry().binding_covariates("ghost")
 
 
 class TestBaselineRecording:
     def test_measure_persists_covariates_in_provenance(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_pipeline(registry, {"ontology": "abc123"})
+        bindings = Bindings()
+        register_pipeline(bindings, {"ontology": "abc123"})
         run(
             write_contract(tmp_path, EMPIRICAL_CONTRACT),
             mode="measure",
             samples=50,
             baseline_dir=tmp_path / "baselines",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         (artefact,) = (tmp_path / "baselines").glob("*.yaml")
         content = artefact.read_text(encoding="utf-8")
         assert '"ontology": "abc123"' in content
 
     def test_test_resolves_the_baseline_under_matching_covariates(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_pipeline(registry, {"ontology": "abc123"})
+        bindings = Bindings()
+        register_pipeline(bindings, {"ontology": "abc123"})
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
         run(
             contract,
@@ -89,7 +90,7 @@ class TestBaselineRecording:
             samples=200,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         result = run(
             contract,
@@ -97,7 +98,7 @@ class TestBaselineRecording:
             samples=200,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         assert result.composite is Verdict.PASS
         assert result.criterion_results[0].criterion.provenance.origin == "empirical"
@@ -105,8 +106,8 @@ class TestBaselineRecording:
 
 class TestDriftRefusal:
     def test_drifted_covariate_refuses_naming_the_key(self, tmp_path: Path) -> None:
-        measure_registry = Registry()
-        register_pipeline(measure_registry, {"ontology": "abc123"})
+        measure_bindings = Bindings()
+        register_pipeline(measure_bindings, {"ontology": "abc123"})
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
         run(
             contract,
@@ -114,24 +115,24 @@ class TestDriftRefusal:
             samples=50,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=measure_registry,
+            bindings=measure_bindings,
         )
-        drifted_registry = Registry()
-        register_pipeline(drifted_registry, {"ontology": "def456"})
+        drifted_bindings = Bindings()
+        register_pipeline(drifted_bindings, {"ontology": "def456"})
         with pytest.raises(ContractConfigurationError) as refusal:
             run(
                 contract,
                 mode="test",
                 baseline_dir=tmp_path / "b",
                 emit=False,
-                registry=drifted_registry,
+                bindings=drifted_bindings,
             )
         assert "different configuration" in str(refusal.value)
         assert "ontology" in str(refusal.value)
 
     def test_added_covariate_refuses_naming_the_key(self, tmp_path: Path) -> None:
-        measure_registry = Registry()
-        register_pipeline(measure_registry, None)
+        measure_bindings = Bindings()
+        register_pipeline(measure_bindings, None)
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
         run(
             contract,
@@ -139,17 +140,17 @@ class TestDriftRefusal:
             samples=50,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=measure_registry,
+            bindings=measure_bindings,
         )
-        drifted_registry = Registry()
-        register_pipeline(drifted_registry, {"judge": "v2"})
+        drifted_bindings = Bindings()
+        register_pipeline(drifted_bindings, {"judge": "v2"})
         with pytest.raises(ContractConfigurationError, match="judge"):
             run(
                 contract,
                 mode="test",
                 baseline_dir=tmp_path / "b",
                 emit=False,
-                registry=drifted_registry,
+                bindings=drifted_bindings,
             )
 
     def test_sizing_refusal_names_the_drifted_key(
@@ -162,11 +163,11 @@ class TestDriftRefusal:
         # run would judge against; its refusal must carry the drift reason,
         # never flatten it into a bare "no baseline".
         bindings = """
-from baseltest.declarative import Registry
+from baseltest.declarative import Bindings
 
-registry = Registry()
+bindings = Bindings()
 
-@registry.binding("pipeline", covariates={"ontology": "VERSION"})
+@bindings.binding("pipeline", covariates={"ontology": "VERSION"})
 def invoke(value: str) -> str:
     return f"ok {value}"
 """

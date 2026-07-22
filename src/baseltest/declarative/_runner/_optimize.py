@@ -14,7 +14,7 @@ from .._instantiate import optimize_definition
 from .._optimize import OptimizationDeclaration
 from .._parser import load_contract
 from .._registrations import discover_registrations
-from .._registry import Registry
+from .._registry import Bindings
 from .._services import ServiceDefinition, discover_services
 from ._optimize_loop import OptimizationOutcome, _drive_optimization
 from ._shared import DEFAULT_OPTIMIZATIONS_DIR
@@ -33,7 +33,7 @@ def optimize(
     samples_per_iteration: int | None = None,
     optimizations_dir: str | Path = DEFAULT_OPTIMIZATIONS_DIR,
     emit: bool = True,
-    registry: Registry | None = None,
+    bindings: Bindings | None = None,
 ) -> tuple[OptimizationOutcome, ...]:
     """Run the contract's Optimize experiments: iterate, score, persist the history.
 
@@ -70,8 +70,7 @@ def optimize(
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    if registry is None:
-        registry = discover_registrations(contract_path)
+    registry = bindings._registry if bindings is not None else discover_registrations(contract_path)
     services = discover_services(contract_path, registry)
     definition = optimize_definition(declaration, services, registry)
     entries = _select_entries(definition, run_id, all_entries)

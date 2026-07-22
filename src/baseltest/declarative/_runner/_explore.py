@@ -18,7 +18,7 @@ from baseltest.reporting import render_explorations, render_run_plan
 from .._instantiate import instantiate_explore
 from .._parser import load_contract
 from .._registrations import discover_registrations
-from .._registry import Registry
+from .._registry import Bindings
 from .._services import discover_services
 from ._shared import DEFAULT_EXPLORATIONS_DIR, _tty_progress
 
@@ -78,7 +78,7 @@ def explore(
     samples_per_config: int | None = None,
     explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
     emit: bool = True,
-    registry: Registry | None = None,
+    bindings: Bindings | None = None,
 ) -> ExplorationRun:
     """Run the contract's inputs and criteria over every configuration in the grid.
 
@@ -112,8 +112,7 @@ def explore(
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    if registry is None:
-        registry = discover_registrations(contract_path)
+    registry = bindings._registry if bindings is not None else discover_registrations(contract_path)
     services = discover_services(contract_path, registry)
     configurations, sizing, notes = instantiate_explore(
         declaration, services, registry, samples_per_config=samples_per_config

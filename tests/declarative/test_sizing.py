@@ -17,13 +17,13 @@ from baseltest.statistics import required_samples_for_power
 BINDINGS = """
 from itertools import count
 
-from baseltest.declarative import Registry
+from baseltest.declarative import Bindings
 
-registry = Registry()
+bindings = Bindings()
 _calls = count(1)
 
 
-@registry.binding('sized-svc')
+@bindings.binding('sized-svc')
 def invoke(value: str) -> str:
     n = next(_calls)
     ok = "ok" if n % 10 else "bad"        # 90% pass criterion

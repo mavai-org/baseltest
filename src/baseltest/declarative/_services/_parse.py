@@ -163,7 +163,7 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
                 f"service {name!r}: unknown `type: {service_type}` — registered types: "
                 f"{registered}{registry.closest_type_hint(str(service_type))} (built-in types "
                 "ship with the framework; user types are registered in "
-                "mavai-bindings.py with @registry.binding_factory)"
+                "mavai-bindings.py with @bindings.binding_factory)"
             )
         definitions[str(name)] = _parse_definition(str(name), entry, type_contract, registry)
     return definitions
