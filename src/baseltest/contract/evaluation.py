@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from baseltest.statistics import proportion_standard_error, proportion_variance
+
 from .model import Criterion, TransformError
 
 _TRANSFORM_REASON_PREFIX = "transform failed"
@@ -212,3 +214,14 @@ class CriterionTally:
         """The observed pass rate. Read only after the run, when the tally
         has at least one trial."""
         return self.successes / self.trials
+
+    @property
+    def variance(self) -> float:
+        """Sample variance of the observed pass rate — the dispersion a
+        report shows beside the rate. Zero for an empty tally."""
+        return proportion_variance(self.successes, self.trials)
+
+    @property
+    def standard_error(self) -> float:
+        """Standard error of the observed pass rate. Zero for an empty tally."""
+        return proportion_standard_error(self.successes, self.trials)

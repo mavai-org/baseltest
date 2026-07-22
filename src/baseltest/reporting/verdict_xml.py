@@ -9,7 +9,6 @@ decomposition is always populated.
 """
 
 import json
-import math
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -30,13 +29,6 @@ SIZING_CLAIM_PREFIX = "sizing-claim:"
 
 def _generator() -> str:
     return f"baseltest {__version__}"
-
-
-def _standard_error(successes: int, trials: int) -> float:
-    if trials == 0:
-        return 0.0
-    rate = successes / trials
-    return math.sqrt(rate * (1 - rate) / trials)
 
 
 def _origin(result: CriterionResult) -> str:
@@ -108,9 +100,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
         assert only.lower_bound is not None and only.criterion.threshold is not None
         statistics = child(root, "statistics")
         statistics.set("confidence-level", str(only.criterion.confidence))
-        statistics.set(
-            "standard-error", str(_standard_error(only.tally.successes, only.tally.trials))
-        )
+        statistics.set("standard-error", str(only.tally.standard_error))
         statistics.set("wilson-lower", str(only.lower_bound))
         statistics.set("threshold", str(only.criterion.threshold))
         statistics.set("threshold-origin", _origin(only))

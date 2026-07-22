@@ -149,6 +149,12 @@ class RunResult:
     latency: "LatencyEvaluation | None" = None
 
     @property
+    def observed_rate(self) -> float:
+        """The run's overall observed pass rate — samples that met every
+        criterion, over the planned sample count (always positive)."""
+        return self.overall_successes / self.plan.samples
+
+    @property
     def thresholded_results(self) -> tuple[CriterionResult, ...]:
         """Results for the criteria that received verdicts."""
         return tuple(r for r in self.criterion_results if r.verdict is not None)
