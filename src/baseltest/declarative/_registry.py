@@ -32,7 +32,14 @@ from ._signatures import kebab as _kebab
 from ._signatures import rendered_signature as _rendered_signature
 from ._signatures import snake as _snake
 from ._signatures import value_fits as _value_fits
-from ._steppers import clear_user_steppers
+from ._steppers import (
+    ScorerFunction,
+    StepFunction,
+    StepperRegistration,
+    builtin_scorers,
+    builtin_stepper_registrations,
+    vet_stepper_factory,
+)
 from ._structured import STOCK_TRANSFORMS
 from ._types import ServiceTypeContract
 
@@ -300,8 +307,15 @@ class Registry:
         self._user_types: dict[str, ServiceTypeContract] = {}
         self._checks: dict[str, Callable[[Any], bool]] = {}
         self._transforms: dict[str, TransformRegistration] = {}
+        self._builtin_steppers: dict[str, StepperRegistration] = {}
+        self._user_steppers: dict[str, StepperRegistration] = {}
+        self._builtin_scorers: dict[str, ScorerFunction] = {}
+        self._user_scorers: dict[str, ScorerFunction] = {}
         for contract in _builtin_service_types():
             self._builtin_types[contract.name] = contract
+        for registration in builtin_stepper_registrations():
+            self._builtin_steppers[registration.name] = registration
+        self._builtin_scorers.update(builtin_scorers())
 
     # -- registration decorators -------------------------------------------
 
@@ -505,9 +519,93 @@ class Registry:
         registration: TransformRegistration = self._transforms[name]
         return registration
 
+    # -- steppers and scorers ----------------------------------------------
 
-def clear_registries() -> None:
-    """Reset the user stepper/scorer registries. Test seam — steppers only,
-    pending their move into the registry object (checks/transforms/types are
-    now per-:class:`Registry` and need no reset)."""
-    clear_user_steppers()
+    def stepper(
+        self, name: str, *, configuration_keys: tuple[str, ...] = ()
+    ) -> Callable[[Callable[..., StepFunction]], Callable[..., StepFunction]]:
+        """Register a stepper factory under the name ``optimizations:`` entries use.
+
+        The decorated callable is a **factory**: its snake_case parameters are
+        the entry's ``stepper-config:`` schema (kebab-case keys map by name,
+        defaults are the optional keys, scalar annotations are checked), and
+        it returns the step function — ``step(current, ctx)`` over the whole
+        configuration mapping, ``None`` to stop. State an algorithm needs
+        across iterations lives in the factory's closure scope.
+
+        Args:
+            name: The registry name.
+            configuration_keys: Names of factory parameters whose values must
+                be existing keys of the optimized service's configuration —
+                refused at load time otherwise.
+        """
+
+        def decorate(factory: Callable[..., StepFunction]) -> Callable[..., StepFunction]:
+            self._register_stepper(
+                StepperRegistration(
+                    name=name, factory=factory, configuration_keys=configuration_keys
+                )
+            )
+            return factory
+
+        return decorate
+
+    def scorer(self, name: str) -> Callable[[ScorerFunction], ScorerFunction]:
+        """Register a scorer under the name ``scorer:`` entries reference.
+
+        The callable receives one iteration's aggregate summary and returns
+        the number the run drives, in objective units.
+        """
+
+        def decorate(fn: ScorerFunction) -> ScorerFunction:
+            if not name:
+                raise ContractConfigurationError("a scorer name must be non-empty")
+            if name in self._builtin_scorers:
+                raise ContractConfigurationError(
+                    f"{name!r} is a built-in scorer and cannot be re-registered "
+                    "— choose another name"
+                )
+            if name in self._user_scorers:
+                raise ContractConfigurationError(
+                    f"a scorer named {name!r} is already registered; names must be unique"
+                )
+            self._user_scorers[name] = fn
+            return fn
+
+        return decorate
+
+    def _register_stepper(self, registration: StepperRegistration) -> None:
+        if not registration.name:
+            raise ContractConfigurationError("a stepper name must be non-empty")
+        if registration.name in self._builtin_steppers:
+            raise ContractConfigurationError(
+                f"{registration.name!r} is a built-in stepper and cannot be re-registered "
+                "— choose another name"
+            )
+        if registration.name in self._user_steppers:
+            raise ContractConfigurationError(
+                f"a stepper named {registration.name!r} is already registered; names must be unique"
+            )
+        vet_stepper_factory(registration.name, registration.factory)
+        self._user_steppers[registration.name] = registration
+
+    def find_stepper(self, name: str) -> StepperRegistration | None:
+        """The registered stepper of this name, or ``None``."""
+        return self._user_steppers.get(name) or self._builtin_steppers.get(name)
+
+    def find_scorer(self, name: str) -> ScorerFunction | None:
+        """The registered scorer of this name, or ``None``."""
+        return self._user_scorers.get(name) or self._builtin_scorers.get(name)
+
+    def registered_stepper_names(self) -> tuple[str, ...]:
+        """Every registered stepper name, built-ins first, then user names sorted."""
+        return (*sorted(self._builtin_steppers), *sorted(self._user_steppers))
+
+    def registered_scorer_names(self) -> tuple[str, ...]:
+        """Every registered scorer name, built-ins first, then user names sorted."""
+        return (*sorted(self._builtin_scorers), *sorted(self._user_scorers))
+
+    def closest_stepper_hint(self, name: str) -> str:
+        """A ``did you mean`` fragment for an unknown stepper name, or ``''``."""
+        matches = difflib.get_close_matches(name, self.registered_stepper_names(), n=1)
+        return f" — did you mean {matches[0]!r}?" if matches else ""

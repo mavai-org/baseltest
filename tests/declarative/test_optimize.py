@@ -8,11 +8,10 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import Registry, optimize, scorer, stepper
+from baseltest.declarative import Registry, optimize
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
-from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._runner import check
 from baseltest.declarative._services import parse_services
 
@@ -62,13 +61,6 @@ TWO_ENTRIES = """
         initial: {temperature: 0.0}
         max-iterations: 20
 """
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 class FakeResponse(io.BytesIO):
@@ -363,7 +355,9 @@ class TestEntryValidation:
         assert any("plateau detection is inert" in note for note in entry.notes)
 
     def test_a_user_stepper_registered_with_the_decorator_resolves(self) -> None:
-        @stepper("hold-still")
+        registry = Registry()
+
+        @registry.stepper("hold-still")
         def hold_still():  # type: ignore[no-untyped-def]
             return lambda current, ctx: None
 
@@ -374,22 +368,24 @@ class TestEntryValidation:
         max-iterations: 3
 """
             ),
-            Registry(),
+            registry,
         )
         (entry,) = definitions["support-agent"].optimizations
         assert entry.stepper_name == "hold-still"
 
     def test_a_builtin_stepper_name_cannot_be_shadowed(self) -> None:
+        registry = Registry()
         with pytest.raises(ContractConfigurationError, match="built-in stepper"):
 
-            @stepper("refining-grid")
+            @registry.stepper("refining-grid")
             def usurper():  # type: ignore[no-untyped-def]
                 return lambda current, ctx: None
 
     def test_a_builtin_scorer_name_cannot_be_shadowed(self) -> None:
+        registry = Registry()
         with pytest.raises(ContractConfigurationError, match="built-in scorer"):
 
-            @scorer("pass-rate")
+            @registry.scorer("pass-rate")
             def usurper(summary):  # type: ignore[no-untyped-def]
                 return 0.0
 
@@ -475,8 +471,9 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
+        registry = Registry()
 
-        @stepper("hold-still")
+        @registry.stepper("hold-still")
         def hold_still():  # type: ignore[no-untyped-def]
             return lambda current, ctx: None
 
@@ -490,7 +487,11 @@ class TestOptimizeLoop:
             ),
         )
         outcomes = optimize(
-            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+            path,
+            samples_per_iteration=2,
+            emit=False,
+            optimizations_dir=tmp_path / "o",
+            registry=registry,
         )
         record = outcomes[0].record
         assert dict(record.iterations[0].factors)["temperature"] == 0.2
@@ -552,8 +553,9 @@ class TestOptimizeLoop:
         """A stochastic score is noisy: revisiting a configuration pools
         evidence, so the run proceeds and says the repeat is deliberate."""
         scripted_endpoint(hello_below(1.0))
+        registry = Registry()
 
-        @stepper("second-opinion")
+        @registry.stepper("second-opinion")
         def second_opinion():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 return dict(current) if ctx.iteration < 3 else None
@@ -569,7 +571,9 @@ class TestOptimizeLoop:
 """
             ),
         )
-        outcomes = optimize(path, samples_per_iteration=2, optimizations_dir=tmp_path / "o")
+        outcomes = optimize(
+            path, samples_per_iteration=2, optimizations_dir=tmp_path / "o", registry=registry
+        )
         record = outcomes[0].record
         assert len(record.iterations) == 3  # the same configuration, measured thrice
         factors = [dict(capture.factors) for capture in record.iterations]
@@ -582,8 +586,9 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
+        registry = Registry()
 
-        @stepper("confused")
+        @registry.stepper("confused")
         def confused():  # type: ignore[no-untyped-def]
             return lambda current, ctx: 0.7
 
@@ -597,14 +602,21 @@ class TestOptimizeLoop:
             ),
         )
         with pytest.raises(ContractConfigurationError, match="not a configuration mapping"):
-            optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+            optimize(
+                path,
+                samples_per_iteration=2,
+                emit=False,
+                optimizations_dir=tmp_path / "o",
+                registry=registry,
+            )
 
     def test_a_stepper_proposing_an_invalid_configuration_is_refused_naming_the_key(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
+        registry = Registry()
 
-        @stepper("vandal")
+        @registry.stepper("vandal")
         def vandal():  # type: ignore[no-untyped-def]
             return lambda current, ctx: {**current, "warmth": 0.7}
 
@@ -618,7 +630,13 @@ class TestOptimizeLoop:
             ),
         )
         with pytest.raises(ContractConfigurationError) as caught:
-            optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+            optimize(
+                path,
+                samples_per_iteration=2,
+                emit=False,
+                optimizations_dir=tmp_path / "o",
+                registry=registry,
+            )
         message = str(caught.value)
         assert "unknown key `warmth:`" in message
         assert "from stepper 'vandal'" in message
@@ -652,8 +670,9 @@ class TestOptimizeLoop:
     ) -> None:
         scripted_endpoint(hello_below(1.0))
         seen: list[tuple[int, int, float | None]] = []
+        registry = Registry()
 
-        @stepper("observer")
+        @registry.stepper("observer")
         def observer():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 seen.append(
@@ -675,7 +694,13 @@ class TestOptimizeLoop:
 """
             ),
         )
-        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        optimize(
+            path,
+            samples_per_iteration=2,
+            emit=False,
+            optimizations_dir=tmp_path / "o",
+            registry=registry,
+        )
         assert seen == [(1, 2, 1.0), (2, 1, 1.0)]
 
     def test_failure_exemplars_reach_the_stepper_with_input_and_reason(
@@ -683,8 +708,9 @@ class TestOptimizeLoop:
     ) -> None:
         scripted_endpoint(hello_below(-1.0))  # every sample fails
         observed: list[Any] = []
+        registry = Registry()
 
-        @stepper("post-mortem")
+        @registry.stepper("post-mortem")
         def post_mortem():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 observed.append(ctx.history[-1].failures_by_criterion)
@@ -701,7 +727,13 @@ class TestOptimizeLoop:
 """
             ),
         )
-        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        optimize(
+            path,
+            samples_per_iteration=2,
+            emit=False,
+            optimizations_dir=tmp_path / "o",
+            registry=registry,
+        )
         detail = observed[0]["says-hello"]
         assert detail.count == 2
         assert detail.exemplars[0].input == "Where is my order?"
@@ -711,12 +743,13 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))  # every iteration's pass rate is 1.0
+        registry = Registry()
 
-        @scorer("coolness")
+        @registry.scorer("coolness")
         def coolness(summary):  # type: ignore[no-untyped-def]
             return float(summary.passes)  # constant across iterations, like pass-rate
 
-        @stepper("two-steps")
+        @registry.stepper("two-steps")
         def two_steps():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 if ctx.iteration >= 2:
@@ -737,7 +770,11 @@ class TestOptimizeLoop:
             ),
         )
         outcomes = optimize(
-            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+            path,
+            samples_per_iteration=2,
+            emit=False,
+            optimizations_dir=tmp_path / "o",
+            registry=registry,
         )
         record = outcomes[0].record
         assert [capture.score for capture in record.iterations] == [2.0, 2.0]

@@ -15,9 +15,9 @@ and a handful of entry points:
   registrations run in one process without cross-talk. A
   ``mavai-bindings.py`` file binds one as ``registry``; an API caller
   constructs one and passes ``registry=`` to the entry points.
-- :func:`stepper` registers a stepper factory for the ``optimizations:``
-  section's ``stepper:`` key; :func:`scorer` registers a scorer for its
-  ``scorer:`` key.
+  ``@registry.stepper(...)`` registers a stepper factory for the
+  ``optimizations:`` section's ``stepper:`` key; ``@registry.scorer(...)``
+  registers a scorer for its ``scorer:`` key.
 - :func:`run` loads and executes a contract file (test or measure).
 - :func:`explore` runs a contract over every configuration in its
   service's grid, one descriptive artefact per configuration.
@@ -48,8 +48,6 @@ from ._steppers import (
     IterationSummary,
     LatencySummary,
     OptimizeContext,
-    scorer,
-    stepper,
 )
 
 __all__ = [
@@ -64,6 +62,4 @@ __all__ = [
     "explore",
     "optimize",
     "run",
-    "scorer",
-    "stepper",
 ]
