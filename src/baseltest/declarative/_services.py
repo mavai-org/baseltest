@@ -280,7 +280,7 @@ def _parse_explorations(
 
 
 def _parse_definition(
-    name: str, data: dict[str, Any], type_contract: ServiceTypeContract
+    name: str, data: dict[str, Any], type_contract: ServiceTypeContract, registry: "Registry"
 ) -> ServiceDefinition:
     for key in data:
         if key not in _DEFINITION_KEYS:
@@ -306,7 +306,7 @@ def _parse_definition(
     optimizations: tuple[OptimizationDeclaration, ...] = ()
     if "optimizations" in data:
         optimizations = parse_optimizations(
-            name, data["optimizations"], configuration, type_contract
+            name, data["optimizations"], configuration, type_contract, registry
         )
     return ServiceDefinition(
         name=name,
@@ -348,7 +348,7 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
                 "ship with the framework; user types are registered in "
                 "mavai-bindings.py with @registry.binding_factory)"
             )
-        definitions[str(name)] = _parse_definition(str(name), entry, type_contract)
+        definitions[str(name)] = _parse_definition(str(name), entry, type_contract, registry)
     return definitions
 
 

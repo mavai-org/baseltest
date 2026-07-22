@@ -29,7 +29,6 @@ Built-ins registered here:
 - ``pass-rate`` — the default scorer.
 """
 
-import difflib
 import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -183,126 +182,22 @@ class StepperRegistration:
     builtin: bool = False
 
 
-_builtin_steppers: dict[str, StepperRegistration] = {}
-_user_steppers: dict[str, StepperRegistration] = {}
-_builtin_scorers: dict[str, ScorerFunction] = {}
-_user_scorers: dict[str, ScorerFunction] = {}
+def vet_stepper_factory(name: str, factory: Callable[..., StepFunction]) -> None:
+    """Every stepper factory parameter must be keyword-bindable.
 
-
-def stepper(
-    name: str, *, configuration_keys: tuple[str, ...] = ()
-) -> Callable[[Callable[..., StepFunction]], Callable[..., StepFunction]]:
-    """Register a stepper factory under the name ``optimizations:`` entries use.
-
-    The decorated callable is a **factory**: its snake_case parameters are
-    the entry's ``stepper-config:`` schema (kebab-case keys map by name,
-    defaults are the optional keys, scalar annotations are checked), and
-    it returns the step function — ``step(current, ctx)`` over the whole
-    configuration mapping, ``None`` to stop. State an algorithm needs
-    across iterations lives in the factory's closure scope.
-
-    Args:
-        name: The registry name.
-        configuration_keys: Names of factory parameters whose values must
-            be existing keys of the optimized service's configuration —
-            refused at load time otherwise.
+    Stepper-config keys bind by name, so a positional-only or var-positional
+    parameter can never be reached — refused at registration time.
     """
-
-    def decorate(factory: Callable[..., StepFunction]) -> Callable[..., StepFunction]:
-        _register_stepper(
-            StepperRegistration(name=name, factory=factory, configuration_keys=configuration_keys),
-            _user_steppers,
-        )
-        return factory
-
-    return decorate
-
-
-def scorer(name: str) -> Callable[[ScorerFunction], ScorerFunction]:
-    """Register a scorer under the name ``scorer:`` entries reference.
-
-    The callable receives one iteration's aggregate summary and returns
-    the number the run drives, in objective units.
-    """
-
-    def decorate(fn: ScorerFunction) -> ScorerFunction:
-        _register_scorer(name, fn, _user_scorers)
-        return fn
-
-    return decorate
-
-
-def _register_stepper(
-    registration: StepperRegistration, registry: dict[str, StepperRegistration]
-) -> None:
-    if not registration.name:
-        raise ContractConfigurationError("a stepper name must be non-empty")
-    if registration.name in _builtin_steppers and registry is _user_steppers:
-        raise ContractConfigurationError(
-            f"{registration.name!r} is a built-in stepper and cannot be re-registered "
-            "— choose another name"
-        )
-    if registration.name in registry:
-        raise ContractConfigurationError(
-            f"a stepper named {registration.name!r} is already registered; names must be unique"
-        )
-    for parameter in inspect.signature(registration.factory).parameters.values():
+    for parameter in inspect.signature(factory).parameters.values():
         if parameter.kind in (
             inspect.Parameter.POSITIONAL_ONLY,
             inspect.Parameter.VAR_POSITIONAL,
         ):
             raise ContractConfigurationError(
-                f"stepper {registration.name!r}: parameter {parameter.name!r} is not "
+                f"stepper {name!r}: parameter {parameter.name!r} is not "
                 "keyword-bindable — stepper-config keys bind by name, so factory "
                 "parameters must be ordinary or keyword-only"
             )
-    registry[registration.name] = registration
-
-
-def _register_scorer(name: str, fn: ScorerFunction, registry: dict[str, ScorerFunction]) -> None:
-    if not name:
-        raise ContractConfigurationError("a scorer name must be non-empty")
-    if name in _builtin_scorers and registry is _user_scorers:
-        raise ContractConfigurationError(
-            f"{name!r} is a built-in scorer and cannot be re-registered — choose another name"
-        )
-    if name in registry:
-        raise ContractConfigurationError(
-            f"a scorer named {name!r} is already registered; names must be unique"
-        )
-    registry[name] = fn
-
-
-def registered_stepper_names() -> tuple[str, ...]:
-    """Every registered stepper name, built-ins first, then user names sorted."""
-    return (*sorted(_builtin_steppers), *sorted(_user_steppers))
-
-
-def registered_scorer_names() -> tuple[str, ...]:
-    """Every registered scorer name, built-ins first, then user names sorted."""
-    return (*sorted(_builtin_scorers), *sorted(_user_scorers))
-
-
-def find_stepper(name: str) -> StepperRegistration | None:
-    """The registered stepper of this name, or ``None``."""
-    return _user_steppers.get(name) or _builtin_steppers.get(name)
-
-
-def find_scorer(name: str) -> ScorerFunction | None:
-    """The registered scorer of this name, or ``None``."""
-    return _user_scorers.get(name) or _builtin_scorers.get(name)
-
-
-def closest_stepper_hint(name: str) -> str:
-    """A ``did you mean`` fragment for an unknown stepper name, or ``''``."""
-    matches = difflib.get_close_matches(name, registered_stepper_names(), n=1)
-    return f" — did you mean {matches[0]!r}?" if matches else ""
-
-
-def clear_user_steppers() -> None:
-    """Reset the user halves of the stepper and scorer registries. Test seam only."""
-    _user_steppers.clear()
-    _user_scorers.clear()
 
 
 def bind_stepper_config(
@@ -732,19 +627,24 @@ def _failure_breakdown(failures: Mapping[str, FailureDetail], max_exemplars: int
     return lines
 
 
-_register_scorer("pass-rate", _pass_rate, _builtin_scorers)
-for _registration in (
-    StepperRegistration(
-        name="prompt-engineer",
-        factory=_prompt_engineer,
-        configuration_keys=("target_key",),
-        builtin=True,
-    ),
-    StepperRegistration(
-        name="linear-sweep", factory=_linear_sweep, configuration_keys=("key",), builtin=True
-    ),
-    StepperRegistration(
-        name="refining-grid", factory=_refining_grid, configuration_keys=("key",), builtin=True
-    ),
-):
-    _register_stepper(_registration, _builtin_steppers)
+def builtin_stepper_registrations() -> tuple[StepperRegistration, ...]:
+    """The framework-shipped steppers every :class:`Registry` starts with."""
+    return (
+        StepperRegistration(
+            name="prompt-engineer",
+            factory=_prompt_engineer,
+            configuration_keys=("target_key",),
+            builtin=True,
+        ),
+        StepperRegistration(
+            name="linear-sweep", factory=_linear_sweep, configuration_keys=("key",), builtin=True
+        ),
+        StepperRegistration(
+            name="refining-grid", factory=_refining_grid, configuration_keys=("key",), builtin=True
+        ),
+    )
+
+
+def builtin_scorers() -> dict[str, ScorerFunction]:
+    """The framework-shipped scorers every :class:`Registry` starts with."""
+    return {"pass-rate": _pass_rate}

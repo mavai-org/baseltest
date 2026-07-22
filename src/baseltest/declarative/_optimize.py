@@ -15,7 +15,7 @@ of an exploration entry.
 import inspect
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from baseltest.optimization import Objective
 
@@ -25,13 +25,11 @@ from ._steppers import (
     StepFunction,
     StepperRegistration,
     bind_stepper_config,
-    closest_stepper_hint,
-    find_scorer,
-    find_stepper,
-    registered_scorer_names,
-    registered_stepper_names,
 )
 from ._types import ServiceTypeContract
+
+if TYPE_CHECKING:
+    from ._registry import Registry
 
 _ENTRY_KEYS = {
     "id",
@@ -120,33 +118,37 @@ def _entry_id(name: str, where: str, entry: dict[str, Any], multiple: bool) -> s
     return run_id
 
 
-def _resolve_stepper(name: str, where: str, entry: dict[str, Any]) -> StepperRegistration:
+def _resolve_stepper(
+    name: str, where: str, entry: dict[str, Any], registry: "Registry"
+) -> StepperRegistration:
     stepper_name = entry.get("stepper")
     if not isinstance(stepper_name, str) or not stepper_name:
         raise _fail(f"service {name!r}: {where}: `stepper:` is required — the registered name")
-    registration = find_stepper(stepper_name)
+    registration = registry.find_stepper(stepper_name)
     if registration is None:
-        registered = ", ".join(registered_stepper_names())
+        registered = ", ".join(registry.registered_stepper_names())
         raise _fail(
             f"service {name!r}: {where}: unknown `stepper: {stepper_name}` — "
-            f"registered steppers: {registered}{closest_stepper_hint(stepper_name)} "
+            f"registered steppers: {registered}{registry.closest_stepper_hint(stepper_name)} "
             "(built-in steppers ship with the framework; user steppers are "
-            "registered in mavai-bindings.py with @stepper)"
+            "registered in mavai-bindings.py with @registry.stepper)"
         )
     return registration
 
 
-def _resolve_scorer(name: str, where: str, entry: dict[str, Any]) -> tuple[str, ScorerFunction]:
+def _resolve_scorer(
+    name: str, where: str, entry: dict[str, Any], registry: "Registry"
+) -> tuple[str, ScorerFunction]:
     scorer_name = entry.get("scorer", _DEFAULT_SCORER)
     if not isinstance(scorer_name, str) or not scorer_name:
         raise _fail(f"service {name!r}: {where}: `scorer:` must be a registered name")
-    resolved = find_scorer(scorer_name)
+    resolved = registry.find_scorer(scorer_name)
     if resolved is None:
-        registered = ", ".join(registered_scorer_names())
+        registered = ", ".join(registry.registered_scorer_names())
         raise _fail(
             f"service {name!r}: {where}: unknown `scorer: {scorer_name}` — "
             f"registered scorers: {registered} (user scorers are registered in "
-            "mavai-bindings.py with @scorer)"
+            "mavai-bindings.py with @registry.scorer)"
         )
     return scorer_name, resolved
 
@@ -235,6 +237,7 @@ def parse_optimizations(
     entries: Any,
     baseline: dict[str, Any],
     type_contract: ServiceTypeContract,
+    registry: "Registry",
 ) -> tuple[OptimizationDeclaration, ...]:
     """Resolve the ``optimizations:`` entries — every load-time refusal fires here.
 
@@ -268,7 +271,7 @@ def parse_optimizations(
                 f"{previous} — each optimization names its own run and artefact"
             )
         seen_ids[run_id] = where
-        registration = _resolve_stepper(name, where, entry)
+        registration = _resolve_stepper(name, where, entry, registry)
         raw_config = entry.get("stepper-config", {})
         if not isinstance(raw_config, dict):
             raise _fail(
@@ -279,7 +282,7 @@ def parse_optimizations(
         initial_overlay = entry.get("initial") if isinstance(entry.get("initial"), dict) else {}
         available_keys = tuple({**baseline, **(initial_overlay or {})})
         _validate_configuration_keys(name, where, registration, kwargs, available_keys)
-        scorer_name, score = _resolve_scorer(name, where, entry)
+        scorer_name, score = _resolve_scorer(name, where, entry, registry)
         objective = _resolve_objective(name, where, entry)
         max_iterations = _positive_int(
             name, where, "max-iterations", entry.get("max-iterations"), required=True
