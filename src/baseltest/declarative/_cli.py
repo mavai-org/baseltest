@@ -14,27 +14,26 @@ from baseltest.engine import (
 from baseltest.reporting import render_infeasible
 
 from ._errors import ContractConfigurationError
-from ._parser import load_contract
 from ._providers import ProviderResponseError
-from ._registrations import discover_registrations
 from ._runner import (
     DEFAULT_BASELINE_DIR,
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_OPTIMIZATIONS_DIR,
     DEFAULT_VERDICT_DIR,
     MAVAI_EXPLORE_POINTER,
+    LoadedContract,
     check,
     explore,
+    load_for_run,
     optimize,
     report,
     run,
 )
-from ._services import discover_services
 from ._sizing import ResolvedSizing, SizingRefusalError, resolve_test_sizing
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Entry point: the ``test`` / ``measure`` / ``explore`` verbs over a contract file."""
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the ``basel`` argument parser: the verbs and their flags."""
     parser = argparse.ArgumentParser(
         prog="basel",
         description="Statistically honest testing for stochastic services.",
@@ -250,7 +249,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="output path (default: _baseltest/reports/<kind-specific name>)",
     )
-    arguments = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point: the ``test`` / ``measure`` / ``explore`` verbs over a contract file."""
+    arguments = _build_parser().parse_args(argv)
 
     if arguments.command == "check":
         try:
@@ -315,12 +319,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if exploration.aborted else 0
         verdict_dir = None
         emit = True
+        # Parse the contract, its registrations, and its services once; the
+        # test verb's sizing pass and the run proper both read the same bundle.
+        loaded = load_for_run(arguments.contract_file)
         sizing = ResolvedSizing(samples=arguments.samples)
         if arguments.command == "test":
             if not arguments.no_verdict_xml:
                 verdict_dir = arguments.verdict_dir
             emit = not arguments.emit_json
-            sizing = _resolve_sizing(arguments)
+            sizing = _resolve_sizing(arguments, loaded)
         result = run(
             arguments.contract_file,
             mode=arguments.command,
@@ -329,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             html_report=arguments.html_report,
             verdict_dir=verdict_dir,
             emit=emit,
+            loaded=loaded,
         )
     except SizingRefusalError as refusal:
         print(f"{refusal}", file=sys.stderr)
@@ -371,14 +379,16 @@ def main(argv: list[str] | None = None) -> int:
     return 0  # a plain measure run records; recording cannot fail
 
 
-def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
-    """The ``test`` verb's sizing conversation, before any invocation."""
-    declaration = load_contract(arguments.contract_file)
-    registry = discover_registrations(arguments.contract_file)
-    services = discover_services(arguments.contract_file, registry)
+def _resolve_sizing(arguments: "argparse.Namespace", loaded: LoadedContract) -> ResolvedSizing:
+    """The ``test`` verb's sizing conversation, before any invocation.
+
+    Works from the already-parsed ``loaded`` bundle — the run that follows
+    reuses the same declaration, registry, and services, so the contract is
+    read once per invocation.
+    """
     return resolve_test_sizing(
-        declaration,
-        services,
+        loaded.declaration,
+        loaded.services,
         baseline_dir=arguments.baseline_dir,
         samples=arguments.samples,
         tolerate=arguments.tolerate,
@@ -387,7 +397,7 @@ def _resolve_sizing(arguments: "argparse.Namespace") -> ResolvedSizing:
         accept_weak_design=arguments.accept_weak_design,
         emit_json=arguments.emit_json,
         force=arguments.force,
-        registry=registry,
+        registry=loaded.registry,
     )
 
 

@@ -9,6 +9,7 @@ progress line (`_shared`).
 
 from ._check import check
 from ._explore import AbortedConfiguration, ConfigurationExploration, ExplorationRun, explore
+from ._load import LoadedContract, load_for_run
 from ._optimize import optimize
 from ._optimize_loop import OptimizationOutcome
 from ._report import report
@@ -31,9 +32,11 @@ __all__ = [
     "AbortedConfiguration",
     "ConfigurationExploration",
     "ExplorationRun",
+    "LoadedContract",
     "OptimizationOutcome",
     "check",
     "explore",
+    "load_for_run",
     "optimize",
     "report",
     "run",

@@ -24,11 +24,10 @@ from baseltest.reporting import (
 from .._disclosure import sizing_disclosure
 from .._errors import ContractConfigurationError
 from .._instantiate import BaselineContext, descriptive_view_fingerprints, instantiate
-from .._parser import FORMAT_IDENTIFIER, load_contract
-from .._registrations import discover_registrations
+from .._parser import FORMAT_IDENTIFIER
 from .._registry import Bindings
-from .._services import discover_services
 from .._sizing import ResolvedSizing
+from ._load import LoadedContract, load_for_run
 from ._shared import DEFAULT_BASELINE_DIR, _tty_progress
 
 
@@ -44,6 +43,7 @@ def run(
     html_report: str | Path | None = None,
     emit: bool = True,
     bindings: Bindings | None = None,
+    loaded: LoadedContract | None = None,
 ) -> RunResult:
     """Load and execute a contract file; render its output; persist when measuring.
 
@@ -59,6 +59,10 @@ def run(
         baseline_dir: Where measure runs persist their baseline artefact.
         emit: Whether to print the rendered output (the CLI does; API
             callers may render from the returned result instead).
+        loaded: The contract's already-parsed declaration, registry, and
+            services. The ``test`` verb sizes the run before executing it and
+            passes what it parsed here so the run does not re-read the same
+            files; when absent (measure, API callers) the run loads them itself.
 
     Returns:
         The run result.
@@ -74,9 +78,11 @@ def run(
         samples = sizing_resolution.samples if samples is None else samples
         samples_provenance = samples_provenance or sizing_resolution.provenance
     contract_path = Path(path)
-    declaration = load_contract(contract_path)
-    registry = bindings._registry if bindings is not None else discover_registrations(contract_path)
-    services = discover_services(contract_path, registry)
+    if loaded is None:
+        loaded = load_for_run(contract_path, bindings)
+    declaration = loaded.declaration
+    registry = loaded.registry
+    services = loaded.services
     instantiation = instantiate(
         declaration,
         services,
