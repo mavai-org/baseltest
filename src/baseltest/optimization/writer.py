@@ -1,10 +1,10 @@
 """The optimization writer: the family's ``mavai-optimize-1`` schema, one file per run.
 
 Emission is deterministic — the same fixed key order and scalar rendering
-as the exploration writer, whose observation blocks each iteration reuses
-— so two runs of one optimization diff cleanly. The filename is the run's
-id (``optimizations/{contract}/{id}.yaml``); re-running an optimization
-refreshes its file in place.
+the explore writer uses, over the shared run-observation blocks each
+iteration carries — so two runs of one optimization diff cleanly. The
+filename is the run's id (``optimizations/{contract}/{id}.yaml``);
+re-running an optimization refreshes its file in place.
 """
 
 from pathlib import Path
@@ -13,7 +13,7 @@ from pathlib import Path
 # strings are valid YAML flow scalars, numbers keep their native YAML type);
 # the per-iteration observation blocks are the exploration artefact's, reused.
 from baseltest.engine.artefact import factor_lines, quote, scalar
-from baseltest.exploration import observation_lines
+from baseltest.observation import observation_lines
 
 from .record import OptimizationRecord
 

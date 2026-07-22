@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baseltest.engine import DefectDiagnosisError, RunResult, execute
-from baseltest.exploration import ExplorationRecord, exploration_stem, write_exploration
+from baseltest.exploration import exploration_stem, write_exploration
+from baseltest.observation import RunObservation
 from baseltest.reporting import render_explorations, render_run_plan
 
 from .._instantiate import instantiate_explore
@@ -144,7 +145,7 @@ def explore(
             if emit:
                 print(f"note: configuration {record_label} aborted — {defect}", file=sys.stderr)
             continue
-        record = ExplorationRecord.from_run_result(
+        record = RunObservation.from_run_result(
             result,
             factors=configuration.factors,
             configuration=configuration.configuration,

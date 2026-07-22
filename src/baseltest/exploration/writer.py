@@ -78,10 +78,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from baseltest.engine.artefact import factor_lines, latency_lines, quote
-from baseltest.engine.naming import bounded_key
-
-from .record import ExplorationRecord
+from baseltest.engine.artefact import factor_lines, quote
+from baseltest.observation import RunObservation, observation_lines
 
 SCHEMA_VERSION = "mavai-explore-1"
 
@@ -132,73 +130,8 @@ def exploration_stem(factors: tuple[tuple[str, Any], ...]) -> str:
     return "_".join(_stem_segment(key, value) for key, value in factors)
 
 
-def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
-    """One configuration's descriptive observation blocks, shared by the
-    experiment emitters: execution, statistics, cost, the gated latency
-    block, and the result projection — everything downstream of the
-    factors, rendered deterministically at the given indent."""
-    lines = [
-        f"{indent}execution:",
-        f"{indent}  samplesPlanned: {record.samples_planned}",
-        f"{indent}  samplesExecuted: {record.samples_executed}",
-        f'{indent}  terminationReason: "COMPLETED"',
-        f"{indent}statistics:",
-        f"{indent}  observed: {record.observed_rate:.6f}",
-        f"{indent}  successes: {record.successes}",
-        f"{indent}  failures: {record.samples_executed - record.successes}",
-    ]
-    if record.failure_distribution:
-        lines.append(f"{indent}  failureDistribution:")
-        for entry in record.failure_distribution:
-            lines.append(f"{indent}    - condition: {quote(entry.condition)}")
-            if entry.input_index is not None:
-                lines.append(f"{indent}      inputIndex: {entry.input_index}")
-            if entry.input_excerpt is not None:
-                lines.append(f"{indent}      inputExcerpt: {quote(entry.input_excerpt)}")
-            lines.append(f"{indent}      count: {entry.count}")
-    lines.append(f"{indent}  criteria:")
-    for name, statistics in record.criteria.items():
-        lines.extend(
-            [
-                f"{indent}    {quote(bounded_key(name))}:",
-                f"{indent}      observedPassRate: {statistics.observed_rate:.6f}",
-                f"{indent}      pass: {statistics.passes}",
-                f"{indent}      fail: {statistics.fails}",
-                f"{indent}      inconclusive: 0",
-            ]
-        )
-    average = (
-        round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
-    )
-    lines.extend(
-        [
-            f"{indent}cost:",
-            f"{indent}  totalTimeMs: {record.total_time_ms}",
-            f"{indent}  avgTimePerSampleMs: {average}",
-        ]
-    )
-    if record.latency is not None:
-        lines.extend(latency_lines(record.latency, indent))
-    if record.samples:
-        lines.append(f"{indent}resultProjection:")
-        for index, sample in enumerate(record.samples):
-            # Content-deterministic diff anchor: same sample position and
-            # input index → same anchor, so a diff between two artefacts of
-            # one grid aligns at sample boundaries.
-            anchor = hashlib.sha256(f"{index}:{sample.input_index}".encode()).hexdigest()[:8]
-            lines.append(f"{indent}  # ────── anchor:{anchor} ──────")
-            lines.append(f'{indent}  "sample[{index}]":')
-            lines.append(f"{indent}    inputIndex: {sample.input_index}")
-            lines.append(f"{indent}    postconditions:")
-            for name, status in sample.postconditions:
-                lines.append(f"{indent}      {quote(bounded_key(name))}: {quote(status)}")
-            lines.append(f"{indent}    executionTimeMs: {sample.execution_time_ms}")
-            lines.append(f"{indent}    content: {quote(sample.content)}")
-    return lines
-
-
 # mavai-ref: JVI-8CHB31R — do not remove (resolves in mavai-orchestrator)
-def render_exploration(record: ExplorationRecord) -> str:
+def render_exploration(record: RunObservation) -> str:
     """Serialise one configuration's record to the family schema, deterministically.
 
     Raises:
@@ -221,7 +154,7 @@ def render_exploration(record: ExplorationRecord) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_exploration(record: ExplorationRecord, directory: Path) -> Path:
+def write_exploration(record: RunObservation, directory: Path) -> Path:
     """Write one configuration's artefact under ``directory/{contract}/``.
 
     Returns the written path. Filenames derive from the factor values, so
