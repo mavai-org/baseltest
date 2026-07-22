@@ -9,9 +9,11 @@ refreshes its file in place.
 
 from pathlib import Path
 
-# The family emitters share one deterministic scalar rendering: JSON-quoted
-# strings are valid YAML flow scalars, numbers keep their native YAML type.
-from baseltest.exploration.writer import _quote, _scalar, factor_lines, observation_lines
+# The family emitters share one deterministic scalar rendering (JSON-quoted
+# strings are valid YAML flow scalars, numbers keep their native YAML type);
+# the per-iteration observation blocks are the exploration artefact's, reused.
+from baseltest.engine.artefact import factor_lines, quote, scalar
+from baseltest.exploration import observation_lines
 
 from .record import OptimizationRecord
 
@@ -39,29 +41,29 @@ def render_optimization(record: OptimizationRecord) -> str:
             f"of {len(record.iterations)}"
         )
     lines = [
-        f"schemaVersion: {_quote(SCHEMA_VERSION)}",
-        f"serviceContractId: {_quote(record.contract_id)}",
-        f"experimentId: {_quote(record.experiment_id)}",
-        f"objective: {_quote(record.objective.upper())}",
+        f"schemaVersion: {quote(SCHEMA_VERSION)}",
+        f"serviceContractId: {quote(record.contract_id)}",
+        f"experimentId: {quote(record.experiment_id)}",
+        f"objective: {quote(record.objective.upper())}",
         # What the score measures — the family's registered additive
         # field, so the shared report can label the score column.
-        f"scorer: {_quote(record.scorer)}",
-        f"generatedAt: {_quote(record.generated_at.isoformat())}",
+        f"scorer: {quote(record.scorer)}",
+        f"generatedAt: {quote(record.generated_at.isoformat())}",
     ]
     if record.stepper:
         # Mutator provenance — an emitter-specific block the schema's
         # additive-evolution rule permits.
         lines.append("stepper:")
         for key, value in record.stepper:
-            lines.append(f"  {_quote(key)}: {_scalar(value)}")
-    lines.append(f"termination: {_quote(record.termination)}")
+            lines.append(f"  {quote(key)}: {scalar(value)}")
+    lines.append(f"termination: {quote(record.termination)}")
     lines.append("iterations:")
     for iteration in record.iterations:
         lines.append(f"  - iteration: {iteration.index}")
         # The schema binds the factors block on every iteration; a
         # zero-parameter configuration renders as the empty mapping.
         lines.extend(factor_lines(iteration.factors, indent="    ") or ["    factors: {}"])
-        lines.append(f"    score: {_scalar(iteration.score)}")
+        lines.append(f"    score: {scalar(iteration.score)}")
         lines.extend(observation_lines(iteration.observation, indent="    "))
     best = record.best
     lines.extend(
@@ -69,13 +71,13 @@ def render_optimization(record: OptimizationRecord) -> str:
             "convergence:",
             f"  totalIterations: {len(record.iterations)}",
             f"  bestIteration: {best.index}",
-            f"  bestScore: {_scalar(best.score)}",
+            f"  bestScore: {scalar(best.score)}",
         ]
     )
     if best.factors:
         lines.append("  bestFactors:")
         for key, value in best.factors:
-            lines.append(f"    {_quote(key)}: {_scalar(value)}")
+            lines.append(f"    {quote(key)}: {scalar(value)}")
     else:
         lines.append("  bestFactors: {}")
     return "\n".join(lines) + "\n"

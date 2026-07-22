@@ -51,10 +51,9 @@ percentiles, is what a later test consumes to derive a latency bound at
 its own confidence — nothing derived is persisted here.
 """
 
-import json
 from pathlib import Path
 
-from baseltest.engine import LatencyBlock
+from baseltest.engine.artefact import latency_lines, quote
 from baseltest.engine.naming import bounded_key
 
 from .record import BaselineRecord, CriterionCharacterisation
@@ -62,14 +61,9 @@ from .record import BaselineRecord, CriterionCharacterisation
 SCHEMA_VERSION = "baseltest-baseline-2"
 
 
-def _quote(value: str) -> str:
-    """A YAML-safe scalar: JSON string quoting is valid YAML flow style."""
-    return json.dumps(value, ensure_ascii=False)
-
-
 def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
     lines = [
-        f"  {_quote(bounded_key(name))}:",
+        f"  {quote(bounded_key(name))}:",
         f"    observedPassRate: {c.observed_rate:.6f}",
         f"    successes: {c.successes}",
         f"    trials: {c.trials}",
@@ -77,12 +71,12 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
     if c.failure_distribution:
         lines.append("    failureDistribution:")
         for reason in sorted(c.failure_distribution):
-            lines.append(f"      {_quote(bounded_key(reason))}: {c.failure_distribution[reason]}")
+            lines.append(f"      {quote(bounded_key(reason))}: {c.failure_distribution[reason]}")
     if c.judgement is not None:
         lines.extend(
             [
                 "    normativeJudgement:",
-                f"      state: {_quote(c.judgement.state)}",
+                f"      state: {quote(c.judgement.state)}",
                 f"      stipulatedThreshold: {c.judgement.stipulated_threshold}",
                 f"      confidence: {c.judgement.confidence}",
             ]
@@ -93,43 +87,27 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
 def render_baseline(record: BaselineRecord) -> str:
     """Serialise a record to the artefact schema, deterministically."""
     lines = [
-        f"schemaVersion: {_quote(SCHEMA_VERSION)}",
-        f"contractId: {_quote(record.contract_id)}",
-        f"generatedAt: {_quote(record.generated_at.isoformat())}",
+        f"schemaVersion: {quote(SCHEMA_VERSION)}",
+        f"contractId: {quote(record.contract_id)}",
+        f"generatedAt: {quote(record.generated_at.isoformat())}",
         f"sampleCount: {record.sample_count}",
-        f"inputsIdentity: {_quote(record.inputs_identity)}",
+        f"inputsIdentity: {quote(record.inputs_identity)}",
     ]
     if record.provenance:
         lines.append("provenance:")
         for key in sorted(record.provenance):
-            lines.append(f"  {_quote(key)}: {_quote(record.provenance[key])}")
+            lines.append(f"  {quote(key)}: {quote(record.provenance[key])}")
     if record.views:
         lines.append("views:")
         for view in sorted(record.views):
-            lines.append(f"  {_quote(view)}:")
-            lines.append(f"    outputSchemaFingerprint: {_quote(record.views[view])}")
+            lines.append(f"  {quote(view)}:")
+            lines.append(f"    outputSchemaFingerprint: {quote(record.views[view])}")
     lines.append("criteria:")
     for name, characterisation in record.criteria.items():
         lines.extend(_criterion_lines(name, characterisation))
     if record.latency is not None:
-        lines.extend(_latency_lines(record.latency))
+        lines.extend(latency_lines(record.latency))
     return "\n".join(lines) + "\n"
-
-
-def _latency_lines(latency: LatencyBlock) -> list[str]:
-    lines = [
-        "latency:",
-        f"  basis: {_quote(latency.basis)}",
-        f"  contributingSamples: {latency.contributing_samples}",
-        f"  totalSamples: {latency.total_samples}",
-    ]
-    for key, value in latency.percentiles:
-        lines.append(f"  {key}: {value}")
-    if latency.sorted_passing_latencies_ms:
-        lines.append("  sortedPassingLatenciesMs:")
-        for duration in latency.sorted_passing_latencies_ms:
-            lines.append(f"    - {duration}")
-    return lines
 
 
 def baseline_filename(record: BaselineRecord) -> str:

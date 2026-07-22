@@ -78,6 +78,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from baseltest.engine.artefact import factor_lines, latency_lines, quote
 from baseltest.engine.naming import bounded_key
 
 from .record import ExplorationRecord
@@ -131,34 +132,6 @@ def exploration_stem(factors: tuple[tuple[str, Any], ...]) -> str:
     return "_".join(_stem_segment(key, value) for key, value in factors)
 
 
-def _quote(value: str) -> str:
-    """A YAML-safe scalar: JSON string quoting is valid YAML flow style."""
-    return json.dumps(value, ensure_ascii=False)
-
-
-def _scalar(value: Any) -> str:
-    """A factor value as a YAML scalar, native type preserved."""
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return repr(value) if isinstance(value, float) else str(value)
-    if isinstance(value, str):
-        return _quote(value)
-    return _quote(json.dumps(value, sort_keys=True, ensure_ascii=False))
-
-
-def factor_lines(factors: tuple[tuple[str, Any], ...], indent: str = "") -> list[str]:
-    """The ``factors:`` block: one configuration's resolved values."""
-    if not factors:
-        return []
-    lines = [f"{indent}factors:"]
-    for key, value in factors:
-        lines.append(f"{indent}  {_quote(bounded_key(key))}: {_scalar(value)}")
-    return lines
-
-
 def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
     """One configuration's descriptive observation blocks, shared by the
     experiment emitters: execution, statistics, cost, the gated latency
@@ -177,17 +150,17 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
     if record.failure_distribution:
         lines.append(f"{indent}  failureDistribution:")
         for entry in record.failure_distribution:
-            lines.append(f"{indent}    - condition: {_quote(entry.condition)}")
+            lines.append(f"{indent}    - condition: {quote(entry.condition)}")
             if entry.input_index is not None:
                 lines.append(f"{indent}      inputIndex: {entry.input_index}")
             if entry.input_excerpt is not None:
-                lines.append(f"{indent}      inputExcerpt: {_quote(entry.input_excerpt)}")
+                lines.append(f"{indent}      inputExcerpt: {quote(entry.input_excerpt)}")
             lines.append(f"{indent}      count: {entry.count}")
     lines.append(f"{indent}  criteria:")
     for name, statistics in record.criteria.items():
         lines.extend(
             [
-                f"{indent}    {_quote(bounded_key(name))}:",
+                f"{indent}    {quote(bounded_key(name))}:",
                 f"{indent}      observedPassRate: {statistics.observed_rate:.6f}",
                 f"{indent}      pass: {statistics.passes}",
                 f"{indent}      fail: {statistics.fails}",
@@ -205,20 +178,7 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
         ]
     )
     if record.latency is not None:
-        lines.extend(
-            [
-                f"{indent}latency:",
-                f"{indent}  basis: {_quote(record.latency.basis)}",
-                f"{indent}  contributingSamples: {record.latency.contributing_samples}",
-                f"{indent}  totalSamples: {record.latency.total_samples}",
-            ]
-        )
-        for key, value in record.latency.percentiles:
-            lines.append(f"{indent}  {key}: {value}")
-        if record.latency.sorted_passing_latencies_ms:
-            lines.append(f"{indent}  sortedPassingLatenciesMs:")
-            for duration in record.latency.sorted_passing_latencies_ms:
-                lines.append(f"{indent}    - {duration}")
+        lines.extend(latency_lines(record.latency, indent))
     if record.samples:
         lines.append(f"{indent}resultProjection:")
         for index, sample in enumerate(record.samples):
@@ -231,9 +191,9 @@ def observation_lines(record: ExplorationRecord, indent: str = "") -> list[str]:
             lines.append(f"{indent}    inputIndex: {sample.input_index}")
             lines.append(f"{indent}    postconditions:")
             for name, status in sample.postconditions:
-                lines.append(f"{indent}      {_quote(bounded_key(name))}: {_quote(status)}")
+                lines.append(f"{indent}      {quote(bounded_key(name))}: {quote(status)}")
             lines.append(f"{indent}    executionTimeMs: {sample.execution_time_ms}")
-            lines.append(f"{indent}    content: {_quote(sample.content)}")
+            lines.append(f"{indent}    content: {quote(sample.content)}")
     return lines
 
 
@@ -248,10 +208,10 @@ def render_exploration(record: ExplorationRecord) -> str:
     if not record.criteria:
         raise ValueError("an exploration record carries at least one criterion")
     lines = [
-        f"schemaVersion: {_quote(SCHEMA_VERSION)}",
-        f"serviceContractId: {_quote(record.contract_id)}",
-        f"configuration: {_quote(exploration_stem(record.factors))}",
-        f"generatedAt: {_quote(record.generated_at.isoformat())}",
+        f"schemaVersion: {quote(SCHEMA_VERSION)}",
+        f"serviceContractId: {quote(record.contract_id)}",
+        f"configuration: {quote(exploration_stem(record.factors))}",
+        f"generatedAt: {quote(record.generated_at.isoformat())}",
     ]
     # The block carries the full resolved configuration (constants
     # included) so one artefact tells the whole story; the filename
