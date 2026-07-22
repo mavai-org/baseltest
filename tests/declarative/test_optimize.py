@@ -8,10 +8,11 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import Registry, optimize
+from baseltest.declarative import Bindings, optimize
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
+from baseltest.declarative._registry import Registry
 from baseltest.declarative._runner import check
 from baseltest.declarative._services import parse_services
 
@@ -471,9 +472,9 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("hold-still")
+        @bindings.stepper("hold-still")
         def hold_still():  # type: ignore[no-untyped-def]
             return lambda current, ctx: None
 
@@ -491,7 +492,7 @@ class TestOptimizeLoop:
             samples_per_iteration=2,
             emit=False,
             optimizations_dir=tmp_path / "o",
-            registry=registry,
+            bindings=bindings,
         )
         record = outcomes[0].record
         assert dict(record.iterations[0].factors)["temperature"] == 0.2
@@ -553,9 +554,9 @@ class TestOptimizeLoop:
         """A stochastic score is noisy: revisiting a configuration pools
         evidence, so the run proceeds and says the repeat is deliberate."""
         scripted_endpoint(hello_below(1.0))
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("second-opinion")
+        @bindings.stepper("second-opinion")
         def second_opinion():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 return dict(current) if ctx.iteration < 3 else None
@@ -572,7 +573,7 @@ class TestOptimizeLoop:
             ),
         )
         outcomes = optimize(
-            path, samples_per_iteration=2, optimizations_dir=tmp_path / "o", registry=registry
+            path, samples_per_iteration=2, optimizations_dir=tmp_path / "o", bindings=bindings
         )
         record = outcomes[0].record
         assert len(record.iterations) == 3  # the same configuration, measured thrice
@@ -586,9 +587,9 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("confused")
+        @bindings.stepper("confused")
         def confused():  # type: ignore[no-untyped-def]
             return lambda current, ctx: 0.7
 
@@ -607,16 +608,16 @@ class TestOptimizeLoop:
                 samples_per_iteration=2,
                 emit=False,
                 optimizations_dir=tmp_path / "o",
-                registry=registry,
+                bindings=bindings,
             )
 
     def test_a_stepper_proposing_an_invalid_configuration_is_refused_naming_the_key(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("vandal")
+        @bindings.stepper("vandal")
         def vandal():  # type: ignore[no-untyped-def]
             return lambda current, ctx: {**current, "warmth": 0.7}
 
@@ -635,7 +636,7 @@ class TestOptimizeLoop:
                 samples_per_iteration=2,
                 emit=False,
                 optimizations_dir=tmp_path / "o",
-                registry=registry,
+                bindings=bindings,
             )
         message = str(caught.value)
         assert "unknown key `warmth:`" in message
@@ -670,9 +671,9 @@ class TestOptimizeLoop:
     ) -> None:
         scripted_endpoint(hello_below(1.0))
         seen: list[tuple[int, int, float | None]] = []
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("observer")
+        @bindings.stepper("observer")
         def observer():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 seen.append(
@@ -699,7 +700,7 @@ class TestOptimizeLoop:
             samples_per_iteration=2,
             emit=False,
             optimizations_dir=tmp_path / "o",
-            registry=registry,
+            bindings=bindings,
         )
         assert seen == [(1, 2, 1.0), (2, 1, 1.0)]
 
@@ -708,9 +709,9 @@ class TestOptimizeLoop:
     ) -> None:
         scripted_endpoint(hello_below(-1.0))  # every sample fails
         observed: list[Any] = []
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.stepper("post-mortem")
+        @bindings.stepper("post-mortem")
         def post_mortem():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 observed.append(ctx.history[-1].failures_by_criterion)
@@ -732,7 +733,7 @@ class TestOptimizeLoop:
             samples_per_iteration=2,
             emit=False,
             optimizations_dir=tmp_path / "o",
-            registry=registry,
+            bindings=bindings,
         )
         detail = observed[0]["says-hello"]
         assert detail.count == 2
@@ -743,13 +744,13 @@ class TestOptimizeLoop:
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:
         scripted_endpoint(hello_below(1.0))  # every iteration's pass rate is 1.0
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.scorer("coolness")
+        @bindings.scorer("coolness")
         def coolness(summary):  # type: ignore[no-untyped-def]
             return float(summary.passes)  # constant across iterations, like pass-rate
 
-        @registry.stepper("two-steps")
+        @bindings.stepper("two-steps")
         def two_steps():  # type: ignore[no-untyped-def]
             def step(current, ctx):  # type: ignore[no-untyped-def]
                 if ctx.iteration >= 2:
@@ -774,7 +775,7 @@ class TestOptimizeLoop:
             samples_per_iteration=2,
             emit=False,
             optimizations_dir=tmp_path / "o",
-            registry=registry,
+            bindings=bindings,
         )
         record = outcomes[0].record
         assert [capture.score for capture in record.iterations] == [2.0, 2.0]

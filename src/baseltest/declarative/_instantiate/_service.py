@@ -84,7 +84,7 @@ def _resolve_service(
         raise ContractConfigurationError(
             f"service {reference!r} matches no service definition and no registered "
             f"binding. Register the code that invokes your service with "
-            f"@registry.binding({reference!r}) in mavai-bindings.py, or define the service in "
+            f"@bindings.binding({reference!r}) in mavai-bindings.py, or define the service in "
             "mavai-services.yaml, before running the contract."
         )
     if not type_contract.addressable:

@@ -131,7 +131,7 @@ def _resolve_stepper(
             f"service {name!r}: {where}: unknown `stepper: {stepper_name}` — "
             f"registered steppers: {registered}{registry.closest_stepper_hint(stepper_name)} "
             "(built-in steppers ship with the framework; user steppers are "
-            "registered in mavai-bindings.py with @registry.stepper)"
+            "registered in mavai-bindings.py with @bindings.stepper)"
         )
     return registration
 
@@ -148,7 +148,7 @@ def _resolve_scorer(
         raise _fail(
             f"service {name!r}: {where}: unknown `scorer: {scorer_name}` — "
             f"registered scorers: {registered} (user scorers are registered in "
-            "mavai-bindings.py with @registry.scorer)"
+            "mavai-bindings.py with @bindings.scorer)"
         )
     return scorer_name, resolved
 

@@ -7,7 +7,7 @@ resolves against its own registrations — no global reset, no shared singleton.
 
 from pathlib import Path
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 from baseltest.engine import Verdict
 
 CONTRACT = """
@@ -28,8 +28,8 @@ def _write(tmp_path: Path, marker: str) -> Path:
 
 
 def test_two_registries_same_binding_name_do_not_cross_talk(tmp_path: Path) -> None:
-    r1 = Registry()
-    r2 = Registry()
+    r1 = Bindings()
+    r2 = Bindings()
 
     @r1.binding("svc")
     def invoke_a(value: str) -> str:
@@ -42,12 +42,12 @@ def test_two_registries_same_binding_name_do_not_cross_talk(tmp_path: Path) -> N
     contract_a = _write(tmp_path, "A")
     contract_b = _write(tmp_path, "B")
 
-    # Each registry sees its own binding: r1's "svc" answers "A", r2's "B".
-    assert run(contract_a, registry=r1, emit=False).composite is Verdict.PASS
-    assert run(contract_b, registry=r2, emit=False).composite is Verdict.PASS
+    # Each bindings sees its own binding: r1's "svc" answers "A", r2's "B".
+    assert run(contract_a, bindings=r1, emit=False).composite is Verdict.PASS
+    assert run(contract_b, bindings=r2, emit=False).composite is Verdict.PASS
 
     # And no bleed-through: r2's "svc" (answers "B") fails the "A" contract,
     # and r1's (answers "A") fails the "B" contract — proving the second
     # registration never overwrote or leaked into the first.
-    assert run(contract_a, registry=r2, emit=False).composite is Verdict.FAIL
-    assert run(contract_b, registry=r1, emit=False).composite is Verdict.FAIL
+    assert run(contract_a, bindings=r2, emit=False).composite is Verdict.FAIL
+    assert run(contract_b, bindings=r1, emit=False).composite is Verdict.FAIL

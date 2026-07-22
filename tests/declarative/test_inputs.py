@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.engine import Verdict, inputs_fingerprint
 
@@ -30,8 +30,8 @@ inputs:
 """
 
 
-def register_forecast(registry: Registry) -> None:
-    @registry.binding("forecast")
+def register_forecast(bindings: Bindings) -> None:
+    @bindings.binding("forecast")
     def forecast(city: str, days: int, metric: bool) -> str:
         unit = "C" if metric else "F"
         return f"{city}: {days} days of sun, 20{unit}"
@@ -39,17 +39,17 @@ def register_forecast(registry: Registry) -> None:
 
 class TestTupleInputs:
     def test_list_inputs_splat_as_positional_arguments(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_forecast(registry)
-        result = run(write_contract(tmp_path, FORECAST_CONTRACT), emit=False, registry=registry)
+        bindings = Bindings()
+        register_forecast(bindings)
+        result = run(write_contract(tmp_path, FORECAST_CONTRACT), emit=False, bindings=bindings)
         assert result.composite is Verdict.PASS
 
     def test_scalar_non_string_input_reaches_a_single_parameter_binding(
         self, tmp_path: Path
     ) -> None:
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding("doubler")
+        @bindings.binding("doubler")
         def doubler(count: int) -> str:
             return str(count * 2)
 
@@ -62,12 +62,12 @@ criteria:
     equals: "14"
 inputs: [7]
 """
-        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
+        result = run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
         assert result.composite is Verdict.PASS
 
     def test_per_input_expectations_dispatch_on_tuple_inputs(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_forecast(registry)
+        bindings = Bindings()
+        register_forecast(bindings)
         contract = """
 format: mavai-contract/1
 contract: forecast-is-complete
@@ -81,49 +81,49 @@ inputs:
   - input: ["Oslo", 1, false]
     expected: { contains: "20F" }
 """
-        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
+        result = run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
         assert result.composite is Verdict.PASS
 
 
 class TestInputJoinRefusals:
     def test_arity_mismatch_names_the_input_and_carries_the_signature(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_forecast(registry)
+        bindings = Bindings()
+        register_forecast(bindings)
         contract = FORECAST_CONTRACT.replace('- ["Oslo", 1, false]', '- ["Oslo", 1]')
         with pytest.raises(ContractConfigurationError) as refusal:
-            run(write_contract(tmp_path, contract), emit=False, registry=registry)
+            run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
         message = str(refusal.value)
         assert "input 2" in message
         assert "2 values" in message
         assert "forecast(city: str, days: int, metric: bool)" in message
 
     def test_annotated_type_mismatch_names_the_parameter(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_forecast(registry)
+        bindings = Bindings()
+        register_forecast(bindings)
         contract = FORECAST_CONTRACT.replace('- ["Oslo", 1, false]', '- ["Oslo", "one", false]')
         with pytest.raises(ContractConfigurationError, match="'days' expects int, got str"):
-            run(write_contract(tmp_path, contract), emit=False, registry=registry)
+            run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
 
     def test_refusal_fires_before_any_invocation(self, tmp_path: Path) -> None:
         calls: list[str] = []
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding("counting")
+        @bindings.binding("counting")
         def counting(city: str, days: int) -> str:
             calls.append(city)
             return city
 
         contract = FORECAST_CONTRACT.replace("service: forecast", "service: counting")
         with pytest.raises(ContractConfigurationError):
-            run(write_contract(tmp_path, contract), emit=False, registry=registry)
+            run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
         assert calls == []
 
     def test_nested_input_structures_are_refused_by_the_parser(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_forecast(registry)
+        bindings = Bindings()
+        register_forecast(bindings)
         contract = FORECAST_CONTRACT.replace('- ["Oslo", 1, false]', '- ["Oslo", [1, 2], false]')
         with pytest.raises(ContractConfigurationError, match="flat list of scalars"):
-            run(write_contract(tmp_path, contract), emit=False, registry=registry)
+            run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
 
 
 class TestInputsFingerprint:

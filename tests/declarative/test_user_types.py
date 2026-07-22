@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import Registry, explore, run
+from baseltest.declarative import Bindings, explore, run
 from baseltest.declarative._errors import ContractConfigurationError
+from baseltest.declarative._registry import Registry
 from baseltest.declarative._services import parse_services
 from baseltest.engine import Verdict
 
@@ -36,7 +37,9 @@ inputs: ["Alice", "Bob"]
 """
 
 
-def register_teller(registry: Registry, covariates: dict[str, str] | None = None) -> None:
+def register_teller(
+    registry: Bindings | Registry, covariates: dict[str, str] | None = None
+) -> None:
     @registry.binding_factory("fortune-teller", covariates=covariates)
     def fortune_teller(mood: str = "plain", emphasis: int = 1) -> Callable[[str], str]:
         def tell(name: str) -> str:
@@ -54,23 +57,23 @@ def write_files(tmp_path: Path, services: str = SERVICES, contract: str = CONTRA
 
 class TestConfiguredRuns:
     def test_test_runs_the_baseline_configuration(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_teller(registry)
-        result = run(write_files(tmp_path), emit=False, registry=registry)
+        bindings = Bindings()
+        register_teller(bindings)
+        result = run(write_files(tmp_path), emit=False, bindings=bindings)
         assert result.composite is Verdict.PASS
 
     def test_measure_provenance_carries_type_configuration_and_covariates(
         self, tmp_path: Path
     ) -> None:
-        registry = Registry()
-        register_teller(registry, covariates={"catalogue": "v1"})
+        bindings = Bindings()
+        register_teller(bindings, covariates={"catalogue": "v1"})
         run(
             write_files(tmp_path),
             mode="measure",
             samples=20,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         (artefact,) = (tmp_path / "b").glob("*.yaml")
         content = artefact.read_text(encoding="utf-8")
@@ -80,8 +83,8 @@ class TestConfiguredRuns:
         assert '"catalogue": "v1"' in content
 
     def test_configuration_drift_is_refused_naming_the_key(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_teller(registry)
+        bindings = Bindings()
+        register_teller(bindings)
         empirical_only = CONTRACT.replace(
             '  - name: on-mood\n    threshold: 0.5\n    contains: "cheerful"\n', ""
         )
@@ -92,7 +95,7 @@ class TestConfiguredRuns:
             samples=20,
             baseline_dir=tmp_path / "b",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         write_files(
             tmp_path,
@@ -100,20 +103,20 @@ class TestConfiguredRuns:
             contract=empirical_only,
         )
         with pytest.raises(ContractConfigurationError) as refusal:
-            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False, registry=registry)
+            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False, bindings=bindings)
         assert "mood" in str(refusal.value)
 
 
 class TestExploration:
     def test_explore_runs_every_grid_point_with_factor_naming(self, tmp_path: Path) -> None:
-        registry = Registry()
-        register_teller(registry)
+        bindings = Bindings()
+        register_teller(bindings)
         explored = explore(
             write_files(tmp_path),
             samples_per_config=2,
             explorations_dir=tmp_path / "x",
             emit=False,
-            registry=registry,
+            bindings=bindings,
         )
         assert [e.factors for e in explored] == [{"mood": "cheerful"}, {"mood": "gloomy"}]
         assert sorted(p.name for p in (tmp_path / "x" / "teller-stays-on-mood").iterdir()) == [
@@ -204,14 +207,14 @@ class TestConfigurationRefusals:
         assert "did you mean 'fortune-teller'?" in message
 
     def test_factory_returning_a_non_callable_is_refused(self, tmp_path: Path) -> None:
-        registry = Registry()
+        bindings = Bindings()
 
-        @registry.binding_factory("fortune-teller")
+        @bindings.binding_factory("fortune-teller")
         def fortune_teller(mood: str = "plain", emphasis: int = 1) -> str:
             return mood
 
         with pytest.raises(ContractConfigurationError, match="not the per-sample callable"):
-            run(write_files(tmp_path), emit=False, registry=registry)
+            run(write_files(tmp_path), emit=False, bindings=bindings)
 
     def test_positional_only_factory_parameters_are_refused_at_registration(self) -> None:
         registry = Registry()

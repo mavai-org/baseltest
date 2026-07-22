@@ -24,7 +24,7 @@ import random
 from collections.abc import Callable
 from pathlib import Path
 
-from baseltest.declarative import binding_factory
+from baseltest.declarative import Bindings
 
 _RULES_FILE = Path(__file__).parent / "triage-rules.txt"
 
@@ -53,8 +53,11 @@ _RULES = _parse_rules(_RULES_TEXT)
 # now, not as it was when the baseline was measured.
 _RULES_FINGERPRINT = hashlib.sha256(_RULES_TEXT.encode("utf-8")).hexdigest()[:12]
 
+# The loader discovers registrations through this name.
+bindings = Bindings()
 
-@binding_factory(
+
+@bindings.binding_factory(
     "triage",
     covariates={
         "triage-rules": _RULES_FINGERPRINT,

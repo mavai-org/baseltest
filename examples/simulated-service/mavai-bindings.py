@@ -9,7 +9,7 @@ supports.
 
 import random
 
-from baseltest.declarative import binding
+from baseltest.declarative import Bindings
 
 _FORTUNES = [
     "Good fortune: {} will find what was lost.",
@@ -17,8 +17,11 @@ _FORTUNES = [
     "A pleasant surprise awaits {}.",
 ]
 
+# The loader discovers registrations through this name.
+bindings = Bindings()
 
-@binding("fortune-teller")
+
+@bindings.binding("fortune-teller")
 def tell_fortune(name: str) -> str:
     if random.random() < 0.9:  # noqa: S311 — simulation, not cryptography
         return random.choice(_FORTUNES).format(name)  # noqa: S311

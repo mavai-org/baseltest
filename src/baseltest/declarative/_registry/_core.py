@@ -1,7 +1,7 @@
 """The `Registry` class: the named registrations one contract run resolves against.
 
 Bindings, checks, transforms, steppers, and scorers register onto an instance
-(``@registry.binding(...)``); the run threads that instance through resolution.
+(``@bindings.binding(...)``); the run threads that instance through resolution.
 Every registry starts seeded with the framework's built-in service types,
 steppers, and scorers; two registries never share user registrations.
 """
@@ -39,7 +39,7 @@ class Registry:
     """The named registrations one contract run resolves against.
 
     Bindings, checks, and transforms register onto an instance
-    (``@registry.binding(...)``); the run threads that instance through
+    (``@bindings.binding(...)``); the run threads that instance through
     resolution. Every registry starts seeded with the framework's built-in
     service types; two registries never share user registrations.
     """
@@ -212,7 +212,7 @@ class Registry:
         if contract is None or contract.builtin:
             raise ContractConfigurationError(
                 f"service {name!r} is not a registered binding. Register the code that "
-                f"invokes your service with @registry.binding({name!r}) before running "
+                f"invokes your service with @bindings.binding({name!r}) before running "
                 "the contract."
             )
         return contract
@@ -242,7 +242,7 @@ class Registry:
         if name not in self._checks:
             raise ContractConfigurationError(
                 f"satisfies: {name!r} is not a registered check. Register the predicate "
-                f"with @registry.check({name!r}) before running the contract."
+                f"with @bindings.check({name!r}) before running the contract."
             )
         return self._checks[name]
 
@@ -255,7 +255,7 @@ class Registry:
         if name not in self._transforms:
             raise ContractConfigurationError(
                 f"transform: {name!r} is neither a stock transform (json, xml, yaml) nor a "
-                f"registered one. Register the transformation with @registry.transform({name!r}) "
+                f"registered one. Register the transformation with @bindings.transform({name!r}) "
                 "before running the contract."
             )
         registration: TransformRegistration = self._transforms[name]

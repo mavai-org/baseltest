@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import Registry, run
+from baseltest.declarative import Bindings, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.statistics.verdict import Verdict
 
@@ -19,11 +19,11 @@ criteria:
 """
 
 BINDINGS = """
-from baseltest.declarative import Registry
+from baseltest.declarative import Bindings
 
-registry = Registry()
+bindings = Bindings()
 
-@registry.binding("convention-service")
+@bindings.binding("convention-service")
 def invoke(value: str) -> str:
     return f"ok {value}"
 """
@@ -46,12 +46,12 @@ def test_broken_bindings_file_is_a_constructive_refusal(tmp_path: Path) -> None:
 
 
 def test_absent_bindings_file_leaves_in_process_registration_working(tmp_path: Path) -> None:
-    registry = Registry()
+    bindings = Bindings()
 
-    @registry.binding("convention-service")
+    @bindings.binding("convention-service")
     def invoke(value: str) -> str:
         return f"ok {value}"
 
     contract = tmp_path / "contract.yaml"
     contract.write_text(CONTRACT, encoding="utf-8")
-    assert run(contract, registry=registry, emit=False).composite is Verdict.PASS
+    assert run(contract, bindings=bindings, emit=False).composite is Verdict.PASS
