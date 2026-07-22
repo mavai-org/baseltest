@@ -5,9 +5,8 @@ from datetime import UTC, datetime
 
 from ruamel.yaml import YAML
 
-from baseltest.engine import SampleRecord
+from baseltest.engine import LatencyBlock, SampleRecord
 from baseltest.exploration import (
-    LatencyBlock,
     exploration_stem,
     render_exploration,
     write_exploration,

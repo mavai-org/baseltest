@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from xml.etree import ElementTree
 
-from baseltest import __version__
+from baseltest._version import __version__
 from baseltest.engine import CriterionResult, RunResult
 
 from .run_design import RunDesign

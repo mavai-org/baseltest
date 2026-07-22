@@ -30,17 +30,17 @@ from .record import (
 from .writer import baseline_filename, render_baseline, write_baseline
 
 __all__ = [
-    "BaselineResolution",
-    "StoredBaseline",
-    "StoredCriterion",
-    "StoredLatency",
-    "read_baseline",
-    "resolve_baseline",
     "BaselineRecord",
+    "BaselineResolution",
     "CriterionCharacterisation",
     "JudgementState",
     "NormativeJudgement",
+    "StoredBaseline",
+    "StoredCriterion",
+    "StoredLatency",
     "baseline_filename",
+    "read_baseline",
     "render_baseline",
+    "resolve_baseline",
     "write_baseline",
 ]
