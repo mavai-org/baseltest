@@ -7,11 +7,10 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import binding, explore, run
+from baseltest.declarative import Registry, explore, run
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
-from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._services import parse_services
 
 SERVICES = """
@@ -40,13 +39,6 @@ criteria:
     threshold: 0.5
     contains: "hello"
 """
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 @pytest.fixture()
@@ -82,7 +74,7 @@ def write_files(tmp_path: Path, contract: str = CONTRACT, services: str = SERVIC
 
 class TestGridParsing:
     def test_grid_is_baseline_plus_entries(self) -> None:
-        definition = parse_services(SERVICES)["support-agent"]
+        definition = parse_services(SERVICES, Registry())["support-agent"]
         assert len(definition.grid) == 4
         assert definition.grid[0] is definition.configuration
         assert definition.explorations[0].temperature == 0.0
@@ -92,19 +84,19 @@ class TestGridParsing:
         assert definition.explorations[2].system_prompt == "You are a support agent."
 
     def test_swept_keys_are_the_replaced_ones_in_canonical_order(self) -> None:
-        definition = parse_services(SERVICES)["support-agent"]
+        definition = parse_services(SERVICES, Registry())["support-agent"]
         assert definition.swept_keys == ("model", "temperature")
 
     def test_file_without_explorations_is_unchanged(self) -> None:
         text = SERVICES[: SERVICES.index("    explorations:")]
-        definition = parse_services(text)["support-agent"]
+        definition = parse_services(text, Registry())["support-agent"]
         assert definition.explorations == ()
         assert definition.swept_keys == ()
 
     def test_entry_restating_the_baseline_is_refused(self) -> None:
         text = SERVICES + "      - temperature: 0.2\n"
         with pytest.raises(ContractConfigurationError, match="baseline `configuration:`"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_two_entries_resolving_to_one_point_are_refused_naming_both(self) -> None:
         text = SERVICES + "      - model: other-model\n        temperature: 0.7\n"
@@ -112,23 +104,23 @@ class TestGridParsing:
             ContractConfigurationError,
             match=r"entry 4 resolves to the same configuration as exploration entry 3",
         ):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_spelling_does_not_matter_only_the_resolved_point(self) -> None:
         # Restates the baseline model explicitly: same resolved point as entry 2.
         text = SERVICES + "      - model: small-model\n        temperature: 0.7\n"
         with pytest.raises(ContractConfigurationError, match="exploration entry 2"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_unknown_key_in_an_entry_is_refused(self) -> None:
         text = SERVICES + "      - label: warm\n        temperature: 0.9\n"
         with pytest.raises(ContractConfigurationError, match="unknown key `label:`"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_null_replacement_values_are_refused(self) -> None:
         text = SERVICES + "      - temperature:\n"
         with pytest.raises(ContractConfigurationError, match="omit a key"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_empty_explorations_section_is_refused(self) -> None:
         text = SERVICES.replace(
@@ -137,7 +129,7 @@ class TestGridParsing:
             "    explorations: []\n",
         )
         with pytest.raises(ContractConfigurationError, match="non-empty list"):
-            parse_services(text)
+            parse_services(text, Registry())
 
 
 class TestExploreRuns:
@@ -263,7 +255,9 @@ class TestExploreRuns:
     def test_code_registered_binding_is_refused_with_a_pointer(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
-        @binding("support-agent")
+        registry = Registry()
+
+        @registry.binding("support-agent")
         def invoke(value: str) -> str:
             return "hello"
 
@@ -274,7 +268,7 @@ class TestExploreRuns:
             '    configuration:\n      system-prompt: "x"\n',
         )
         with pytest.raises(ContractConfigurationError, match="declared service"):
-            explore(contract, emit=False)
+            explore(contract, emit=False, registry=registry)
 
     def test_cli_samples_per_config_flag_sizes_the_run(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]], capsys: Any

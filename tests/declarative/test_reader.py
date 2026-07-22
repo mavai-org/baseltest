@@ -5,19 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import binding, check, run, transform
+from baseltest.declarative import Registry, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._materialise import materialise
 from baseltest.declarative._parser import load_contract, parse_contract
-from baseltest.declarative._registry import clear_registries
 from baseltest.engine import InfeasibleRunError, Verdict
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 def write_contract(tmp_path: Path, text: str) -> Path:
@@ -46,29 +38,33 @@ TWO_CRITERIA = (
 
 class TestFirstContactPath:
     def test_zero_to_verdict(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        result = run(write_contract(tmp_path, GREETING_CONTRACT))
+        result = run(write_contract(tmp_path, GREETING_CONTRACT), registry=registry)
         assert result.composite is Verdict.PASS
         out = capsys.readouterr().out
         assert "contract greeting-service-is-polite — verdict: PASS" in out
 
     def test_unregistered_binding_refused_with_zero_invocations(self, tmp_path: Path) -> None:
         with pytest.raises(ContractConfigurationError) as excinfo:
-            run(write_contract(tmp_path, GREETING_CONTRACT))
+            run(write_contract(tmp_path, GREETING_CONTRACT), registry=Registry())
         assert "greeting-service" in str(excinfo.value)
-        assert "@binding" in str(excinfo.value)
+        assert "@registry.binding" in str(excinfo.value)
 
     def test_derived_samples_stated_in_the_run_plan_line(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        result = run(write_contract(tmp_path, GREETING_CONTRACT))
+        result = run(write_contract(tmp_path, GREETING_CONTRACT), registry=registry)
         out = capsys.readouterr().out
         assert "derived" in out and f"n = {result.plan.samples}" in out
         from baseltest.statistics import check_feasibility
@@ -88,32 +84,38 @@ class TestRunModes:
             parse_contract(GREETING_CONTRACT + "kind: measure\n")
 
     def test_test_mode_without_thresholds_is_refused(self, tmp_path: Path) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
         contract = GREETING_CONTRACT.replace("- threshold: 0.5\n    contains", "- contains")
         with pytest.raises(ContractConfigurationError, match="nothing to test"):
-            run(write_contract(tmp_path, contract), mode="test")
+            run(write_contract(tmp_path, contract), mode="test", registry=registry)
 
     def test_test_mode_skips_unthresholded_criteria_with_notice(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
         contract = GREETING_CONTRACT.replace(
             'criteria:\n  - threshold: 0.5\n    contains: "hello"', TWO_CRITERIA
         )
-        result = run(write_contract(tmp_path, contract), mode="test")
+        result = run(write_contract(tmp_path, contract), mode="test", registry=registry)
         assert [r.name for r in result.criterion_results] == ["judged"]
         out = capsys.readouterr().out
         assert "empirical criterion watched: no baseline found" in out
         assert "basel measure" in out
 
     def test_measure_mode_records_all_and_persists(self, tmp_path: Path) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
@@ -126,6 +128,7 @@ class TestRunModes:
             samples=30,
             baseline_dir=tmp_path / "b",
             emit=False,
+            registry=registry,
         )
         assert {r.name for r in result.criterion_results} == {"judged", "watched"}
         artefacts = list((tmp_path / "b").glob("*.yaml"))
@@ -137,16 +140,25 @@ class TestRunModes:
     def test_measure_requires_an_explicit_sample_count(self, tmp_path: Path) -> None:
         # The old file-side rule, relocated: a measurement's budget is an
         # experimental-design decision, so it must be typed.
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
         with pytest.raises(ContractConfigurationError, match="--samples") as refusal:
-            run(write_contract(tmp_path, GREETING_CONTRACT), mode="measure", emit=False)
+            run(
+                write_contract(tmp_path, GREETING_CONTRACT),
+                mode="measure",
+                emit=False,
+                registry=registry,
+            )
         assert "baseline-grade" in str(refusal.value)  # 1,000 recommended, visibly
 
     def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
@@ -157,6 +169,7 @@ class TestRunModes:
                 samples=10,
                 html_report=tmp_path / "r.html",
                 emit=False,
+                registry=registry,
             )
 
 
@@ -236,7 +249,9 @@ inputs: ["a"]
             parse_contract(contract)
 
     def test_bad_jsonpath_refused_at_load(self, tmp_path: Path) -> None:
-        @binding("s")
+        registry = Registry()
+
+        @registry.binding("s")
         def invoke(value: str) -> str:
             return value
 
@@ -255,7 +270,7 @@ criteria:
 inputs: ["a"]
 """
         with pytest.raises(ContractConfigurationError, match="JSONPath"):
-            run(write_contract(tmp_path, contract))
+            run(write_contract(tmp_path, contract), registry=registry)
 
     def test_expected_entries_require_single_criterion(self) -> None:
         contract = """
@@ -274,13 +289,15 @@ inputs:
             parse_contract(contract)
 
     def test_infeasible_verification_run_is_refused(self, tmp_path: Path) -> None:
-        @binding("greeting-service")
+        registry = Registry()
+
+        @registry.binding("greeting-service")
         def greet(value: str) -> str:
             return f"hello {value}"
 
         contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.99")
         with pytest.raises(InfeasibleRunError):
-            run(write_contract(tmp_path, contract), samples=30)
+            run(write_contract(tmp_path, contract), samples=30, registry=registry)
 
     def test_tolerate_alongside_threshold_is_refused(self) -> None:
         contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.5\n    tolerate: 0.4")
@@ -313,7 +330,9 @@ inputs:
 
 class TestViewsEndToEnd:
     def test_views_and_paths(self, tmp_path: Path) -> None:
-        @binding("refund-service")
+        registry = Registry()
+
+        @registry.binding("refund-service")
         def refund(value: str) -> str:
             return '{"refund": {"id": "RF-12345678"}, "status": "CONFIRMED"}'
 
@@ -334,11 +353,13 @@ criteria:
         equals: "CONFIRMED"
 inputs: ["order 1"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_empty_selection_fails_the_trial(self, tmp_path: Path) -> None:
-        @binding("svc")
+        registry = Registry()
+
+        @registry.binding("svc")
         def invoke(value: str) -> str:
             return '{"other": 1}'
 
@@ -356,13 +377,15 @@ criteria:
         equals: "x"
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any("selected nothing" in r for r in tally.failure_reasons)
 
     def test_parses_forces_the_view(self, tmp_path: Path) -> None:
-        @binding("svc")
+        registry = Registry()
+
+        @registry.binding("svc")
         def invoke(value: str) -> str:
             return "not json"
 
@@ -377,17 +400,19 @@ criteria:
     parses: doc
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any(r.startswith("transform failed") for r in tally.failure_reasons)
 
     def test_custom_view_takes_a_jsonpath(self, tmp_path: Path) -> None:
-        @binding("judged-svc")
+        registry = Registry()
+
+        @registry.binding("judged-svc")
         def invoke(value: str) -> str:
             return f"the verdict on {value}"
 
-        @transform("judge")
+        @registry.transform("judge")
         def judge(raw: str) -> dict[str, object]:
             return {"invariants": {"closedWorld": True}, "precision": 0.93}
 
@@ -408,15 +433,17 @@ criteria:
         matches: "^(0\\\\.[89]|1)"
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_custom_view_takes_an_xpath(self, tmp_path: Path) -> None:
-        @binding("xml-svc")
+        registry = Registry()
+
+        @registry.binding("xml-svc")
         def invoke(value: str) -> str:
             return value
 
-        @transform("wrapped")
+        @registry.transform("wrapped")
         def wrap(raw: str) -> ElementTree.Element:
             return ElementTree.fromstring(
                 f"<verdict><status>ok</status><echo>{raw}</echo></verdict>"
@@ -436,15 +463,17 @@ criteria:
         equals: "ok"
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_jsonpath_over_a_text_valued_custom_view_fails_the_trial(self, tmp_path: Path) -> None:
-        @binding("texty-svc")
+        registry = Registry()
+
+        @registry.binding("texty-svc")
         def invoke(value: str) -> str:
             return value
 
-        @transform("shout")
+        @registry.transform("shout")
         def shout(raw: str) -> str:
             return raw.upper()
 
@@ -462,17 +491,19 @@ criteria:
         equals: "1"
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any("not a JSON structure" in r for r in tally.failure_reasons)
 
     def test_xpath_over_a_non_element_custom_view_fails_the_trial(self, tmp_path: Path) -> None:
-        @binding("dicty-svc")
+        registry = Registry()
+
+        @registry.binding("dicty-svc")
         def invoke(value: str) -> str:
             return value
 
-        @transform("boxed")
+        @registry.transform("boxed")
         def box(raw: str) -> dict[str, str]:
             return {"value": raw}
 
@@ -490,17 +521,19 @@ criteria:
         equals: "a"
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         tally = result.criterion_results[0].tally
         assert tally.successes == 0
         assert any("not a parsed XML element" in r for r in tally.failure_reasons)
 
     def test_bad_xpath_on_a_custom_view_refused_at_load(self, tmp_path: Path) -> None:
-        @binding("svc-x")
+        registry = Registry()
+
+        @registry.binding("svc-x")
         def invoke(value: str) -> str:
             return value
 
-        @transform("identity-ish")
+        @registry.transform("identity-ish")
         def identity_ish(raw: str) -> str:
             return raw
 
@@ -519,19 +552,21 @@ criteria:
 inputs: ["a"]
 """
         with pytest.raises(ContractConfigurationError, match="XPath"):
-            run(write_contract(tmp_path, contract))
+            run(write_contract(tmp_path, contract), registry=registry)
 
     def test_registered_transformation_and_check(self, tmp_path: Path) -> None:
-        @binding("svc")
+        registry = Registry()
+
+        @registry.binding("svc")
         def invoke(value: str) -> str:
             return f"value={value}"
 
-        @transform("key-value")
+        @registry.transform("key-value")
         def parse_kv(raw: str) -> dict[str, str]:
             key, _, val = raw.partition("=")
             return {key: val}
 
-        @check("has-value")
+        @registry.check("has-value")
         def has_value(parsed: dict[str, str]) -> bool:
             return "value" in parsed
 
@@ -548,13 +583,15 @@ criteria:
         satisfies: has-value
 inputs: ["a"]
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
 
 class TestPerInputExpectations:
     def test_expected_lists_dispatch_per_input_with_views(self, tmp_path: Path) -> None:
-        @binding("baskets")
+        registry = Registry()
+
+        @registry.binding("baskets")
         def baskets(value: str) -> str:
             item = "egg" if "egg" in value else "milk"
             quantity = 6 if item == "egg" else 2
@@ -584,11 +621,13 @@ inputs:
   - input: "two bottles of milk"
     expected: { contains: "milk" }
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_wrong_expectation_fails_only_its_input_trials(self, tmp_path: Path) -> None:
-        @binding("echo")
+        registry = Registry()
+
+        @registry.binding("echo")
         def echo(value: str) -> str:
             return value
 
@@ -605,7 +644,7 @@ inputs:
   - input: "bad"
     expected: { contains: "impossible" }
 """
-        result = run(write_contract(tmp_path, contract), emit=False)
+        result = run(write_contract(tmp_path, contract), emit=False, registry=registry)
         tally = result.criterion_results[0].tally
         assert 0 < tally.successes < tally.trials  # 'good' trials pass, 'bad' fail
 
@@ -632,18 +671,35 @@ criteria:
 inputs: ["a", "b"]
 """
 
-    def _bind(self):  # type: ignore[no-untyped-def]
-        @binding("svc")
+    def _bind(self) -> Registry:
+        registry = Registry()
+
+        @registry.binding("svc")
         def invoke(value: str) -> str:
             return f"ok {value}"
+
+        return registry
 
     def test_measure_then_test_judges_empirically(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        self._bind()
+        registry = self._bind()
         contract = write_contract(tmp_path, self.CONTRACT)
-        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
-        result = run(contract, mode="test", samples=200, baseline_dir=tmp_path / "baselines")
+        run(
+            contract,
+            mode="measure",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            emit=False,
+            registry=registry,
+        )
+        result = run(
+            contract,
+            mode="test",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            registry=registry,
+        )
         assert result.composite is Verdict.PASS
         judged = result.criterion_results[0]
         assert judged.criterion.provenance.origin == "empirical"
@@ -660,37 +716,58 @@ inputs: ["a", "b"]
     def test_baseline_criterion_missing_skips_with_reason(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        self._bind()
+        registry = self._bind()
         contract = write_contract(tmp_path, self.CONTRACT)
-        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
+        run(
+            contract,
+            mode="measure",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            emit=False,
+            registry=registry,
+        )
         renamed = self.CONTRACT.replace("name: keeps-up", "name: renamed-criterion")
         with pytest.raises(ContractConfigurationError, match="does not record"):
             run(
                 write_contract(tmp_path, renamed),
                 mode="test",
                 baseline_dir=tmp_path / "baselines",
+                registry=registry,
             )
 
     def test_empirical_only_test_without_baseline_is_refused(self, tmp_path: Path) -> None:
-        self._bind()
+        registry = self._bind()
         with pytest.raises(ContractConfigurationError, match="nothing to test"):
             run(
                 write_contract(tmp_path, self.CONTRACT),
                 mode="test",
                 baseline_dir=tmp_path / "nowhere",
+                registry=registry,
             )
 
     def test_criterion_confidence_overrides_the_contract_level_for_derivation(
         self, tmp_path: Path
     ) -> None:
-        self._bind()
+        registry = self._bind()
         contract = write_contract(
             tmp_path,
             self.CONTRACT.replace("name: keeps-up", "name: keeps-up\n    confidence: 0.99"),
         )
-        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
+        run(
+            contract,
+            mode="measure",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            emit=False,
+            registry=registry,
+        )
         result = run(
-            contract, mode="test", samples=200, baseline_dir=tmp_path / "baselines", emit=False
+            contract,
+            mode="test",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            emit=False,
+            registry=registry,
         )
         judged = result.criterion_results[0]
         assert judged.criterion.confidence == 0.99
@@ -700,15 +777,24 @@ inputs: ["a", "b"]
         assert judged.criterion.threshold == pytest.approx(expected)
 
     def test_mixed_contract_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
-        self._bind()
+        registry = self._bind()
         contract = self.CONTRACT.replace(
             'criteria:\n  - name: keeps-up\n    contains: "ok"',
             'criteria:\n  - name: stated-bar\n    threshold: 0.5\n    contains: "ok"\n'
             '  - name: keeps-up\n    contains: "ok"',
         )
         path = write_contract(tmp_path, contract)
-        run(path, mode="measure", samples=200, baseline_dir=tmp_path / "baselines", emit=False)
-        result = run(path, mode="test", baseline_dir=tmp_path / "baselines", emit=False)
+        run(
+            path,
+            mode="measure",
+            samples=200,
+            baseline_dir=tmp_path / "baselines",
+            emit=False,
+            registry=registry,
+        )
+        result = run(
+            path, mode="test", baseline_dir=tmp_path / "baselines", emit=False, registry=registry
+        )
         assert result.composite is Verdict.PASS
         origins = {r.name: r.criterion.provenance.origin for r in result.criterion_results}
         assert origins["stated-bar"] == "unspecified"
@@ -717,7 +803,9 @@ inputs: ["a", "b"]
 
 class TestPerInputAttribution:
     def test_expected_failure_reason_names_its_input(self, tmp_path: Path) -> None:
-        @binding("echo2")
+        registry = Registry()
+
+        @registry.binding("echo2")
         def echo(value: str) -> str:
             return value
 
@@ -734,7 +822,7 @@ inputs:
   - input: "bad"
     expected: { contains: "impossible" }
 """
-        result = run(write_contract(tmp_path, contract), samples=2, emit=False)
+        result = run(write_contract(tmp_path, contract), samples=2, emit=False, registry=registry)
         reasons = list(result.criterion_results[0].tally.failure_reasons)
         # Structural attribution: the reason names the input's position,
         # never its text — reasons become artefact mapping keys, and key

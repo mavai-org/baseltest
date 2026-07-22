@@ -63,7 +63,7 @@ from ._parser import (
     Form,
     FormDeclaration,
 )
-from ._registry import resolve_check, transform_registration
+from ._registry import Registry
 from ._schema_walk import validate_declared_paths
 from ._services import (
     ServiceDefinition,
@@ -73,7 +73,6 @@ from ._services import (
 from ._signatures import value_fits as _value_fits
 from ._structured import STOCK_TRANSFORMS as STOCK_TRANSFORM_FNS
 from ._structured import compile_jsonpath, compile_xpath, path_qualified
-from ._types import find_type
 
 _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
     "equals": lambda arg, view: equals(str(arg), view=view),
@@ -83,14 +82,16 @@ _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
 }
 
 
-def _build_views(declaration: ContractDeclaration) -> dict[str, Callable[[str], Any]]:
+def _build_views(
+    declaration: ContractDeclaration, registry: Registry
+) -> dict[str, Callable[[str], Any]]:
     views: dict[str, Callable[[str], Any]] = {}
     for view_name, transformation in declaration.transforms.items():
         stock = STOCK_TRANSFORM_FNS.get(transformation)
         if stock is not None:
             views[view_name] = stock
             continue
-        registration = transform_registration(transformation)
+        registration = registry.transform_registration(transformation)
         fn = registration.fn
         if registration.output_schema is not None:
             # A declared schema is a claim; claims are checked — always-on:
@@ -120,7 +121,9 @@ def _schema_checked_view(
     return compute
 
 
-def descriptive_view_fingerprints(declaration: ContractDeclaration) -> dict[str, str]:
+def descriptive_view_fingerprints(
+    declaration: ContractDeclaration, registry: Registry
+) -> dict[str, str]:
     """Fingerprints of the contract's declared view output schemas.
 
     Recorded descriptively in baseline artefacts — visible and diffable,
@@ -134,7 +137,7 @@ def descriptive_view_fingerprints(declaration: ContractDeclaration) -> dict[str,
     for view_name, transformation in declaration.transforms.items():
         if transformation in STOCK_TRANSFORM_FNS:
             continue
-        registration = transform_registration(transformation)
+        registration = registry.transform_registration(transformation)
         if registration.fingerprint is not None:
             fingerprints[view_name] = registration.fingerprint
     return fingerprints
@@ -150,11 +153,11 @@ def _parses_postcondition(view: str) -> Postcondition:
 
 
 def _build_form(
-    declaration: FormDeclaration, transforms: dict[str, str], where: str
+    declaration: FormDeclaration, transforms: dict[str, str], where: str, registry: Registry
 ) -> Postcondition:
     if declaration.form is Form.SATISFIES:
         name = str(declaration.argument)
-        return satisfies(name, resolve_check(name), view=declaration.view)
+        return satisfies(name, registry.resolve_check(name), view=declaration.view)
     if declaration.form is Form.PARSES:
         return _parses_postcondition(str(declaration.argument))
     builder = _STRING_FORMS[declaration.form]
@@ -192,13 +195,14 @@ def _build_form(
 def _expected_postconditions(
     pairs: Sequence[tuple[int, Any, tuple[FormDeclaration, ...]]],
     transforms: dict[str, str],
+    registry: Registry,
 ) -> list[Postcondition]:
     """Per-input expectations: each check applies only to its own input."""
     dispatching: list[Postcondition] = []
     for input_index, input_value, declarations in pairs:
         for declaration in declarations:
             where = f"expected for input {input_index} ({bounded_excerpt(str(input_value), 64)!r})"
-            inner = _build_form(declaration, transforms, where)
+            inner = _build_form(declaration, transforms, where, registry)
             dispatching.append(_dispatch_on_input(input_index, inner))
     return dispatching
 
@@ -284,9 +288,10 @@ def _build_criterion(
     confidence: float,
     expected: Sequence[Postcondition],
     transforms: dict[str, str],
+    registry: Registry,
 ) -> Criterion:
     where = f"criterion {declaration.name}"
-    postconditions = [_build_form(form, transforms, where) for form in declaration.forms]
+    postconditions = [_build_form(form, transforms, where, registry) for form in declaration.forms]
     postconditions.extend(expected)
     provenance = ThresholdProvenance(
         origin=declaration.threshold_origin or "unspecified",
@@ -303,7 +308,7 @@ def _build_criterion(
 
 
 def _resolve_service(
-    reference: str, services: dict[str, ServiceDefinition]
+    reference: str, services: dict[str, ServiceDefinition], registry: Registry
 ) -> tuple[Callable[..., str], dict[str, str]]:
     """Resolve a service reference: definitions first, then the type registry.
 
@@ -318,12 +323,12 @@ def _resolve_service(
             definition.type.invoker(definition.configuration),
             definition.type.provenance(definition.configuration),
         )
-    type_contract = find_type(reference)
+    type_contract = registry.find_type(reference)
     if type_contract is None or type_contract.builtin:
         raise ContractConfigurationError(
             f"service {reference!r} matches no service definition and no registered "
             f"binding. Register the code that invokes your service with "
-            f"@binding({reference!r}) in mavai-bindings.py, or define the service in "
+            f"@registry.binding({reference!r}) in mavai-bindings.py, or define the service in "
             "mavai-services.yaml, before running the contract."
         )
     if not type_contract.addressable:
@@ -544,7 +549,8 @@ class ExploreConfiguration:
 
 def instantiate_explore(
     declaration: ContractDeclaration,
-    services: dict[str, ServiceDefinition] | None = None,
+    services: dict[str, ServiceDefinition] | None,
+    registry: Registry,
     samples_per_config: int | None = None,
 ) -> tuple[tuple[ExploreConfiguration, ...], RunSizing, tuple[str, ...]]:
     """Instantiate one runnable configuration per grid point for an explore run.
@@ -574,14 +580,14 @@ def instantiate_explore(
     """
     definition = (services or {}).get(declaration.service)
     if definition is None:
-        if find_type(declaration.service) is not None:
+        if registry.find_type(declaration.service) is not None:
             raise ContractConfigurationError(
                 f"explore requires a declared service: {declaration.service!r} is a "
                 "registered type with no services-file entry, so it carries no "
                 "configuration grid to explore — declare a service of this type "
                 "(and its `explorations:` entries) in the services file"
             )
-        _resolve_service(declaration.service, {})  # raises the standard refusal
+        _resolve_service(declaration.service, {}, registry)  # raises the standard refusal
         raise AssertionError("unreachable: unresolvable services are refused above")
     sizing = (
         RunSizing(samples=samples_per_config, provenance="explicit")
@@ -589,11 +595,11 @@ def instantiate_explore(
         else RunSizing(samples=DEFAULT_SAMPLES, provenance="default")
     )
     transforms = declaration.transforms
-    views = _build_views(declaration)
-    expected = _expected_postconditions(declaration.expected_pairs, transforms)
+    views = _build_views(declaration, registry)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms, registry)
     criteria = tuple(
         _replace(
-            _build_criterion(entry, declaration.confidence, expected, transforms),
+            _build_criterion(entry, declaration.confidence, expected, transforms, registry),
             threshold=None,
         )
         for entry in declaration.criteria
@@ -652,7 +658,8 @@ class OptimizePoint:
 
 def optimize_definition(
     declaration: ContractDeclaration,
-    services: dict[str, ServiceDefinition] | None = None,
+    services: dict[str, ServiceDefinition] | None,
+    registry: Registry,
 ) -> ServiceDefinition:
     """The service definition an optimize run drives — refused when there is none.
 
@@ -662,14 +669,14 @@ def optimize_definition(
     """
     definition = (services or {}).get(declaration.service)
     if definition is None:
-        if find_type(declaration.service) is not None:
+        if registry.find_type(declaration.service) is not None:
             raise ContractConfigurationError(
                 f"optimize requires a declared service: {declaration.service!r} is a "
                 "registered type with no services-file entry, so it carries no "
                 "configuration for a stepper to move — declare a service of this "
                 "type (and its `optimizations:` entries) in the services file"
             )
-        _resolve_service(declaration.service, {})  # raises the standard refusal
+        _resolve_service(declaration.service, {}, registry)  # raises the standard refusal
         raise AssertionError("unreachable: unresolvable services are refused above")
     if not definition.optimizations:
         raise ContractConfigurationError(
@@ -685,6 +692,7 @@ def instantiate_optimize_point(
     definition: ServiceDefinition,
     parameters: Any,
     samples: int,
+    registry: Registry,
 ) -> OptimizePoint:
     """Instantiate one optimize iteration's runnable configuration.
 
@@ -697,11 +705,11 @@ def instantiate_optimize_point(
     per_sample = definition.type.invoker(parameters)
     _validate_inputs(declaration.service, per_sample, declaration.inputs)
     transforms = declaration.transforms
-    views = _build_views(declaration)
-    expected = _expected_postconditions(declaration.expected_pairs, transforms)
+    views = _build_views(declaration, registry)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms, registry)
     criteria = tuple(
         _replace(
-            _build_criterion(entry, declaration.confidence, expected, transforms),
+            _build_criterion(entry, declaration.confidence, expected, transforms, registry),
             threshold=None,
         )
         for entry in declaration.criteria
@@ -784,13 +792,14 @@ def _judge_against_baseline(
     confidence: float,
     expected: Sequence[Postcondition],
     transforms: dict[str, str],
+    registry: Registry,
 ) -> tuple[Criterion, float, float]:
     """One empirical criterion made judgeable: bar derived at this run's size.
 
     Returns the criterion, its effective baseline rate (the Wilson lower
     bound stands in for a perfect baseline), and the derived bar.
     """
-    built = _build_criterion(entry, confidence, expected, transforms)
+    built = _build_criterion(entry, confidence, expected, transforms, registry)
     derivation = derive_sample_size_first(
         evidence.successes, evidence.trials, samples, built.confidence
     )
@@ -815,6 +824,7 @@ def _empirical_criteria(
     confidence: float,
     expected: Sequence[Postcondition],
     transforms: dict[str, str],
+    registry: Registry,
 ) -> tuple[list[Criterion], list[tuple[str, str]], "BaselineContext | None"]:
     """Judge every declared empirical criterion against the resolved baseline.
 
@@ -832,7 +842,7 @@ def _empirical_criteria(
             continue
         stored, evidence = located
         criterion, effective_rate, threshold = _judge_against_baseline(
-            entry, stored, evidence, samples, confidence, expected, transforms
+            entry, stored, evidence, samples, confidence, expected, transforms, registry
         )
         judged.append(criterion)
         # The weakest criterion is the one closest to any tolerance —
@@ -862,7 +872,8 @@ def _baseline_context(
 
 def instantiate(
     declaration: ContractDeclaration,
-    services: dict[str, ServiceDefinition] | None = None,
+    services: dict[str, ServiceDefinition] | None,
+    registry: Registry,
     mode: RunKind = RunKind.TEST,
     samples: int | None = None,
     baseline_dir: Path | None = None,
@@ -897,22 +908,22 @@ def instantiate(
             judgeable, a silently derived N above the derivation gate's
             limit, and a ``measure`` without an explicit sample count.
     """
-    resolved, service_provenance = _resolve_service(declaration.service, services or {})
+    resolved, service_provenance = _resolve_service(declaration.service, services or {}, registry)
     _validate_inputs(declaration.service, resolved, declaration.inputs)
     definition = (services or {}).get(declaration.service)
     response_schema = (
         getattr(definition.configuration, "response_schema", None) if definition else None
     )
-    validate_declared_paths(declaration, response_schema, declaration.service)
+    validate_declared_paths(declaration, response_schema, declaration.service, registry)
     invoke = _splat_tuple_invoke(resolved)
     transforms = declaration.transforms
-    views = _build_views(declaration)
-    expected = _expected_postconditions(declaration.expected_pairs, transforms)
+    views = _build_views(declaration, registry)
+    expected = _expected_postconditions(declaration.expected_pairs, transforms, registry)
 
     skipped: list[tuple[str, str]] = []
     if mode is RunKind.TEST:
         normative = [
-            _build_criterion(entry, declaration.confidence, expected, transforms)
+            _build_criterion(entry, declaration.confidence, expected, transforms, registry)
             for entry in declaration.criteria
             if entry.threshold is not None
         ]
@@ -929,6 +940,7 @@ def instantiate(
             declaration.confidence,
             expected,
             transforms,
+            registry,
         )
         criteria = tuple(normative + empirical)
         if not criteria:
@@ -940,7 +952,7 @@ def instantiate(
             )
     else:
         criteria = tuple(
-            _build_criterion(entry, declaration.confidence, expected, transforms)
+            _build_criterion(entry, declaration.confidence, expected, transforms, registry)
             for entry in declaration.criteria
         )
         sizing = _resolve_run_size(mode, declaration.intent, samples, criteria)

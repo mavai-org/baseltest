@@ -22,6 +22,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
 from baseltest.contract import BaseltestError
@@ -38,7 +39,9 @@ from baseltest.statistics import (
 
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, CriterionDeclaration
 from ._services import ServiceDefinition
-from ._types import find_type
+
+if TYPE_CHECKING:
+    from ._registry import Registry
 
 # An unclaimed explicit-samples design is called weak when the drop it can
 # actually catch sits more than this far below the proven baseline.
@@ -197,6 +200,7 @@ def resolve_contract_baseline(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition],
     baseline_dir: Path,
+    registry: "Registry",
 ) -> BaselineResolution:
     """The resolution of the baseline the empirical criteria would judge against.
 
@@ -209,7 +213,7 @@ def resolve_contract_baseline(
     if definition is not None:
         service_provenance = definition.type.provenance(definition.configuration)
     else:
-        type_contract = find_type(declaration.service)
+        type_contract = registry.find_type(declaration.service)
         service_provenance = (
             dict(type_contract.covariates)
             if type_contract is not None and type_contract.addressable
@@ -648,6 +652,7 @@ def resolve_test_sizing(
     accept_weak_design: bool,
     emit_json: bool,
     force: bool,
+    registry: "Registry",
     ask: Callable[[str], str] | None = None,
     say: Callable[[str], None] | None = None,
 ) -> ResolvedSizing:
@@ -688,7 +693,7 @@ def resolve_test_sizing(
         return ResolvedSizing(samples=samples, approach="threshold-first")
     tolerate_flags = _parse_tolerate_flags(tolerate, empirical_names)
 
-    resolution = resolve_contract_baseline(declaration, services, baseline_dir)
+    resolution = resolve_contract_baseline(declaration, services, baseline_dir, registry)
     baseline = resolution.baseline
     if baseline is None:
         if tolerate_flags:

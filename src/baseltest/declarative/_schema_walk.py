@@ -20,7 +20,7 @@ from the two halves the reader already holds.
 
 import difflib
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jsonpath_rfc9535.segments import JSONPathChildSegment
 from jsonpath_rfc9535.selectors import (
@@ -32,6 +32,9 @@ from jsonpath_rfc9535.selectors import (
 from baseltest.engine.naming import bounded_excerpt
 
 from ._errors import ContractConfigurationError
+
+if TYPE_CHECKING:
+    from ._registry import Registry
 
 VERIFIED = "verified"
 UNVERIFIED = "unverified"
@@ -258,7 +261,7 @@ def walk_path(compiled: Any, schema: Any) -> WalkOutcome:
 
 
 def validate_declared_paths(
-    declaration: Any, response_schema: Any, service_name: str
+    declaration: Any, response_schema: Any, service_name: str, registry: "Registry"
 ) -> tuple[str, ...]:
     """The path ↔ declared-shape join over a whole contract, at load time.
 
@@ -276,7 +279,7 @@ def validate_declared_paths(
             cannot resolve; the message names every one.
     """
     from ._parser import RAW_VIEW
-    from ._registry import _STOCK_TRANSFORMS, transform_registration
+    from ._registry import _STOCK_TRANSFORMS
     from ._structured import compile_jsonpath
 
     entries: list[tuple[str, str, str]] = []  # (context, view, path)
@@ -312,7 +315,7 @@ def validate_declared_paths(
         elif transformation in _STOCK_TRANSFORMS:
             continue  # xml/yaml: no JSON Schema join
         else:
-            registration = transform_registration(str(transformation))
+            registration = registry.transform_registration(str(transformation))
             if registration.output_schema is None or not path.startswith("$"):
                 continue  # undeclared shape, or an XPath (no schema join)
             schema, source = (

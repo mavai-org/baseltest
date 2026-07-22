@@ -7,16 +7,7 @@ import pytest
 
 from baseltest.declarative._cli import main
 from baseltest.declarative._parser import parse_contract
-from baseltest.declarative._registry import clear_registries
 from baseltest.engine import minimum_contributing_samples
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries() -> Any:
-    clear_registries()
-    yield
-    clear_registries()
-
 
 BASE = """
 format: mavai-contract/1
@@ -77,9 +68,10 @@ def write_files(tmp_path: Path, latency_block: str) -> Path:
     (tmp_path / "mavai-bindings.py").write_text(
         "import itertools\n"
         "import time\n"
-        "from baseltest.declarative import binding\n"
+        "from baseltest.declarative import Registry\n"
+        "registry = Registry()\n"
         "_counter = itertools.count()\n"
-        "@binding('svc')\n"
+        "@registry.binding('svc')\n"
         "def invoke(value: str) -> str:\n"
         "    time.sleep(0.003)\n"
         "    return 'ok' if next(_counter) % 10 < 9 else 'nope'\n",
@@ -143,9 +135,10 @@ class TestExitCodeContract:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "mavai-bindings.py").write_text(
             "import itertools\n"
-            "from baseltest.declarative import binding\n"
+            "from baseltest.declarative import Registry\n"
+            "registry = Registry()\n"
             "_counter = itertools.count()\n"
-            "@binding('svc')\n"
+            "@registry.binding('svc')\n"
             "def invoke(value: str) -> str:\n"
             "    return 'ok' if next(_counter) % 8 < 3 else 'nope'\n",
             encoding="utf-8",

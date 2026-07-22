@@ -5,21 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import binding, run
+from baseltest.declarative import Registry, run
 from baseltest.declarative._cli import main
 from baseltest.declarative._errors import ContractConfigurationError
-from baseltest.declarative._registry import (
-    binding_covariates,
-    clear_registries,
-)
 from baseltest.engine import Verdict
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 def write_contract(tmp_path: Path, text: str) -> Path:
@@ -39,82 +28,129 @@ inputs: ["a", "b"]
 """
 
 
-def register_pipeline(covariates: dict[str, str] | None) -> None:
-    @binding("pipeline", covariates=covariates)
+def register_pipeline(registry: Registry, covariates: dict[str, str] | None) -> None:
+    @registry.binding("pipeline", covariates=covariates)
     def invoke(value: str) -> str:
         return f"ok {value}"
 
 
 class TestRegistration:
     def test_declared_covariates_are_resolvable(self) -> None:
-        register_pipeline({"ontology": "abc123", "judge": "v2"})
-        assert binding_covariates("pipeline") == {"ontology": "abc123", "judge": "v2"}
+        registry = Registry()
+        register_pipeline(registry, {"ontology": "abc123", "judge": "v2"})
+        assert registry.binding_covariates("pipeline") == {"ontology": "abc123", "judge": "v2"}
 
     def test_omitted_covariates_resolve_empty(self) -> None:
-        register_pipeline(None)
-        assert binding_covariates("pipeline") == {}
+        registry = Registry()
+        register_pipeline(registry, None)
+        assert registry.binding_covariates("pipeline") == {}
 
     def test_reserved_key_refused_naming_the_key(self) -> None:
         for reserved in ("binding", "runMode", "serviceType", "taskFile", "taskFormat"):
             with pytest.raises(ContractConfigurationError, match=reserved):
-                binding("svc", covariates={reserved: "x"})
+                Registry().binding("svc", covariates={reserved: "x"})
 
     def test_non_string_value_refused_with_the_type_named(self) -> None:
         with pytest.raises(ContractConfigurationError, match="int"):
-            binding("svc", covariates={"catalogue-size": 40})  # type: ignore[dict-item]
+            Registry().binding("svc", covariates={"catalogue-size": 40})  # type: ignore[dict-item]
 
     def test_empty_key_refused(self) -> None:
         with pytest.raises(ContractConfigurationError, match="non-empty"):
-            binding("svc", covariates={"": "x"})
+            Registry().binding("svc", covariates={"": "x"})
 
     def test_covariates_of_an_unregistered_binding_are_refused(self) -> None:
-        with pytest.raises(ContractConfigurationError, match="@binding"):
-            binding_covariates("ghost")
+        with pytest.raises(ContractConfigurationError, match="@registry.binding"):
+            Registry().binding_covariates("ghost")
 
 
 class TestBaselineRecording:
     def test_measure_persists_covariates_in_provenance(self, tmp_path: Path) -> None:
-        register_pipeline({"ontology": "abc123"})
+        registry = Registry()
+        register_pipeline(registry, {"ontology": "abc123"})
         run(
             write_contract(tmp_path, EMPIRICAL_CONTRACT),
             mode="measure",
             samples=50,
             baseline_dir=tmp_path / "baselines",
             emit=False,
+            registry=registry,
         )
         (artefact,) = (tmp_path / "baselines").glob("*.yaml")
         content = artefact.read_text(encoding="utf-8")
         assert '"ontology": "abc123"' in content
 
     def test_test_resolves_the_baseline_under_matching_covariates(self, tmp_path: Path) -> None:
-        register_pipeline({"ontology": "abc123"})
+        registry = Registry()
+        register_pipeline(registry, {"ontology": "abc123"})
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
-        run(contract, mode="measure", samples=200, baseline_dir=tmp_path / "b", emit=False)
-        result = run(contract, mode="test", samples=200, baseline_dir=tmp_path / "b", emit=False)
+        run(
+            contract,
+            mode="measure",
+            samples=200,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=registry,
+        )
+        result = run(
+            contract,
+            mode="test",
+            samples=200,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=registry,
+        )
         assert result.composite is Verdict.PASS
         assert result.criterion_results[0].criterion.provenance.origin == "empirical"
 
 
 class TestDriftRefusal:
     def test_drifted_covariate_refuses_naming_the_key(self, tmp_path: Path) -> None:
-        register_pipeline({"ontology": "abc123"})
+        measure_registry = Registry()
+        register_pipeline(measure_registry, {"ontology": "abc123"})
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
-        run(contract, mode="measure", samples=50, baseline_dir=tmp_path / "b", emit=False)
-        clear_registries()
-        register_pipeline({"ontology": "def456"})
+        run(
+            contract,
+            mode="measure",
+            samples=50,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=measure_registry,
+        )
+        drifted_registry = Registry()
+        register_pipeline(drifted_registry, {"ontology": "def456"})
         with pytest.raises(ContractConfigurationError) as refusal:
-            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
+            run(
+                contract,
+                mode="test",
+                baseline_dir=tmp_path / "b",
+                emit=False,
+                registry=drifted_registry,
+            )
         assert "different configuration" in str(refusal.value)
         assert "ontology" in str(refusal.value)
 
     def test_added_covariate_refuses_naming_the_key(self, tmp_path: Path) -> None:
-        register_pipeline(None)
+        measure_registry = Registry()
+        register_pipeline(measure_registry, None)
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
-        run(contract, mode="measure", samples=50, baseline_dir=tmp_path / "b", emit=False)
-        clear_registries()
-        register_pipeline({"judge": "v2"})
+        run(
+            contract,
+            mode="measure",
+            samples=50,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=measure_registry,
+        )
+        drifted_registry = Registry()
+        register_pipeline(drifted_registry, {"judge": "v2"})
         with pytest.raises(ContractConfigurationError, match="judge"):
-            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
+            run(
+                contract,
+                mode="test",
+                baseline_dir=tmp_path / "b",
+                emit=False,
+                registry=drifted_registry,
+            )
 
     def test_sizing_refusal_names_the_drifted_key(
         self,
@@ -126,9 +162,11 @@ class TestDriftRefusal:
         # run would judge against; its refusal must carry the drift reason,
         # never flatten it into a bare "no baseline".
         bindings = """
-from baseltest.declarative import binding
+from baseltest.declarative import Registry
 
-@binding("pipeline", covariates={"ontology": "VERSION"})
+registry = Registry()
+
+@registry.binding("pipeline", covariates={"ontology": "VERSION"})
 def invoke(value: str) -> str:
     return f"ok {value}"
 """
@@ -138,8 +176,7 @@ def invoke(value: str) -> str:
         contract = write_contract(tmp_path, EMPIRICAL_CONTRACT)
         assert main(["measure", str(contract), "--samples", "50"]) == 0
         # Simulate the next invocation under drifted covariates: fresh
-        # registries, fresh bindings import, changed ontology version.
-        clear_registries()
+        # bindings import, changed ontology version.
         for key in [k for k in sys.modules if k.startswith("mavai_bindings:")]:
             del sys.modules[key]
         # A different-length value: the source-file change must defeat the

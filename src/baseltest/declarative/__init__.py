@@ -5,17 +5,16 @@ This package is the reader for the family's contract-file format
 service contract it describes, and runs it through the same engine a
 hand-authored contract uses.
 
-Its public Python surface is deliberately tiny — three registration
-decorators and one entry point:
+Its public Python surface is deliberately tiny — a caller-held registry
+and a handful of entry points:
 
-- :func:`binding` registers the code that invokes your service by name,
-  optionally declaring the covariates that make up its computed identity.
-- :func:`binding_factory` registers a configurable service type: a factory
-  whose signature is the configuration schema, constructing the per-sample
-  callable from one services-file grid point.
-- :func:`check` registers a named predicate for the ``satisfies:`` form.
-- :func:`transform` registers a named transformation for the ``transform:``
-  key.
+- :class:`Registry` is the object bindings, checks, and transforms register
+  onto (``@registry.binding(...)``, ``@registry.check(...)``,
+  ``@registry.transform(...)``), and a run threads through resolution. Two
+  registries are fully independent — two contracts with different
+  registrations run in one process without cross-talk. A
+  ``mavai-bindings.py`` file binds one as ``registry``; an API caller
+  constructs one and passes ``registry=`` to the entry points.
 - :func:`stepper` registers a stepper factory for the ``optimizations:``
   section's ``stepper:`` key; :func:`scorer` registers a scorer for its
   ``scorer:`` key.
@@ -39,7 +38,7 @@ means authoring the contract directly (``baseltest.contract``) — at that
 point nothing here is needed any more.
 """
 
-from ._registry import binding, binding_factory, check, transform
+from ._registry import Registry
 from ._runner import check as check_contract
 from ._runner import explore, optimize, run
 from ._steppers import (
@@ -60,14 +59,11 @@ __all__ = [
     "IterationSummary",
     "LatencySummary",
     "OptimizeContext",
-    "binding",
-    "binding_factory",
-    "check",
+    "Registry",
     "check_contract",
     "explore",
     "optimize",
     "run",
     "scorer",
     "stepper",
-    "transform",
 ]

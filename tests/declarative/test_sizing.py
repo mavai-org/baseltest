@@ -11,29 +11,19 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 from baseltest.declarative._cli import main
-from baseltest.declarative._registry import clear_registries
 from baseltest.statistics import required_samples_for_power
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
-
 
 BINDINGS = """
 from itertools import count
 
-from baseltest.declarative import binding
+from baseltest.declarative import Registry
 
+registry = Registry()
 _calls = count(1)
 
 
-@binding('sized-svc')
+@registry.binding('sized-svc')
 def invoke(value: str) -> str:
     n = next(_calls)
     ok = "ok" if n % 10 else "bad"        # 90% pass criterion

@@ -7,10 +7,9 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import binding, run
+from baseltest.declarative import Registry, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
-from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._services import parse_services
 from baseltest.statistics.verdict import Verdict
 
@@ -38,13 +37,6 @@ criteria:
   - threshold: 0.5
     contains: "hello"
 """
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 @pytest.fixture()
@@ -84,7 +76,7 @@ class TestParsing:
             '      system-prompt: "You are a polite greeter."', "      model: some-model"
         )
         with pytest.raises(ContractConfigurationError, match="system-prompt"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_parameters_outside_configuration_refused_with_uniformity_rule(self) -> None:
         text = SERVICES.replace(
@@ -92,37 +84,37 @@ class TestParsing:
             "  greeter:\n    type: language-model\n    temperature: 0.3\n",
         )
         with pytest.raises(ContractConfigurationError, match="inside the `configuration:` block"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_withdrawn_variations_key_fails_the_ordinary_unknown_key_check(self) -> None:
         # The pre-release rename ruling: no rename pointer, just an unknown key.
         text = SERVICES + "    variations:\n      temperature: [0.0, 0.7]\n"
         with pytest.raises(ContractConfigurationError, match="unknown key `variations:`"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_thinking_value_outside_the_vocabulary_refused(self) -> None:
         text = SERVICES.replace("temperature: 0.7", "thinking: deep")
         with pytest.raises(ContractConfigurationError, match="adaptive, none"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_top_p_outside_the_unit_interval_refused(self) -> None:
         for bad in ("0", "1.2", "true", '"high"'):
             text = SERVICES.replace("temperature: 0.7", f"top-p: {bad}")
             with pytest.raises(ContractConfigurationError, match="top-p"):
-                parse_services(text)
+                parse_services(text, Registry())
 
     def test_prompt_caching_must_be_a_boolean(self) -> None:
         text = SERVICES.replace("temperature: 0.7", "prompt-caching: ephemeral")
         with pytest.raises(ContractConfigurationError, match="prompt-caching"):
-            parse_services(text)
+            parse_services(text, Registry())
 
     def test_unknown_type_refused(self) -> None:
         with pytest.raises(ContractConfigurationError, match="language-model"):
-            parse_services(SERVICES.replace("type: language-model", "type: robot", 1))
+            parse_services(SERVICES.replace("type: language-model", "type: robot", 1), Registry())
 
     def test_unknown_key_refused(self) -> None:
         with pytest.raises(ContractConfigurationError, match="api-key"):
-            parse_services(SERVICES + "    api-key: leak\n")
+            parse_services(SERVICES + "    api-key: leak\n", Registry())
 
 
 class TestZeroCodePath:
@@ -165,32 +157,35 @@ class TestResolutionRules:
         # A registered type sharing a service definition's name is not a
         # collision: a contract's `service:` reference resolves against
         # service definitions first.
-        @binding("greeter")
+        registry = Registry()
+
+        @registry.binding("greeter")
         def greet(value: str) -> str:
             return f"hello {value}"
 
-        result = run(write_files(tmp_path), emit=False)
+        result = run(write_files(tmp_path), emit=False, registry=registry)
         assert llm_environment  # the definition won: the model was invoked
         assert result.composite is Verdict.PASS
 
     def test_registering_a_builtin_type_name_is_refused(self) -> None:
+        registry = Registry()
         with pytest.raises(ContractConfigurationError, match="built-in service type"):
 
-            @binding("language-model")
+            @registry.binding("language-model")
             def invoke(value: str) -> str:
                 return value
 
     def test_configurable_type_is_not_directly_addressable(self, tmp_path: Path) -> None:
-        from baseltest.declarative import binding_factory
+        registry = Registry()
 
-        @binding_factory("teller")
+        @registry.binding_factory("teller")
         def teller(mood: str = "cheerful"):  # type: ignore[no-untyped-def]
             return lambda value: f"{mood} {value}"
 
         contract = tmp_path / "contract.yaml"
         contract.write_text(CONTRACT.replace("service: greeter", "service: teller"))
         with pytest.raises(ContractConfigurationError, match="mavai-services.yaml"):
-            run(contract, emit=False)
+            run(contract, emit=False, registry=registry)
 
 
 class TestProvenance:

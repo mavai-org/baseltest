@@ -15,13 +15,10 @@ bare ``@binding`` — is directly usable as a service of the same name, the
 degenerate zero-configuration instance.
 """
 
-import difflib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
-
-from ._errors import ContractConfigurationError
 
 
 def _identity_explore_point(parameters: Any) -> tuple[Any, str | None]:
@@ -85,46 +82,3 @@ class ServiceTypeContract:
         object.__setattr__(self, "covariates", MappingProxyType(dict(self.covariates)))
 
 
-_builtin_types: dict[str, ServiceTypeContract] = {}
-_user_types: dict[str, ServiceTypeContract] = {}
-
-
-def register_builtin_type(contract: ServiceTypeContract) -> None:
-    """Register a framework-shipped type. Idempotent by name."""
-    _builtin_types[contract.name] = contract
-
-
-def register_user_type(contract: ServiceTypeContract) -> None:
-    """Register a bindings-file type; built-in names cannot be shadowed."""
-    if contract.name in _builtin_types:
-        raise ContractConfigurationError(
-            f"{contract.name!r} is a built-in service type and cannot be re-registered "
-            "— choose another name"
-        )
-    _user_types[contract.name] = contract
-
-
-def find_type(name: str) -> ServiceTypeContract | None:
-    """The registered type of this name, or ``None``."""
-    return _user_types.get(name) or _builtin_types.get(name)
-
-
-def has_user_type(name: str) -> bool:
-    """Whether a bindings-file registration exists under this name."""
-    return name in _user_types
-
-
-def registered_type_names() -> tuple[str, ...]:
-    """Every registered type name, built-ins first, then user types sorted."""
-    return (*sorted(_builtin_types), *sorted(_user_types))
-
-
-def closest_type_hint(name: str) -> str:
-    """A ``did you mean`` fragment for an unknown type name, or ``''``."""
-    matches = difflib.get_close_matches(name, registered_type_names(), n=1)
-    return f" — did you mean {matches[0]!r}?" if matches else ""
-
-
-def clear_user_types() -> None:
-    """Reset the user half of the registry. Test seam only."""
-    _user_types.clear()

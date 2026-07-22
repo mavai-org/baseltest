@@ -1,22 +1,13 @@
 """The CLI verbs: exit-code semantics, sample sizing, the derivation gate."""
 
-import pytest
-
 from baseltest.declarative._cli import main
-from baseltest.declarative._registry import clear_registries
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 def write_contract(tmp_path, threshold="0.5", inputs='["a"]', name="assert-example"):  # type: ignore[no-untyped-def]
     (tmp_path / "mavai-bindings.py").write_text(
-        "from baseltest.declarative import binding\n"
-        "@binding('svc')\n"
+        "from baseltest.declarative import Registry\n"
+        "registry = Registry()\n"
+        "@registry.binding('svc')\n"
         "def invoke(value: str) -> str:\n"
         "    return 'ok'\n",
         encoding="utf-8",

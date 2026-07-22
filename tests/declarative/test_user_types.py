@@ -5,19 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import binding_factory, explore, run
+from baseltest.declarative import Registry, explore, run
 from baseltest.declarative._errors import ContractConfigurationError
-from baseltest.declarative._registry import clear_registries
 from baseltest.declarative._services import parse_services
 from baseltest.engine import Verdict
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
-
 
 SERVICES = """
 format: mavai-services/1
@@ -45,8 +36,8 @@ inputs: ["Alice", "Bob"]
 """
 
 
-def register_teller(covariates: dict[str, str] | None = None) -> None:
-    @binding_factory("fortune-teller", covariates=covariates)
+def register_teller(registry: Registry, covariates: dict[str, str] | None = None) -> None:
+    @registry.binding_factory("fortune-teller", covariates=covariates)
     def fortune_teller(mood: str = "plain", emphasis: int = 1) -> Callable[[str], str]:
         def tell(name: str) -> str:
             return f"{mood} fortune for {name}" + "!" * emphasis
@@ -63,20 +54,23 @@ def write_files(tmp_path: Path, services: str = SERVICES, contract: str = CONTRA
 
 class TestConfiguredRuns:
     def test_test_runs_the_baseline_configuration(self, tmp_path: Path) -> None:
-        register_teller()
-        result = run(write_files(tmp_path), emit=False)
+        registry = Registry()
+        register_teller(registry)
+        result = run(write_files(tmp_path), emit=False, registry=registry)
         assert result.composite is Verdict.PASS
 
     def test_measure_provenance_carries_type_configuration_and_covariates(
         self, tmp_path: Path
     ) -> None:
-        register_teller(covariates={"catalogue": "v1"})
+        registry = Registry()
+        register_teller(registry, covariates={"catalogue": "v1"})
         run(
             write_files(tmp_path),
             mode="measure",
             samples=20,
             baseline_dir=tmp_path / "b",
             emit=False,
+            registry=registry,
         )
         (artefact,) = (tmp_path / "b").glob("*.yaml")
         content = artefact.read_text(encoding="utf-8")
@@ -86,30 +80,40 @@ class TestConfiguredRuns:
         assert '"catalogue": "v1"' in content
 
     def test_configuration_drift_is_refused_naming_the_key(self, tmp_path: Path) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         empirical_only = CONTRACT.replace(
             '  - name: on-mood\n    threshold: 0.5\n    contains: "cheerful"\n', ""
         )
         contract = write_files(tmp_path, contract=empirical_only)
-        run(contract, mode="measure", samples=20, baseline_dir=tmp_path / "b", emit=False)
+        run(
+            contract,
+            mode="measure",
+            samples=20,
+            baseline_dir=tmp_path / "b",
+            emit=False,
+            registry=registry,
+        )
         write_files(
             tmp_path,
             services=SERVICES.replace("mood: cheerful", "mood: solemn"),
             contract=empirical_only,
         )
         with pytest.raises(ContractConfigurationError) as refusal:
-            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
+            run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False, registry=registry)
         assert "mood" in str(refusal.value)
 
 
 class TestExploration:
     def test_explore_runs_every_grid_point_with_factor_naming(self, tmp_path: Path) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         explored = explore(
             write_files(tmp_path),
             samples_per_config=2,
             explorations_dir=tmp_path / "x",
             emit=False,
+            registry=registry,
         )
         assert [e.factors for e in explored] == [{"mood": "cheerful"}, {"mood": "gloomy"}]
         assert sorted(p.name for p in (tmp_path / "x" / "teller-stays-on-mood").iterdir()) == [
@@ -118,53 +122,65 @@ class TestExploration:
         ]
 
     def test_swept_keys_follow_baseline_declaration_order(self) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         definitions = parse_services(
-            SERVICES.replace("- mood: gloomy", "- {emphasis: 3, mood: gloomy}")
+            SERVICES.replace("- mood: gloomy", "- {emphasis: 3, mood: gloomy}"), registry
         )
         assert definitions["cheerful-teller"].swept_keys == ("mood", "emphasis")
 
 
 class TestConfigurationRefusals:
     def test_unknown_key_lists_accepted_keys_and_signature(self) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         with pytest.raises(ContractConfigurationError) as refusal:
-            parse_services(SERVICES.replace("mood: cheerful", "moods: cheerful"))
+            parse_services(SERVICES.replace("mood: cheerful", "moods: cheerful"), registry)
         message = str(refusal.value)
         assert "unknown key `moods:`" in message
         assert "accepts: emphasis, mood" in message
         assert "fortune-teller(mood: str = 'plain', emphasis: int = 1)" in message
 
     def test_missing_required_key_names_it_with_the_signature(self) -> None:
-        @binding_factory("strict-teller")
+        registry = Registry()
+
+        @registry.binding_factory("strict-teller")
         def strict_teller(mood: str) -> Callable[[str], str]:
             return lambda name: f"{mood} {name}"
 
         with pytest.raises(ContractConfigurationError) as refusal:
-            parse_services(SERVICES.replace("type: fortune-teller", "type: strict-teller"))
+            parse_services(
+                SERVICES.replace("type: fortune-teller", "type: strict-teller"), registry
+            )
         message = str(refusal.value)
         assert "unknown key `emphasis:`" in message or "missing `mood:`" in message
 
     def test_annotated_type_mismatch_is_refused(self) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         with pytest.raises(ContractConfigurationError, match="expects int, got str"):
-            parse_services(SERVICES.replace("emphasis: 2", 'emphasis: "two"'))
+            parse_services(SERVICES.replace("emphasis: 2", 'emphasis: "two"'), registry)
 
     def test_non_scalar_value_is_refused(self) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         with pytest.raises(ContractConfigurationError, match="scalar"):
-            parse_services(SERVICES.replace("mood: cheerful", "mood: {a: 1}"))
+            parse_services(SERVICES.replace("mood: cheerful", "mood: {a: 1}"), registry)
 
     def test_covariate_and_configuration_key_collision_is_refused(self) -> None:
-        @binding_factory("clashing", covariates={"mood": "fixed"})
+        registry = Registry()
+
+        @registry.binding_factory("clashing", covariates={"mood": "fixed"})
         def clashing(mood: str = "plain") -> Callable[[str], str]:
             return lambda name: name
 
         with pytest.raises(ContractConfigurationError, match="one identity key, one feed"):
-            parse_services(SERVICES.replace("type: fortune-teller", "type: clashing"))
+            parse_services(SERVICES.replace("type: fortune-teller", "type: clashing"), registry)
 
     def test_reserved_provenance_key_in_configuration_is_refused(self) -> None:
-        @binding_factory("reserved-keys")
+        registry = Registry()
+
+        @registry.binding_factory("reserved-keys")
         def reserved_keys(**configuration: str) -> Callable[[str], str]:
             return lambda name: name
 
@@ -172,28 +188,35 @@ class TestConfigurationRefusals:
             parse_services(
                 SERVICES.replace("type: fortune-teller", "type: reserved-keys").replace(
                     "mood: cheerful", "binding: x"
-                )
+                ),
+                registry,
             )
 
     def test_unknown_type_lists_the_registered_types(self) -> None:
-        register_teller()
+        registry = Registry()
+        register_teller(registry)
         with pytest.raises(ContractConfigurationError) as refusal:
-            parse_services(SERVICES.replace("type: fortune-teller", "type: fortune-tellers"))
+            parse_services(
+                SERVICES.replace("type: fortune-teller", "type: fortune-tellers"), registry
+            )
         message = str(refusal.value)
         assert "registered types: language-model, fortune-teller" in message
         assert "did you mean 'fortune-teller'?" in message
 
     def test_factory_returning_a_non_callable_is_refused(self, tmp_path: Path) -> None:
-        @binding_factory("fortune-teller")
+        registry = Registry()
+
+        @registry.binding_factory("fortune-teller")
         def fortune_teller(mood: str = "plain", emphasis: int = 1) -> str:
             return mood
 
         with pytest.raises(ContractConfigurationError, match="not the per-sample callable"):
-            run(write_files(tmp_path), emit=False)
+            run(write_files(tmp_path), emit=False, registry=registry)
 
     def test_positional_only_factory_parameters_are_refused_at_registration(self) -> None:
+        registry = Registry()
         with pytest.raises(ContractConfigurationError, match="keyword-bindable"):
 
-            @binding_factory("positional")
+            @registry.binding_factory("positional")
             def positional(mood: str, /) -> Callable[[str], str]:
                 return lambda name: name

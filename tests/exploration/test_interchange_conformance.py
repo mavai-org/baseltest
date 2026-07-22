@@ -19,7 +19,6 @@ from ruamel.yaml import YAML
 
 from baseltest.declarative import explore
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
-from baseltest.declarative._registry import clear_registries
 from baseltest.engine import minimum_contributing_samples
 
 _SCHEMA_PATH = Path(__file__).parent.parent / "conformance" / "interchange"
@@ -50,13 +49,6 @@ criteria:
     threshold: 0.5
     contains: "hello"
 """
-
-
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
 
 
 @pytest.fixture()

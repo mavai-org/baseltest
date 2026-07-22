@@ -15,10 +15,9 @@ from typing import Any
 
 import pytest
 
-from baseltest.declarative import binding, explore, optimize, transform
+from baseltest.declarative import Registry, explore, optimize
 from baseltest.declarative._cli import main
 from baseltest.declarative._providers import ENV_ENDPOINT, ENV_MODEL
-from baseltest.declarative._registry import clear_registries
 
 SERVICES = """
 format: mavai-services/1
@@ -53,13 +52,6 @@ criteria:
 """
 
 
-@pytest.fixture(autouse=True)
-def fresh_registries():  # type: ignore[no-untyped-def]
-    clear_registries()
-    yield
-    clear_registries()
-
-
 @pytest.fixture()
 def poison_one_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     """A stubbed endpoint that returns a degenerate draw for one configuration.
@@ -88,7 +80,7 @@ def poison_one_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
 
-def register_choking_judge() -> None:
+def register_choking_judge(registry: Registry) -> None:
     """A custom transform that raises a non-TransformError on a degenerate draw.
 
     It catches nothing: a real custom transform cannot anticipate the
@@ -97,11 +89,25 @@ def register_choking_judge() -> None:
     escape.
     """
 
-    @transform("judge")
+    @registry.transform("judge")
     def judge(raw: str) -> dict[str, object]:
         if "POISON" in raw:
             raise ValueError("degenerate draw: unusable response")
         return json.loads(raw)  # type: ignore[no-any-return]
+
+
+# The same choking judge, expressed as a ``mavai-bindings.py`` module body for
+# the CLI-driven runs that self-discover their registrations beside the contract.
+JUDGE_BINDINGS = (
+    "import json\n"
+    "from baseltest.declarative import Registry\n"
+    "registry = Registry()\n"
+    "@registry.transform('judge')\n"
+    "def judge(raw: str) -> dict[str, object]:\n"
+    "    if 'POISON' in raw:\n"
+    "        raise ValueError('degenerate draw: unusable response')\n"
+    "    return json.loads(raw)\n"
+)
 
 
 def write_files(tmp_path: Path, contract: str = CONTRACT, services: str = SERVICES) -> Path:
@@ -117,12 +123,14 @@ class TestExploreContainsDefects:
     ) -> None:
         # Field regression (hibu-bkb-kg spec 007): one defect discarded every
         # configuration's paid spend.
-        register_choking_judge()
+        registry = Registry()
+        register_choking_judge(registry)
         exploration = explore(
             write_files(tmp_path),
             samples_per_config=3,
             explorations_dir=tmp_path / "x",
             emit=False,
+            registry=registry,
         )
         assert len(exploration.completed) == 3
         assert len(exploration.aborted) == 1
@@ -135,9 +143,10 @@ class TestExploreContainsDefects:
     def test_cli_reports_the_partial_run_with_a_non_zero_exit(
         self, tmp_path: Path, poison_one_configuration: None, capsys: Any
     ) -> None:
-        register_choking_judge()
+        contract = write_files(tmp_path)
+        (tmp_path / "mavai-bindings.py").write_text(JUDGE_BINDINGS, encoding="utf-8")
         code = main(
-            ["explore", str(write_files(tmp_path)), "--explorations-dir", str(tmp_path / "x")]
+            ["explore", str(contract), "--explorations-dir", str(tmp_path / "x")]
         )
         assert code == 1
         captured = capsys.readouterr()
@@ -150,12 +159,14 @@ class TestDefectDiagnosisErrorMessage:
     def test_message_names_transform_criterion_postcondition_exception_and_input(
         self, tmp_path: Path, poison_one_configuration: None
     ) -> None:
-        register_choking_judge()
+        registry = Registry()
+        register_choking_judge(registry)
         exploration = explore(
             write_files(tmp_path),
             samples_per_config=2,
             explorations_dir=tmp_path / "x",
             emit=False,
+            registry=registry,
         )
         diagnosis = exploration.aborted[0].diagnosis
         assert "judged" in diagnosis
@@ -174,11 +185,20 @@ class TestSingleConfigCliBackstop:
         self, tmp_path: Path, capsys: Any
     ) -> None:
         # No siblings to save here — the diagnosis is the whole point.
-        @binding("bulk-svc")
-        def invoke(value: str) -> str:
-            return "POISON"
-
-        register_choking_judge()
+        (tmp_path / "mavai-bindings.py").write_text(
+            "import json\n"
+            "from baseltest.declarative import Registry\n"
+            "registry = Registry()\n"
+            "@registry.binding('bulk-svc')\n"
+            "def invoke(value: str) -> str:\n"
+            "    return 'POISON'\n"
+            "@registry.transform('judge')\n"
+            "def judge(raw: str) -> dict[str, object]:\n"
+            "    if 'POISON' in raw:\n"
+            "        raise ValueError('degenerate draw: unusable response')\n"
+            "    return json.loads(raw)\n",
+            encoding="utf-8",
+        )
         contract = CONTRACT.replace("service: support-agent", "service: bulk-svc")
         path = tmp_path / "contract.yaml"
         path.write_text(contract, encoding="utf-8")
@@ -238,12 +258,14 @@ services:
     def test_defected_iteration_stops_the_search_and_keeps_the_history(
         self, tmp_path: Path, poison_after_first_iteration: None
     ) -> None:
-        register_choking_judge()
+        registry = Registry()
+        register_choking_judge(registry)
         outcomes = optimize(
             self._write(tmp_path),
             samples_per_iteration=2,
             optimizations_dir=tmp_path / "o",
             emit=False,
+            registry=registry,
         )
         outcome = outcomes[0]
         # Iteration 0 (temperature 0.0) scored; iteration 1 drew the poison.
@@ -272,12 +294,14 @@ services:
         monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
         monkeypatch.setenv(ENV_MODEL, "env-default-model")
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-        register_choking_judge()
+        registry = Registry()
+        register_choking_judge(registry)
         outcomes = optimize(
             self._write(tmp_path),
             samples_per_iteration=2,
             optimizations_dir=tmp_path / "o",
             emit=False,
+            registry=registry,
         )
         outcome = outcomes[0]
         assert outcome.defect is not None

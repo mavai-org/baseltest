@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conformance import ConformanceLedger
 
 from baseltest.contract import Criterion, ServiceContract, contains
 from baseltest.engine import RunPlan, execute
@@ -47,6 +46,7 @@ from baseltest.statistics import (
     wilson_lower_bound,
     wilson_lower_bound_from_rate,
 )
+from conformance import ConformanceLedger
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

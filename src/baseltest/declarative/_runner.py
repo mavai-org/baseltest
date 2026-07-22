@@ -47,6 +47,7 @@ from ._instantiate import (
 from ._optimize import OptimizationDeclaration
 from ._parser import FORMAT_IDENTIFIER, ContractDeclaration, load_contract
 from ._registrations import discover_registrations
+from ._registry import Registry
 from ._schema_walk import validate_declared_paths
 from ._services import ServiceDefinition, discover_services
 from ._services import _resolved_point as _configuration_identity
@@ -122,6 +123,7 @@ def run(
     verdict_dir: str | Path | None = None,
     html_report: str | Path | None = None,
     emit: bool = True,
+    registry: Registry | None = None,
 ) -> RunResult:
     """Load and execute a contract file; render its output; persist when measuring.
 
@@ -153,11 +155,13 @@ def run(
         samples_provenance = samples_provenance or sizing_resolution.provenance
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    discover_registrations(contract_path)
-    services = discover_services(contract_path)
+    if registry is None:
+        registry = discover_registrations(contract_path)
+    services = discover_services(contract_path, registry)
     contract, plan, sizing, service_provenance, skipped, baseline_context = instantiate(
         declaration,
         services,
+        registry,
         mode=run_mode,
         samples=samples,
         baseline_dir=Path(baseline_dir),
@@ -208,7 +212,7 @@ def run(
         record = BaselineRecord.from_run_result(
             result,
             provenance=provenance,
-            views=descriptive_view_fingerprints(declaration),
+            views=descriptive_view_fingerprints(declaration, registry),
         )
         baseline_path = str(write_baseline(record, Path(baseline_dir)))
 
@@ -327,6 +331,7 @@ def explore(
     samples_per_config: int | None = None,
     explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
     emit: bool = True,
+    registry: Registry | None = None,
 ) -> ExplorationRun:
     """Run the contract's inputs and criteria over every configuration in the grid.
 
@@ -360,10 +365,11 @@ def explore(
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    discover_registrations(contract_path)
-    services = discover_services(contract_path)
+    if registry is None:
+        registry = discover_registrations(contract_path)
+    services = discover_services(contract_path, registry)
     configurations, sizing, notes = instantiate_explore(
-        declaration, services, samples_per_config=samples_per_config
+        declaration, services, registry, samples_per_config=samples_per_config
     )
     if emit:
         print(render_run_plan(sizing.samples, sizing.provenance, per_configuration=True))
@@ -443,6 +449,7 @@ def optimize(
     samples_per_iteration: int | None = None,
     optimizations_dir: str | Path = DEFAULT_OPTIMIZATIONS_DIR,
     emit: bool = True,
+    registry: Registry | None = None,
 ) -> tuple[OptimizationOutcome, ...]:
     """Run the contract's Optimize experiments: iterate, score, persist the history.
 
@@ -479,9 +486,10 @@ def optimize(
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    discover_registrations(contract_path)
-    services = discover_services(contract_path)
-    definition = optimize_definition(declaration, services)
+    if registry is None:
+        registry = discover_registrations(contract_path)
+    services = discover_services(contract_path, registry)
+    definition = optimize_definition(declaration, services, registry)
     entries = _select_entries(definition, run_id, all_entries)
     samples = (
         samples_per_iteration
@@ -499,7 +507,7 @@ def optimize(
                 print(f"note: {note}")
         outcomes.append(
             _drive_optimization(
-                declaration, definition, entry, samples, Path(optimizations_dir), emit
+                declaration, definition, entry, samples, Path(optimizations_dir), emit, registry
             )
         )
     return tuple(outcomes)
@@ -512,6 +520,7 @@ def _drive_optimization(
     samples: int,
     optimizations_dir: Path,
     emit: bool,
+    registry: Registry,
 ) -> OptimizationOutcome:
     """One entry's full loop: iterate, score, track the best, persist.
 
@@ -538,7 +547,7 @@ def _drive_optimization(
     visited: set[tuple[Any, ...]] = set()
     for index in range(entry.max_iterations):
         visited.add(_configuration_identity(definition.type, parameters))
-        point = instantiate_optimize_point(declaration, definition, parameters, samples)
+        point = instantiate_optimize_point(declaration, definition, parameters, samples, registry)
         label = f"{entry.run_id} iteration {index}"
         try:
             result = execute(
@@ -750,7 +759,7 @@ def _next_parameters(
     return definition.type.parse(definition.name, proposal, where)
 
 
-def check(path: str | Path) -> tuple[str, ...]:
+def check(path: str | Path, registry: Registry | None = None) -> tuple[str, ...]:
     """Validate a contract against its services and bindings — zero samples.
 
     The authoring loop's compile step: loads the contract, discovers the
@@ -770,11 +779,12 @@ def check(path: str | Path) -> tuple[str, ...]:
     """
     contract_path = Path(path)
     declaration = load_contract(contract_path)
-    discover_registrations(contract_path)
-    services = discover_services(contract_path)
+    if registry is None:
+        registry = discover_registrations(contract_path)
+    services = discover_services(contract_path, registry)
     # The baseline path, validated by the machinery a real run uses —
     # check and run cannot drift apart.
-    instantiate(declaration, services, mode=RunKind.MEASURE, samples=1)
+    instantiate(declaration, services, registry, mode=RunKind.MEASURE, samples=1)
     facts = [
         f"contract {declaration.contract!r}: {len(declaration.criteria)} criteria, "
         f"{len(declaration.inputs)} inputs"
@@ -785,7 +795,7 @@ def check(path: str | Path) -> tuple[str, ...]:
             f"service {declaration.service!r}: binding resolved, every input joined "
             "against its signature"
         )
-        facts.extend(validate_declared_paths(declaration, None, declaration.service))
+        facts.extend(validate_declared_paths(declaration, None, declaration.service, registry))
         return tuple(facts)
     facts.append(
         f"service {declaration.service!r}: type {definition.type.name!r}, baseline "
@@ -796,6 +806,7 @@ def check(path: str | Path) -> tuple[str, ...]:
             declaration,
             getattr(definition.configuration, "response_schema", None),
             declaration.service,
+            registry,
         )
     )
     for parameters in definition.explorations:

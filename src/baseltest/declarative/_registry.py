@@ -1,11 +1,17 @@
-"""Registries: named bindings, checks, and transforms, resolved at contract-load time.
+"""The registry: named bindings, checks, and transforms, resolved at load time.
 
-``@binding`` and ``@binding_factory`` register **service types** — user
-entries in the same registry the built-in ``language-model`` type lives in
-(see the types module). ``@check`` and ``@transform`` register the named
-predicates and transformations criteria reference.
+A :class:`Registry` is a caller-held object. Bindings, checks, and transforms
+register onto an instance — ``@registry.binding(...)``, ``@registry.check(...)``,
+``@registry.transform(...)`` — and a run threads that instance through
+resolution. ``@binding`` and ``@binding_factory`` register **service types**
+(user entries in the same registry the built-in ``language-model`` type lives
+in); ``@check`` and ``@transform`` register the named predicates and
+transformations criteria reference. Two registries are fully independent: two
+contracts with different registrations run in one process without cross-talk,
+and a test constructs a fresh registry rather than resetting a global.
 """
 
+import difflib
 import hashlib
 import inspect
 import io
@@ -28,13 +34,7 @@ from ._signatures import snake as _snake
 from ._signatures import value_fits as _value_fits
 from ._steppers import clear_user_steppers
 from ._structured import STOCK_TRANSFORMS
-from ._types import (
-    ServiceTypeContract,
-    clear_user_types,
-    find_type,
-    has_user_type,
-    register_user_type,
-)
+from ._types import ServiceTypeContract
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -45,9 +45,6 @@ _STOCK_TRANSFORMS = tuple(STOCK_TRANSFORMS)
 # covariate or configuration key under one of these names would collide
 # with the framework's own entry, so registration and parsing refuse it.
 RESERVED_COVARIATE_KEYS = frozenset({"binding", "runMode", "serviceType", "taskFile", "taskFormat"})
-
-_checks: dict[str, Callable[[Any], bool]] = {}
-_transforms: dict[str, "TransformRegistration"] = {}
 
 
 def _register(
@@ -64,81 +61,6 @@ def _register(
             f"a {kind} named {name!r} is already registered; names must be unique"
         )
     registry[name] = fn
-
-
-def _register_type(name: str, kind: str, contract: ServiceTypeContract) -> None:
-    if not name:
-        raise ContractConfigurationError(f"a {kind} name must be non-empty")
-    if has_user_type(name):
-        raise ContractConfigurationError(
-            f"a binding named {name!r} is already registered; names must be unique"
-        )
-    register_user_type(contract)
-
-
-def binding(name: str, *, covariates: dict[str, str] | None = None) -> Callable[[_F], _F]:
-    """Register the code that invokes a service, under the name contract files use.
-
-    The decorated callable accepts the contract's per-sample input values
-    and returns one response string. An anticipated bad response is
-    returned (for the criteria to judge); only genuine defects raise, and
-    a raising binding aborts the run. It must be safe to invoke once per
-    sample.
-
-    A bare binding takes no configuration; a services-file entry naming
-    its type is refused with a pointer to :func:`binding_factory`, the
-    configurable registration form.
-
-    Args:
-        name: The service name contract files reference (also the type
-            name a services-file entry could reference).
-        covariates: Computed identity the service runs under — values a
-            services file cannot state, resolved from the environment (a
-            content fingerprint, a library version). A measure run records
-            them in the baseline artefact's provenance; a later test whose
-            resolved covariates differ is refused with the drifted key(s)
-            named. Compute the values at declaration time so every run
-            re-resolves them — that is what makes drift observable.
-    """
-    declared = _validated_covariates(name, covariates)
-
-    def decorate(fn: _F) -> _F:
-        _register_type(name, "binding", _bare_type(name, fn, declared))
-        return fn
-
-    return decorate
-
-
-def binding_factory(name: str, *, covariates: dict[str, str] | None = None) -> Callable[[_F], _F]:
-    """Register a configurable service type: a factory that constructs the binding.
-
-    The decorated factory receives one grid point's resolved configuration
-    as keyword arguments — services-file kebab-case keys map to the
-    factory's snake_case parameters — and returns the per-sample callable.
-    The factory's signature *is* the configuration schema: parameters with
-    defaults are the optional keys, annotations are checked where present,
-    and a services-file entry that does not fit is refused at load time
-    with the signature in the message.
-
-    Factories run at contract-load time (validation constructs the
-    per-sample callable before any sample), so they must be cheap and
-    side-effect-light.
-
-    Args:
-        name: The type name services-file entries reference via ``type:``.
-        covariates: As on :func:`binding` — computed identity, merged into
-            the same provenance the resolved configuration feeds. A key
-            declared both as a covariate and as a factory parameter is a
-            configuration error.
-    """
-    declared = _validated_covariates(name, covariates)
-
-    def decorate(factory: _F) -> _F:
-        _vet_factory_signature(name, factory)
-        _register_type(name, "binding factory", _factory_type(name, factory, declared))
-        return factory
-
-    return decorate
 
 
 def _validated_covariates(name: str, covariates: dict[str, str] | None) -> dict[str, str]:
@@ -354,132 +276,238 @@ def _loaded_schema(name: str, output_schema: Any) -> dict[str, Any]:
     return schema
 
 
-def check(name: str) -> Callable[[_F], _F]:
-    """Register a named predicate for the ``satisfies:`` postcondition form.
+def _builtin_service_types() -> tuple[ServiceTypeContract, ...]:
+    """The framework-shipped service types every registry starts with."""
+    # Lazy import: the language-model type lives in the services module, which
+    # sits above this one; importing it at call time keeps the module graph
+    # acyclic while still seeding every fresh registry.
+    from ._services import _language_model_type
 
-    The predicate receives the value under judgement (the transformed value
-    when the criterion declares a transform, the raw response text
-    otherwise) and returns whether the check holds.
+    return (_language_model_type(),)
+
+
+class Registry:
+    """The named registrations one contract run resolves against.
+
+    Bindings, checks, and transforms register onto an instance
+    (``@registry.binding(...)``); the run threads that instance through
+    resolution. Every registry starts seeded with the framework's built-in
+    service types; two registries never share user registrations.
     """
 
-    def decorate(fn: _F) -> _F:
-        _register(_checks, "check", name, fn)
-        return fn
+    def __init__(self) -> None:
+        self._builtin_types: dict[str, ServiceTypeContract] = {}
+        self._user_types: dict[str, ServiceTypeContract] = {}
+        self._checks: dict[str, Callable[[Any], bool]] = {}
+        self._transforms: dict[str, TransformRegistration] = {}
+        for contract in _builtin_service_types():
+            self._builtin_types[contract.name] = contract
 
-    return decorate
+    # -- registration decorators -------------------------------------------
 
+    def binding(self, name: str, *, covariates: dict[str, str] | None = None) -> Callable[[_F], _F]:
+        """Register the code that invokes a service, under the name contract files use.
 
-def transform(
-    name: str,
-    *,
-    output_schema: dict[str, Any] | str | PurePath | None = None,
-) -> Callable[[_F], _F]:
-    """Register a named transformation for the ``transform:`` key.
+        The decorated callable accepts the contract's per-sample input values
+        and returns one response string. An anticipated bad response is
+        returned (for the criteria to judge); only genuine defects raise, and
+        a raising binding aborts the run. It must be safe to invoke once per
+        sample.
 
-    The callable receives the raw response and returns the value under
-    judgement. Raise :class:`baseltest.contract.TransformError` when the
-    response cannot be transformed — that is a failed trial, not an abort;
-    any other exception is treated as a defect.
+        Args:
+            name: The service name contract files reference (also the type
+                name a services-file entry could reference).
+            covariates: Computed identity the service runs under — values a
+                services file cannot state, resolved from the environment. A
+                measure run records them in the baseline's provenance; a later
+                test whose resolved covariates differ is refused. Compute the
+                values at declaration time so every run re-resolves them.
+        """
+        declared = _validated_covariates(name, covariates)
 
-    Args:
-        name: The registry name ``transforms:`` entries reference.
-        output_schema: The JSON Schema of the transformation's output — a
-            mapping, or a path to a schema file (``.json``, or
-            ``.yaml``/``.yml``). Declaring it buys two things: contract
-            ``path:`` expressions over the transformation's views are
-            statically validated against it at load time (the check
-            verb's path ↔ shape join), and every trial's actual output is
-            validated against it — a violation is a named trial failure,
-            never a silent empty selection. A malformed schema is refused
-            at registration. The schema's canonical fingerprint is
-            recorded descriptively in baseline artefacts — never as a
-            covariate: an output schema executes after the response
-            exists and has no influence on the service's stochastic
-            behaviour, so it is definitionally outside the drift-checked
-            identity (the response-schema, by contrast, always influences
-            the service and is always a covariate).
-    """
-    schema = _loaded_schema(name, output_schema) if output_schema is not None else None
-    fingerprint = None
-    if schema is not None:
-        canonical = json.dumps(schema, sort_keys=True)
-        fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        def decorate(fn: _F) -> _F:
+            self._register_type(name, "binding", _bare_type(name, fn, declared))
+            return fn
 
-    def decorate(fn: _F) -> _F:
-        registration = TransformRegistration(fn=fn, output_schema=schema, fingerprint=fingerprint)
-        _register(_transforms, "transform", name, registration, reserved=_STOCK_TRANSFORMS)
-        return fn
+        return decorate
 
-    return decorate
+    def binding_factory(
+        self, name: str, *, covariates: dict[str, str] | None = None
+    ) -> Callable[[_F], _F]:
+        """Register a configurable service type: a factory that constructs the binding.
 
+        The decorated factory receives one grid point's resolved configuration
+        as keyword arguments — services-file kebab-case keys map to the
+        factory's snake_case parameters — and returns the per-sample callable.
+        The factory's signature *is* the configuration schema. Factories run at
+        contract-load time, so they must be cheap and side-effect-light.
 
-def has_binding(name: str) -> bool:
-    """Whether a bindings-file registration exists under this name."""
-    return has_user_type(name)
+        Args:
+            name: The type name services-file entries reference via ``type:``.
+            covariates: As on :meth:`binding` — computed identity merged into
+                the same provenance the resolved configuration feeds.
+        """
+        declared = _validated_covariates(name, covariates)
 
+        def decorate(factory: _F) -> _F:
+            _vet_factory_signature(name, factory)
+            self._register_type(name, "binding factory", _factory_type(name, factory, declared))
+            return factory
 
-def _registered_type(name: str) -> ServiceTypeContract:
-    contract = find_type(name)
-    if contract is None or contract.builtin:
-        raise ContractConfigurationError(
-            f"service {name!r} is not a registered binding. Register the code that "
-            f"invokes your service with @binding({name!r}) before running the contract."
-        )
-    return contract
+        return decorate
 
+    def check(self, name: str) -> Callable[[_F], _F]:
+        """Register a named predicate for the ``satisfies:`` postcondition form.
 
-def resolve_binding(name: str) -> Callable[..., str]:
-    """Look up a bare binding at contract-load time; unresolvable names are refused."""
-    contract = _registered_type(name)
-    if not contract.addressable:
-        raise ContractConfigurationError(
-            f"service {name!r} names the configurable type {name!r} directly — a "
-            "configurable type is instantiated by a services-file entry; declare a "
-            f"service with `type: {name}` (and its `configuration:`) in mavai-services.yaml"
-        )
-    return contract.invoker(None)
+        The predicate receives the value under judgement (the transformed value
+        when the criterion declares a transform, the raw response text
+        otherwise) and returns whether the check holds.
+        """
 
+        def decorate(fn: _F) -> _F:
+            _register(self._checks, "check", name, fn)
+            return fn
 
-def binding_covariates(name: str) -> dict[str, str]:
-    """A registered binding's declared covariates; unresolvable names are refused.
+        return decorate
 
-    These are the binding's computed identity — recorded by a measure run
-    into the baseline artefact's provenance and compared, key by key, when
-    a later test resolves that baseline.
-    """
-    return dict(_registered_type(name).covariates)
+    def transform(
+        self,
+        name: str,
+        *,
+        output_schema: dict[str, Any] | str | PurePath | None = None,
+    ) -> Callable[[_F], _F]:
+        """Register a named transformation for the ``transform:`` key.
 
+        The callable receives the raw response and returns the value under
+        judgement. Raise :class:`baseltest.contract.TransformError` when the
+        response cannot be transformed — that is a failed trial, not an abort;
+        any other exception is treated as a defect.
 
-def resolve_check(name: str) -> Callable[[Any], bool]:
-    """Look up a named check at contract-load time; unresolvable names are refused."""
-    if name not in _checks:
-        raise ContractConfigurationError(
-            f"satisfies: {name!r} is not a registered check. Register the predicate "
-            f"with @check({name!r}) before running the contract."
-        )
-    return _checks[name]
+        Args:
+            name: The registry name ``transforms:`` entries reference.
+            output_schema: The JSON Schema of the transformation's output — a
+                mapping, or a path to a schema file. Declaring it statically
+                validates contract ``path:`` expressions at load time and
+                validates every trial's actual output; a violation is a named
+                trial failure. Its canonical fingerprint is recorded
+                descriptively in baseline artefacts, never as a covariate. A
+                malformed schema is refused at registration.
+        """
+        schema = _loaded_schema(name, output_schema) if output_schema is not None else None
+        fingerprint = None
+        if schema is not None:
+            canonical = json.dumps(schema, sort_keys=True)
+            fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+        def decorate(fn: _F) -> _F:
+            registration = TransformRegistration(
+                fn=fn, output_schema=schema, fingerprint=fingerprint
+            )
+            _register(self._transforms, "transform", name, registration, reserved=_STOCK_TRANSFORMS)
+            return fn
 
-def resolve_transform(name: str) -> Callable[[str], Any]:
-    """Look up a named transform at contract-load time; unresolvable names are refused."""
-    return transform_registration(name).fn
+        return decorate
 
+    # -- the service-type sub-registry -------------------------------------
 
-def transform_registration(name: str) -> TransformRegistration:
-    """The full registration record; unresolvable names are refused."""
-    if name not in _transforms:
-        raise ContractConfigurationError(
-            f"transform: {name!r} is neither a stock transform (json, xml, yaml) nor a "
-            f"registered one. Register the transformation with @transform({name!r}) "
-            "before running the contract."
-        )
-    registration: TransformRegistration = _transforms[name]
-    return registration
+    def _register_type(self, name: str, kind: str, contract: ServiceTypeContract) -> None:
+        if not name:
+            raise ContractConfigurationError(f"a {kind} name must be non-empty")
+        if self.has_user_type(name):
+            raise ContractConfigurationError(
+                f"a binding named {name!r} is already registered; names must be unique"
+            )
+        self.register_user_type(contract)
+
+    def register_user_type(self, contract: ServiceTypeContract) -> None:
+        """Register a bindings-file type; built-in names cannot be shadowed."""
+        if contract.name in self._builtin_types:
+            raise ContractConfigurationError(
+                f"{contract.name!r} is a built-in service type and cannot be re-registered "
+                "— choose another name"
+            )
+        self._user_types[contract.name] = contract
+
+    def find_type(self, name: str) -> ServiceTypeContract | None:
+        """The registered type of this name, or ``None``."""
+        return self._user_types.get(name) or self._builtin_types.get(name)
+
+    def has_user_type(self, name: str) -> bool:
+        """Whether a bindings-file registration exists under this name."""
+        return name in self._user_types
+
+    def registered_type_names(self) -> tuple[str, ...]:
+        """Every registered type name, built-ins first, then user types sorted."""
+        return (*sorted(self._builtin_types), *sorted(self._user_types))
+
+    def closest_type_hint(self, name: str) -> str:
+        """A ``did you mean`` fragment for an unknown type name, or ``''``."""
+        matches = difflib.get_close_matches(name, self.registered_type_names(), n=1)
+        return f" — did you mean {matches[0]!r}?" if matches else ""
+
+    # -- resolvers ---------------------------------------------------------
+
+    def has_binding(self, name: str) -> bool:
+        """Whether a bindings-file registration exists under this name."""
+        return self.has_user_type(name)
+
+    def _registered_type(self, name: str) -> ServiceTypeContract:
+        contract = self.find_type(name)
+        if contract is None or contract.builtin:
+            raise ContractConfigurationError(
+                f"service {name!r} is not a registered binding. Register the code that "
+                f"invokes your service with @registry.binding({name!r}) before running "
+                "the contract."
+            )
+        return contract
+
+    def resolve_binding(self, name: str) -> Callable[..., str]:
+        """Look up a bare binding at contract-load time; unresolvable names are refused."""
+        contract = self._registered_type(name)
+        if not contract.addressable:
+            raise ContractConfigurationError(
+                f"service {name!r} names the configurable type {name!r} directly — a "
+                "configurable type is instantiated by a services-file entry; declare a "
+                f"service with `type: {name}` (and its `configuration:`) in mavai-services.yaml"
+            )
+        return contract.invoker(None)
+
+    def binding_covariates(self, name: str) -> dict[str, str]:
+        """A registered binding's declared covariates; unresolvable names are refused.
+
+        These are the binding's computed identity — recorded by a measure run
+        into the baseline artefact's provenance and compared, key by key, when
+        a later test resolves that baseline.
+        """
+        return dict(self._registered_type(name).covariates)
+
+    def resolve_check(self, name: str) -> Callable[[Any], bool]:
+        """Look up a named check at contract-load time; unresolvable names are refused."""
+        if name not in self._checks:
+            raise ContractConfigurationError(
+                f"satisfies: {name!r} is not a registered check. Register the predicate "
+                f"with @registry.check({name!r}) before running the contract."
+            )
+        return self._checks[name]
+
+    def resolve_transform(self, name: str) -> Callable[[str], Any]:
+        """Look up a named transform at contract-load time; unresolvable names are refused."""
+        return self.transform_registration(name).fn
+
+    def transform_registration(self, name: str) -> TransformRegistration:
+        """The full registration record; unresolvable names are refused."""
+        if name not in self._transforms:
+            raise ContractConfigurationError(
+                f"transform: {name!r} is neither a stock transform (json, xml, yaml) nor a "
+                f"registered one. Register the transformation with @registry.transform({name!r}) "
+                "before running the contract."
+            )
+        registration: TransformRegistration = self._transforms[name]
+        return registration
 
 
 def clear_registries() -> None:
-    """Reset all user registries. Test seam only."""
-    clear_user_types()
+    """Reset the user stepper/scorer registries. Test seam — steppers only,
+    pending their move into the registry object (checks/transforms/types are
+    now per-:class:`Registry` and need no reset)."""
     clear_user_steppers()
-    _checks.clear()
-    _transforms.clear()
