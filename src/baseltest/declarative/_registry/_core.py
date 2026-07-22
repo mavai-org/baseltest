@@ -1,38 +1,20 @@
-"""The registry: named bindings, checks, and transforms, resolved at load time.
+"""The `Registry` class: the named registrations one contract run resolves against.
 
-A :class:`Registry` is a caller-held object. Bindings, checks, and transforms
-register onto an instance — ``@registry.binding(...)``, ``@registry.check(...)``,
-``@registry.transform(...)`` — and a run threads that instance through
-resolution. ``@binding`` and ``@binding_factory`` register **service types**
-(user entries in the same registry the built-in ``language-model`` type lives
-in); ``@check`` and ``@transform`` register the named predicates and
-transformations criteria reference. Two registries are fully independent: two
-contracts with different registrations run in one process without cross-talk,
-and a test constructs a fresh registry rather than resetting a global.
+Bindings, checks, transforms, steppers, and scorers register onto an instance
+(``@registry.binding(...)``); the run threads that instance through resolution.
+Every registry starts seeded with the framework's built-in service types,
+steppers, and scorers; two registries never share user registrations.
 """
 
 import difflib
 import hashlib
-import inspect
-import io
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
-from pathlib import Path, PurePath
+from pathlib import PurePath
 from typing import Any, TypeVar
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
-
-from ._errors import ContractConfigurationError
-from ._signatures import SCALAR_TYPES as _SCALAR_TYPES
-from ._signatures import kebab as _kebab
-from ._signatures import rendered_signature as _rendered_signature
-from ._signatures import snake as _snake
-from ._signatures import value_fits as _value_fits
-from ._steppers import (
+from .._errors import ContractConfigurationError
+from .._steppers import (
     ScorerFunction,
     StepFunction,
     StepperRegistration,
@@ -40,257 +22,17 @@ from ._steppers import (
     builtin_stepper_registrations,
     vet_stepper_factory,
 )
-from ._structured import STOCK_TRANSFORMS
-from ._types import ServiceTypeContract
+from .._types import ServiceTypeContract
+from ._guards import _register, _validated_covariates
+from ._service_types import (
+    _bare_type,
+    _builtin_service_types,
+    _factory_type,
+    _vet_factory_signature,
+)
+from ._transform import _STOCK_TRANSFORMS, TransformRegistration, _loaded_schema
 
 _F = TypeVar("_F", bound=Callable[..., Any])
-
-_STOCK_TRANSFORMS = tuple(STOCK_TRANSFORMS)
-
-# Provenance keys the framework itself writes into every baseline artefact:
-# the binding name, the run-identity keys, and the service-type marker. A
-# covariate or configuration key under one of these names would collide
-# with the framework's own entry, so registration and parsing refuse it.
-RESERVED_COVARIATE_KEYS = frozenset({"binding", "runMode", "serviceType", "taskFile", "taskFormat"})
-
-
-def _register(
-    registry: dict[str, Any], kind: str, name: str, fn: Any, reserved: tuple[str, ...] = ()
-) -> None:
-    if not name:
-        raise ContractConfigurationError(f"a {kind} name must be non-empty")
-    if name in reserved:
-        raise ContractConfigurationError(
-            f"{kind} name {name!r} is reserved for the format's stock {kind}s"
-        )
-    if name in registry:
-        raise ContractConfigurationError(
-            f"a {kind} named {name!r} is already registered; names must be unique"
-        )
-    registry[name] = fn
-
-
-def _validated_covariates(name: str, covariates: dict[str, str] | None) -> dict[str, str]:
-    """Refuse malformed or framework-colliding covariates at registration time."""
-    if covariates is None:
-        return {}
-    for key, value in covariates.items():
-        if not isinstance(key, str) or not key:
-            raise ContractConfigurationError(
-                f"binding {name!r}: covariate keys must be non-empty strings, got {key!r}"
-            )
-        if key in RESERVED_COVARIATE_KEYS:
-            reserved = ", ".join(sorted(RESERVED_COVARIATE_KEYS))
-            raise ContractConfigurationError(
-                f"binding {name!r}: covariate key {key!r} is reserved for the framework's "
-                f"own provenance entries ({reserved}) — choose another name"
-            )
-        if not isinstance(value, str):
-            raise ContractConfigurationError(
-                f"binding {name!r}: covariate {key!r} must be a string, got "
-                f"{type(value).__name__} — format the value explicitly; identity is "
-                "compared verbatim"
-            )
-    return dict(covariates)
-
-
-def _bare_type(
-    name: str, fn: Callable[..., str], covariates: dict[str, str]
-) -> ServiceTypeContract:
-    """A bare binding as a service type: the degenerate zero-configuration case."""
-
-    def parse(service: str, raw: dict[str, Any], where: str) -> Any:
-        raise ContractConfigurationError(
-            f"service {service!r}: type {name!r} is registered with @binding and takes "
-            "no configuration — register it with @binding_factory to declare "
-            "configurable parameters"
-        )
-
-    return ServiceTypeContract(
-        name=name,
-        builtin=False,
-        addressable=True,
-        covariates=covariates,
-        parse=parse,
-        parameter_order=lambda keys: keys,
-        resolved_values=lambda _parameters: {},
-        provenance=lambda _parameters: dict(covariates),
-        invoker=lambda _parameters: fn,
-        accepts_configuration_key=lambda _key: False,
-    )
-
-
-def _vet_factory_signature(name: str, factory: Callable[..., Any]) -> None:
-    """Every factory parameter must be reachable from a configuration key."""
-    for parameter in inspect.signature(factory).parameters.values():
-        if parameter.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.VAR_POSITIONAL,
-        ):
-            raise ContractConfigurationError(
-                f"binding factory {name!r}: parameter {parameter.name!r} is not "
-                "keyword-bindable — configuration keys bind by name, so factory "
-                "parameters must be ordinary or keyword-only"
-            )
-
-
-def _factory_type(
-    name: str, factory: Callable[..., Any], covariates: dict[str, str]
-) -> ServiceTypeContract:
-    """A configurable user type: the factory's signature is its schema."""
-    signature = inspect.signature(factory)
-    parameters = signature.parameters
-    accepts_any = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
-    named = {p.name for p in parameters.values() if p.kind is not inspect.Parameter.VAR_KEYWORD}
-    required = {
-        p.name
-        for p in parameters.values()
-        if p.default is inspect.Parameter.empty and p.kind is not inspect.Parameter.VAR_KEYWORD
-    }
-
-    def accepts_key(key: str) -> bool:
-        return accepts_any or _snake(key) in named
-
-    def parse(service: str, raw: dict[str, Any], where: str) -> dict[str, Any]:
-        rendered = _rendered_signature(name, factory)
-        for key, value in raw.items():
-            key = str(key)
-            if key in RESERVED_COVARIATE_KEYS:
-                raise ContractConfigurationError(
-                    f"service {service!r}: {where}: `{key}:` collides with a provenance "
-                    "entry the framework writes itself — choose another name"
-                )
-            if key in covariates:
-                raise ContractConfigurationError(
-                    f"service {service!r}: {where}: `{key}:` is already declared as a "
-                    f"covariate on the {name!r} registration — one identity key, one "
-                    "feed; drop one of the two declarations"
-                )
-            if not isinstance(value, _SCALAR_TYPES):
-                raise ContractConfigurationError(
-                    f"service {service!r}: {where}: `{key}:` must be a scalar "
-                    f"(string, number, or boolean), got {type(value).__name__}"
-                )
-            if not accepts_key(key):
-                accepted = ", ".join(_kebab(p) for p in sorted(named)) or "(none)"
-                raise ContractConfigurationError(
-                    f"service {service!r}: {where} has unknown key `{key}:` — the type "
-                    f"{name!r} accepts: {accepted}; its factory's signature is {rendered}"
-                )
-            annotation = parameters[_snake(key)].annotation if _snake(key) in named else None
-            if annotation in _SCALAR_TYPES and not _value_fits(value, annotation):
-                raise ContractConfigurationError(
-                    f"service {service!r}: {where}: `{key}:` expects "
-                    f"{annotation.__name__}, got {type(value).__name__} ({value!r}) — "
-                    f"the factory's signature is {rendered}"
-                )
-        missing = sorted(required - {_snake(str(key)) for key in raw})
-        if missing:
-            keys = ", ".join(f"`{_kebab(m)}:`" for m in missing)
-            raise ContractConfigurationError(
-                f"service {service!r}: {where} is missing {keys} — required by the "
-                f"type {name!r}, whose factory's signature is {rendered}"
-            )
-        return {str(key): value for key, value in raw.items()}
-
-    def provenance(resolved: dict[str, Any]) -> dict[str, str]:
-        entries = {"serviceType": name}
-        for key, value in resolved.items():
-            entries[key] = value if isinstance(value, str) else json.dumps(value)
-        entries.update(covariates)
-        return entries
-
-    def invoker(resolved: dict[str, Any]) -> Callable[..., str]:
-        produced = factory(**{_snake(key): value for key, value in resolved.items()})
-        if not callable(produced):
-            raise ContractConfigurationError(
-                f"type {name!r}: the factory returned {type(produced).__name__}, not "
-                "the per-sample callable — a binding factory constructs the code that "
-                "is invoked once per sample"
-            )
-        result: Callable[..., str] = produced
-        return result
-
-    return ServiceTypeContract(
-        name=name,
-        builtin=False,
-        addressable=False,
-        covariates=covariates,
-        parse=parse,
-        parameter_order=lambda keys: keys,
-        resolved_values=lambda resolved: dict(resolved),
-        provenance=provenance,
-        invoker=invoker,
-        accepts_configuration_key=accepts_key,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class TransformRegistration:
-    """One registered transformation: the callable and its declared shape.
-
-    Attributes:
-        fn: The transformation callable.
-        output_schema: The declared JSON Schema of the transformation's
-            output, when declared — enables static ``path:`` validation
-            at load time and always-on per-trial output validation.
-        fingerprint: The canonical sha256 fingerprint of the declared
-            schema, recorded descriptively in baseline artefacts (an
-            output schema executes after the response exists and has no
-            influence on the service's behaviour, so it is never a
-            covariate); ``None`` when no schema is declared.
-    """
-
-    fn: Callable[[str], Any]
-    output_schema: dict[str, Any] | None = None
-    fingerprint: str | None = None
-
-
-def _loaded_schema(name: str, output_schema: Any) -> dict[str, Any]:
-    """Resolve the declared schema (mapping, or path to a schema file) and vet it."""
-    schema = output_schema
-    if isinstance(schema, (str, PurePath)):
-        path = Path(schema)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as error:
-            raise ContractConfigurationError(
-                f"transform {name!r}: cannot read output schema file {path}: {error}"
-            ) from error
-        try:
-            if path.suffix.lower() in (".yaml", ".yml"):
-                yaml = YAML(typ="safe", pure=True)
-                schema = yaml.load(io.StringIO(text))
-            else:
-                schema = json.loads(text)
-        except (ValueError, YAMLError) as error:
-            raise ContractConfigurationError(
-                f"transform {name!r}: output schema file {path} does not parse: {error}"
-            ) from error
-    if not isinstance(schema, dict):
-        raise ContractConfigurationError(
-            f"transform {name!r}: `output_schema` must be a mapping (the JSON Schema "
-            f"of the transformation's output) or a path to a schema file, got "
-            f"{type(schema).__name__}"
-        )
-    try:
-        Draft202012Validator.check_schema(schema)
-    except SchemaError as error:
-        raise ContractConfigurationError(
-            f"transform {name!r}: the declared output schema is not a valid JSON "
-            f"Schema: {error.message}"
-        ) from error
-    return schema
-
-
-def _builtin_service_types() -> tuple[ServiceTypeContract, ...]:
-    """The framework-shipped service types every registry starts with."""
-    # Lazy import: the language-model type lives in the services module, which
-    # sits above this one; importing it at call time keeps the module graph
-    # acyclic while still seeding every fresh registry.
-    from ._services import _language_model_type
-
-    return (_language_model_type(),)
 
 
 class Registry:
