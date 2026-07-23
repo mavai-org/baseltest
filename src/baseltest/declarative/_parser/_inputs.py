@@ -13,7 +13,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from baseltest.contract import FileInput
+from baseltest.contract import FileInput, MediaKind
 
 from ._forms import _parse_form_entry
 from ._model import Form, FormDeclaration
@@ -21,9 +21,10 @@ from ._shape import _fail, _require_mapping
 
 _INPUT_SCALARS = (str, int, float, bool)
 
-# The media kinds delivered to a bound service as a FileInput. `text` is
-# handled separately — it resolves to a decoded str, never a FileInput.
-_MEDIA_KEYS = ("file", "audio", "image", "document")
+# The media kinds delivered to a bound service as a FileInput, single-sourced
+# from MediaKind. `text` is handled separately — it resolves to a decoded
+# str, never a FileInput.
+_MEDIA_KEYS = tuple(kind.value for kind in MediaKind)
 _PART_KEYS = ("text", *_MEDIA_KEYS)
 
 
@@ -68,7 +69,7 @@ def _media_part(kind: str, value: Any, where: str, base_dir: Path | None) -> Fil
         raise _fail(f"{where}: `{kind}:` is a file path string")
     resolved, data = _resolve_and_read(value, where, base_dir)
     content_hash = hashlib.sha256(data).hexdigest()
-    return FileInput(path=resolved, kind=kind, data=data, content_hash=content_hash)
+    return FileInput(path=resolved, kind=MediaKind(kind), data=data, content_hash=content_hash)
 
 
 def _part_mapping(mapping: dict[str, Any], where: str, base_dir: Path | None) -> Any:

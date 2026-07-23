@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from baseltest import FileInput
+from baseltest.contract import MediaKind
 from baseltest.declarative import Bindings, check_contract, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._parser import load_contract
@@ -99,7 +100,7 @@ inputs:
         assert result.composite is Verdict.PASS
         delivered = seen[0]
         assert isinstance(delivered, FileInput)
-        assert delivered.kind == "audio"
+        assert delivered.kind is MediaKind.AUDIO
         assert delivered.data == b"RIFF....audio-bytes"
         assert delivered.content_hash == hashlib.sha256(b"RIFF....audio-bytes").hexdigest()
 
@@ -208,7 +209,7 @@ inputs:
 
 
 class TestFileInputIdentity:
-    def _fi(self, path: str, data: bytes, kind: str = "file") -> FileInput:
+    def _fi(self, path: str, data: bytes, kind: MediaKind = MediaKind.FILE) -> FileInput:
         return FileInput(Path(path), kind, data, hashlib.sha256(data).hexdigest())
 
     def test_content_not_path_feeds_the_fingerprint(self) -> None:
