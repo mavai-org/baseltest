@@ -26,8 +26,12 @@ _TRANSFORM_REASON_PREFIX = "transform failed"
 class Outcome(StrEnum):
     """A postcondition's three-valued status within a trial.
 
-    ``SKIPPED`` marks a postcondition left unevaluated because a view's
-    transformation failed earlier in the same trial.
+    ``SKIPPED`` marks a postcondition left unevaluated. Two causes share
+    the one status, both meaning "declared, not run here": a view's
+    transformation failed earlier in the same trial (the views cache would
+    fail every remaining check identically), or a per-input expectation did
+    not apply to this sample's input. It is deliberately *not* ``PASSED`` —
+    a check that did not run must never read as one that ran and held.
     """
 
     PASSED = "passed"
@@ -134,9 +138,13 @@ def evaluate_trial(
     """Evaluate one response (via its view cache) against one criterion.
 
     Applies every postcondition in declaration order to its named subject;
-    the criterion passes iff all hold. Every postcondition is evaluated
-    (the per-postcondition outcomes feed result projections); the trial's
-    ``reason`` is the first failure's. A :class:`TransformError` from a
+    the criterion passes iff all hold. A per-input expectation is judged
+    only on the sample driven by its own input; on any other it is recorded
+    :attr:`Outcome.SKIPPED` (declared, not applicable here) — never
+    ``PASSED``, so a projection reader cannot mistake non-evaluation for a
+    genuine pass. The remaining postconditions are evaluated (their
+    outcomes feed result projections); the trial's ``reason`` is the first
+    failure's — a skipped check contributes none. A :class:`TransformError` from a
     view's computation fails that postcondition and skips the rest — the
     views cache would fail them all identically. Any other exception
     escaping a view's transformation or a postcondition's evaluation is a
@@ -149,6 +157,16 @@ def evaluate_trial(
     first_reason: str | None = None
     postconditions = list(criterion.postconditions)
     for index, postcondition in enumerate(postconditions):
+        if (
+            postcondition.applies_to_input is not None
+            and postcondition.applies_to_input != context.index
+        ):
+            # Not applicable to this sample's input: record, do not evaluate.
+            # Skipping before subject resolution also spares the view a
+            # computation it does not need. Postcondition.evaluate keeps the
+            # same gate as defense-in-depth for any direct caller.
+            outcomes.append((postcondition.name, Outcome.SKIPPED))
+            continue
         try:
             subject = views.get(postcondition.view)
         except TransformError as failure:

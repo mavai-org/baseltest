@@ -218,6 +218,91 @@ class TestPerInputGating:
         assert not evaluate_trial(criterion, views_for("B"), at_0).passed
         assert evaluate_trial(criterion, views_for("B"), at_1).passed
 
+    def test_non_applicable_per_input_check_is_skipped_not_passed(self) -> None:
+        # A per-input expectation that does not apply to this sample's input
+        # is projected SKIPPED — "declared, not applicable here" — never
+        # PASSED. An artefact reader must be able to tell a check that ran and
+        # held from one that never ran on this sample.
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                replace(equals("A"), applies_to_input=0),
+                replace(equals("B"), applies_to_input=1),
+            ),
+        )
+        evaluation = evaluate_trial(
+            criterion, views_for("A"), EvaluationContext(index=0, input="A")
+        )
+        assert evaluation.passed
+        statuses = dict(evaluation.outcomes)
+        assert statuses["equals 'A'"] == "passed"  # applied here and held
+        assert statuses["equals 'B'"] == "skipped"  # declared, not applicable at index 0
+
+    def test_applicable_per_input_failure_is_failed_others_skipped(self) -> None:
+        # The one check that applies fails; the rest read SKIPPED, not PASSED.
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                replace(equals("A"), applies_to_input=0),
+                replace(equals("B"), applies_to_input=1),
+            ),
+        )
+        evaluation = evaluate_trial(
+            criterion, views_for("X"), EvaluationContext(index=1, input="X")
+        )
+        assert not evaluation.passed
+        statuses = dict(evaluation.outcomes)
+        assert statuses["equals 'A'"] == "skipped"  # not applicable at index 1
+        assert statuses["equals 'B'"] == "failed"  # applied here and did not hold
+
+    def test_skipped_per_input_rows_are_inert_to_every_statistic(self) -> None:
+        # The fix is display-only: switching non-applicable outcomes from
+        # PASSED to SKIPPED must move no numerator or denominator. A tally over
+        # trials dense with SKIPPED rows yields exactly the successes/trials and
+        # failure count that a conjunction over the APPLICABLE checks alone
+        # gives — the skipped rows neither pass nor fail a trial.
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                replace(equals("A"), applies_to_input=0),
+                replace(equals("B"), applies_to_input=1),
+            ),
+        )
+        tally = CriterionTally()
+        tally.record(  # index 0 expects "A": holds
+            evaluate_trial(criterion, views_for("A"), EvaluationContext(index=0, input="A"))
+        )
+        tally.record(  # index 0 expects "A": fails on "Z"
+            evaluate_trial(criterion, views_for("Z"), EvaluationContext(index=0, input="A"))
+        )
+        tally.record(  # index 1 expects "B": holds
+            evaluate_trial(criterion, views_for("B"), EvaluationContext(index=1, input="B"))
+        )
+        assert tally.trials == 3
+        assert tally.successes == 2  # skipped rows never spuriously pass a trial
+        assert sum(tally.failure_reasons.values()) == 1  # nor spuriously fail one
+
+    def test_non_applicable_check_view_is_not_resolved(self) -> None:
+        # Skipping before subject resolution spares the view a computation it
+        # does not need — and, as a corollary, a per-input check whose view
+        # would transform-fail on a non-driving sample does not surface here.
+        computed: list[str] = []
+
+        def counting_view(raw: str) -> Any:
+            computed.append(raw)
+            return raw
+
+        views = TrialViews("response", {"v": counting_view})
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                replace(satisfies("only-input-1", lambda v: True, view="v"), applies_to_input=1),
+            ),
+        )
+        evaluation = evaluate_trial(criterion, views, EvaluationContext(index=0, input="other"))
+        assert dict(evaluation.outcomes)["only-input-1"] == "skipped"
+        assert computed == []  # the view was never computed for a non-applicable check
+
 
 class TestModelValidation:
     def test_threshold_range_enforced(self) -> None:

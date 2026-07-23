@@ -240,6 +240,45 @@ class TestResultProjection:
         second = projection["sample[1]"]
         assert second["postconditions"]["valid structure"] == "failed"
 
+    def test_non_applicable_per_input_row_projects_as_skipped(self) -> None:
+        # The reader-facing end of the per-input fix: a check that did not
+        # apply to a sample reaches the artefact as "skipped", distinct from
+        # the "passed" of one that ran and held.
+        record_with_skip = RunObservation(
+            **{
+                **{
+                    f: getattr(record(), f)
+                    for f in (
+                        "contract_id",
+                        "generated_at",
+                        "factors",
+                        "samples_planned",
+                        "samples_executed",
+                        "successes",
+                        "failure_distribution",
+                        "criteria",
+                        "total_time_ms",
+                    )
+                },
+                "samples": (
+                    SampleRecord(
+                        input_index=0,
+                        postconditions=(
+                            ("matches /(?i)coffee/ (input 0)", "passed"),
+                            ("matches /(?i)cheese/ (input 1)", "skipped"),
+                        ),
+                        execution_time_ms=40,
+                        content="a coffee joke",
+                        passed=True,
+                    ),
+                ),
+            }
+        )
+        projection = parse_yaml(render_exploration(record_with_skip))["resultProjection"]
+        postconditions = projection["sample[0]"]["postconditions"]
+        assert postconditions["matches /(?i)coffee/ (input 0)"] == "passed"
+        assert postconditions["matches /(?i)cheese/ (input 1)"] == "skipped"
+
     def test_deterministic_diff_anchors_at_sample_boundaries(self) -> None:
         text = render_exploration(self._record_with_samples())
         # anchor = first 8 hex of SHA-256("{sampleIndex}:{inputIndex}") — the
