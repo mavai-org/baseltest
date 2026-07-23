@@ -102,6 +102,23 @@ class FileInput:
 
 
 @dataclass(frozen=True, slots=True)
+class MessageParts:
+    """An ordered multi-part input: text and media forming one message.
+
+    The multimodal shape -- an instruction beside an image, a question beside
+    a document. Each part is a text ``str`` or a :class:`FileInput`; part
+    **order is significant** (it is the order the model receives them) and is
+    preserved in the inputs identity, unlike the order-insensitive input list.
+    A single-part input is not wrapped -- it stays a bare ``str`` or
+    ``FileInput`` -- so this type only appears when an input genuinely mixes
+    parts. Assembling the parts into a provider message is the language-model
+    service's concern.
+    """
+
+    parts: tuple[str | FileInput, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ThresholdProvenance:
     """Where a criterion's declared threshold comes from.
 

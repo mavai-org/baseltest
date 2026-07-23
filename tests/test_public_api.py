@@ -8,6 +8,7 @@ def test_top_level_exposes_the_core_entry_points() -> None:
     assert set(baseltest.__all__) == {
         "Bindings",
         "FileInput",
+        "MessageParts",
         "__version__",
         "check_contract",
         "explore",
