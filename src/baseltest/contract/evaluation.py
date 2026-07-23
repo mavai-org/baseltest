@@ -27,7 +27,12 @@ class Outcome(StrEnum):
     """A postcondition's three-valued status within a trial.
 
     ``SKIPPED`` marks a postcondition left unevaluated because a view's
-    transformation failed earlier in the same trial.
+    transformation failed earlier in the same trial: the views cache would
+    fail every remaining check identically, so they are recorded skipped
+    rather than run. (A per-input expectation that does not apply to this
+    sample is not a member of the trial at all — see
+    :meth:`Criterion.postconditions_for` — so it is never skipped here; it
+    simply is not present.)
     """
 
     PASSED = "passed"
@@ -133,10 +138,14 @@ def evaluate_trial(
 ) -> TrialEvaluation:
     """Evaluate one response (via its view cache) against one criterion.
 
-    Applies every postcondition in declaration order to its named subject;
-    the criterion passes iff all hold. Every postcondition is evaluated
-    (the per-postcondition outcomes feed result projections); the trial's
-    ``reason`` is the first failure's. A :class:`TransformError` from a
+    The trial is judged against exactly the postconditions that apply to
+    this sample's input — :meth:`Criterion.postconditions_for` selects the
+    always-on checks plus this input's per-input expectation, and the checks
+    belonging to other inputs are not part of this trial at all. Applies
+    them in declaration order to their named subjects; the criterion passes
+    iff all hold. Every selected postcondition is evaluated (its outcome
+    feeds result projections); the trial's ``reason`` is the first failure's.
+    A :class:`TransformError` from a
     view's computation fails that postcondition and skips the rest — the
     views cache would fail them all identically. Any other exception
     escaping a view's transformation or a postcondition's evaluation is a
@@ -147,7 +156,7 @@ def evaluate_trial(
     """
     outcomes: list[tuple[str, Outcome]] = []
     first_reason: str | None = None
-    postconditions = list(criterion.postconditions)
+    postconditions = list(criterion.postconditions_for(context.index))
     for index, postcondition in enumerate(postconditions):
         try:
             subject = views.get(postcondition.view)
@@ -166,7 +175,7 @@ def evaluate_trial(
                 original=defect,
             ) from defect
         try:
-            result = postcondition.evaluate(subject, context.index)
+            result = postcondition.evaluate(subject)
         except Exception as defect:
             raise TrialDefectError(
                 view=postcondition.view,
