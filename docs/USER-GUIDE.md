@@ -60,7 +60,7 @@ Three keys are **reserved** for future format versions and refused with a pointe
 
 ### Inputs
 
-`inputs:` is a non-empty list. Each entry is one of three shapes:
+`inputs:` is a non-empty list. Each entry is a scalar, a flat list of scalars, an `{input, expected}` entry, or a file-sourced part ([below](#file-sourced-and-multimodal-inputs)):
 
 ```yaml
 inputs:
@@ -77,6 +77,34 @@ inputs:
 Input values are JSON-expressible scalars (string, number, boolean); a list must be flat and non-empty — interpreting a value (a path, an identifier) is the service's business, not the format's. The run cycles through the inputs round-robin, one input per sample.
 
 `expected:` takes a single form mapping or a non-empty list of them, using exactly the postcondition-form vocabulary below (except `parses:`, which is criterion-level). Per-input expectations require the contract to declare **exactly one** criteria entry — with several, their owner would be ambiguous. A failing per-input expectation reports its reason prefixed with the input it judged.
+
+#### File-sourced and multimodal inputs
+
+An input part can draw its content from a file beside the contract, and an input can carry more than text — an image or document alongside a prompt. A part is a single-key mapping:
+
+```yaml
+inputs:
+  # external text: the file is read and delivered as the decoded string
+  - input:
+      - text: { file: ./briefs/house-style.md }
+    expected: { contains: "terse" }
+
+  # a media file handed to a bound service (e.g. audio in, transcript out)
+  - { audio: ./corpus/utterance-001.wav }
+
+  # a multimodal message: text and image, in one ordered message
+  - - text: "What colour dominates this image?"
+    - image: ./images/swatch.png
+```
+
+The part keys are `text:` (a string, or `{ file: <path> }` for external text) and the media kinds `image:`, `document:`, `audio:`, and `file:` (each a file path). Paths resolve **relative to the contract file** and are read once at load time — a missing or unreadable file is refused before any sample runs (`basel check` catches it). A `.txt`/`.md`/`.xml`/`.json` file is delivered as *text*, never parsed into structure.
+
+A single part stays a bare value (a `text:` part becomes its string; a media part becomes the file); two or more parts form one ordered multimodal message, and **part order is significant**. **Content, not path, defines the input**: change a file's bytes behind a stable path and it is a different input — the baseline's inputs identity moves, so a stale baseline is refused rather than silently reused over other bytes.
+
+How the content reaches the service depends on the service:
+
+- **A bound service** (`@binding`) receives a `baseltest.FileInput` — the resolved path, kind, bytes, and content hash — and opens it itself; any file kind is admissible, and the framework never interprets the bytes. This is the speech-to-text shape.
+- **A `language-model` service** has the media base64-encoded into the provider's content block and sent as part of the message — but only for a modality the model declares it accepts (see [the `language-model` type](#the-language-model-type)).
 
 ### Criteria
 
@@ -292,10 +320,13 @@ The built-in type for a model given a job. Its `configuration:` keys:
 | `thinking` | no | `adaptive` or `none` (default `none`). `adaptive` lets the model choose its own deliberation depth per response — it changes the response distribution, so it is a first-class identity factor: a baseline measured under one setting refuses a test under the other. |
 | `prompt-caching` | no | `true` or `false` (default `false`). Asks the provider to cache the compiled system prompt. Correctness-invariant by construction (a cache hit reuses computation over an identical prefix); the effect is confined to latency and cost. No warmup machinery applies: the first, cache-writing invocation simply lands as the slowest recorded point, and a cache-TTL expiry mid-run mixes cached and uncached samples in one latency population — absorbed descriptively, so a bimodal p99 under caching is the cache's signature, not service degradation. |
 | `response-schema` | no | A JSON Schema mapping the model is instructed to satisfy, passed through the provider's structured-output mechanism. Structured-output rules are strict: objects need `required:` and `additionalProperties: false`. Written in YAML style or pasted as JSON verbatim — both parse identically. |
+| `capabilities` | no | An allow-list of capabilities the endpoint honours that the protocol cannot reveal — and the media input modalities to send: `image-input`, `document-input`, `audio-input`. A media input part (see [Inputs](#inputs)) is encoded and sent **only** when its modality is listed here and the provider can carry it; an undeclared or uncarriable modality is refused at load, never dropped silently. |
 
 Every key is a **factor**: fixed per configuration, part of the drift-checked identity, swept only across grid points — never varied within a run.
 
 **Provider support.** Not every provider supports every key. `response-schema` is honoured by `openai`, `anthropic`, `mistral`, `ollama`, and the generic adapter, and refused by `apertus` (its hosted endpoint does not assert support). `prompt-caching` and `thinking` are currently realised by `anthropic` only; the declared-off values (`prompt-caching: false`, `thinking: none`) are honoured trivially by every provider. The rule when a provider cannot honour an *active* key is uniform: under **measure** and **test**, baseltest refuses up front rather than quietly dropping it — dropping it would change what is being measured; under **explore**, the affected grid point runs without the key, announced by a console note, so mixed-provider grids still run. One provider-specific constraint: on `anthropic`, `thinking: adaptive` cannot be combined with an explicit `temperature:` or `top-p:` — the API constrains sampling parameters while thinking, and baseltest refuses the combination at load time.
+
+**Multimodal input.** A `language-model` service takes media input parts — an `image:`, `document:`, or `audio:` beside the prompt (see [Inputs](#inputs)) — when the matching modality is declared in `capabilities:`. The framework base64-encodes the media into the provider's own content block (OpenAI's `image_url`, Anthropic's base64 source block, Ollama's images array); a text-only request is unchanged. Providers differ in what they carry: `openai` and the generic adapter carry image, document, and audio; `anthropic` carries image and document; `mistral` and `ollama` carry image; `apertus` is text-only. The gate follows the same discipline as the other capability-gated keys — declaring a modality a provider cannot carry, or sending media without declaring it, is refused before any sample runs, never dropped.
 
 **Credentials and endpoints** live in the environment only — never in either file:
 
@@ -376,7 +407,7 @@ def charge(card_token: str) -> str:
     return gateway.charge(card_token).status_line()
 ```
 
-Registers the code that invokes a service, under the name contract files reference via `service:`. The callable receives the contract's per-sample input values — a scalar input arrives as the single argument; a list input is splatted positionally, one value per parameter (`basel check` validates every input against the signature) — and returns **one response string**. It must be safe to invoke once per sample.
+Registers the code that invokes a service, under the name contract files reference via `service:`. The callable receives the contract's per-sample input values — a scalar input arrives as the single argument; a list input is splatted positionally, one value per parameter; a media or file input part (see [Inputs](#inputs)) arrives as a `baseltest.FileInput` with `.path`, `.kind`, `.data`, and `.content_hash` (`basel check` validates every input against the signature) — and returns **one response string**. It must be safe to invoke once per sample.
 
 The failure semantics are load-bearing:
 
