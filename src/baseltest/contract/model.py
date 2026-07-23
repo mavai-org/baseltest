@@ -134,6 +134,24 @@ class Criterion:
         """Whether this criterion declares a bar and therefore receives a verdict."""
         return self.threshold is not None
 
+    def postconditions_for(self, input_index: int) -> tuple[Postcondition, ...]:
+        """The postconditions a sample driven by this input is judged against.
+
+        A criterion pools every input into one Bernoulli stream, so its
+        ``postconditions`` tuple carries the checks for *all* inputs. A single
+        sample is driven by one input and is judged against exactly the checks
+        that apply to it — the always-on ones (``applies_to_input is None``)
+        and the per-input expectation tagged with this input's index, in
+        declaration order. The checks belonging to other inputs are not part
+        of this trial at all: they neither run nor appear in its projection.
+        """
+        return tuple(
+            postcondition
+            for postcondition in self.postconditions
+            if postcondition.applies_to_input is None
+            or postcondition.applies_to_input == input_index
+        )
+
 
 # The supported percentile levels, in tail order. The latency dimension's
 # vocabulary throughout the framework: bounds are declared, evaluated, and

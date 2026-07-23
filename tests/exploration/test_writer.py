@@ -240,6 +240,49 @@ class TestResultProjection:
         second = projection["sample[1]"]
         assert second["postconditions"]["valid structure"] == "failed"
 
+    def test_skipped_status_projects_verbatim(self) -> None:
+        # A postcondition left unevaluated after an earlier view's transform
+        # failed carries the SKIPPED status; the projection must render it
+        # verbatim, distinct from the "passed" of a check that ran and held.
+        # (Per-input non-applicability is resolved before the trial by
+        # Criterion.postconditions_for, so those checks are simply absent from
+        # a sample's projection rather than shown skipped — see the engine
+        # tests in test_evaluation.py.)
+        record_with_skip = RunObservation(
+            **{
+                **{
+                    f: getattr(record(), f)
+                    for f in (
+                        "contract_id",
+                        "generated_at",
+                        "factors",
+                        "samples_planned",
+                        "samples_executed",
+                        "successes",
+                        "failure_distribution",
+                        "criteria",
+                        "total_time_ms",
+                    )
+                },
+                "samples": (
+                    SampleRecord(
+                        input_index=0,
+                        postconditions=(
+                            ("valid json", "failed"),
+                            ("has a status field", "skipped"),
+                        ),
+                        execution_time_ms=40,
+                        content="not json {",
+                        passed=False,
+                    ),
+                ),
+            }
+        )
+        projection = parse_yaml(render_exploration(record_with_skip))["resultProjection"]
+        postconditions = projection["sample[0]"]["postconditions"]
+        assert postconditions["valid json"] == "failed"
+        assert postconditions["has a status field"] == "skipped"
+
     def test_deterministic_diff_anchors_at_sample_boundaries(self) -> None:
         text = render_exploration(self._record_with_samples())
         # anchor = first 8 hex of SHA-256("{sampleIndex}:{inputIndex}") — the

@@ -55,9 +55,12 @@ class Postcondition:
         view: The name of the view the check judges; ``"raw"`` (the
             untransformed response) by default.
         applies_to_input: For a per-input expectation, the index of the
-            input this check judges; the trial's own input index gates it,
-            so on any other input the check trivially passes. ``None`` (the
-            default) means the check applies to every input.
+            input this check judges — the selection tag a criterion reads to
+            decide which of its checks a sample driven by that input is
+            judged against (:meth:`Criterion.postconditions_for`). A check
+            reaches ``evaluate`` only on the samples it applies to; it is
+            never asked to judge a sample it does not belong to. ``None``
+            (the default) means the check applies to every input.
     """
 
     name: str
@@ -65,14 +68,14 @@ class Postcondition:
     view: str = "raw"
     applies_to_input: int | None = None
 
-    def evaluate(self, subject: Any, input_index: int) -> PostconditionResult:
-        """Apply the check to the resolved subject, gated on the driving input.
+    def evaluate(self, subject: Any) -> PostconditionResult:
+        """Apply the check to the resolved subject.
 
-        A per-input expectation (``applies_to_input`` set) is judged only on
-        its own input; on any other it passes without running the check.
+        The caller selects which checks a sample is judged against before
+        evaluation (a per-input expectation reaches here only on the samples
+        it applies to), so this simply runs the check — there is no
+        applicability gate to re-litigate.
         """
-        if self.applies_to_input is not None and self.applies_to_input != input_index:
-            return PostconditionResult.ok()
         return self.check(subject)
 
 
