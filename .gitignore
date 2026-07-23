@@ -67,3 +67,4 @@ MAXIMS.md
 # Requirements / design / planning material for baseltest lives in
 # mavai-orchestrator, not in this repository.
 /plan/
+_baseltest/
