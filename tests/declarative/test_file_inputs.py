@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from baseltest import FileInput
+from baseltest import FileInput, MessageParts
 from baseltest.contract import MediaKind
 from baseltest.declarative import Bindings, check_contract, run
 from baseltest.declarative._errors import ContractConfigurationError
@@ -181,30 +181,30 @@ inputs:
             run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
         message = str(refusal.value)
         assert "typed `str`" in message
-        assert "multimodal gateway" in message
+        assert "cannot receive file-sourced or multi-part content" in message
 
-    def test_multi_part_input_is_reserved_for_a_later_phase(self, tmp_path: Path) -> None:
-        (tmp_path / "clip.wav").write_bytes(b"bytes")
+    def test_multi_part_input_to_a_text_binding_refuses(self, tmp_path: Path) -> None:
+        (tmp_path / "clip.png").write_bytes(b"img")
         bindings = Bindings()
 
-        @bindings.binding("stt")
-        def stt(audio: FileInput) -> str:
-            return "ok"
+        @bindings.binding("texty")
+        def texty(prompt: str) -> str:  # a text service handed a multi-part message
+            return prompt
 
         contract = """
 format: mavai-contract/1
-contract: stt-hears
-service: stt
+contract: texty-hears
+service: texty
 criteria:
   - threshold: 0.5
-    contains: "ok"
+    contains: "x"
 inputs:
   - input:
-      - text: "listen to this:"
-      - audio: ./clip.wav
-    expected: { contains: "ok" }
+      - text: "look at this:"
+      - image: ./clip.png
+    expected: { contains: "x" }
 """
-        with pytest.raises(ContractConfigurationError, match="reserved for a later phase"):
+        with pytest.raises(ContractConfigurationError, match="multi-part"):
             run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
 
 
@@ -245,3 +245,60 @@ inputs:
         three = load_contract(write_contract(tmp_path, template.format(clip="three.wav"), "c.yaml"))
         assert inputs_fingerprint(one.inputs) == inputs_fingerprint(two.inputs)
         assert inputs_fingerprint(one.inputs) != inputs_fingerprint(three.inputs)
+
+
+class TestMultiPartInputs:
+    def _load(self, tmp_path: Path, body: str, name: str = "contract.yaml") -> object:
+        contract = (
+            "format: mavai-contract/1\n"
+            "contract: vision\n"
+            "service: v\n"
+            "criteria:\n"
+            "  - threshold: 0.5\n"
+            '    contains: "x"\n'
+            "inputs:\n" + body
+        )
+        return load_contract(write_contract(tmp_path, contract, name))
+
+    def test_multi_part_input_parses_to_ordered_message_parts(self, tmp_path: Path) -> None:
+        (tmp_path / "a.png").write_bytes(b"img-a")
+        decl = self._load(
+            tmp_path,
+            '  - - text: "what is in this image?"\n    - image: ./a.png\n',
+        )
+        (value,) = decl.inputs  # type: ignore[attr-defined]
+        assert isinstance(value, MessageParts)
+        assert value.parts[0] == "what is in this image?"
+        assert isinstance(value.parts[1], FileInput)
+        assert value.parts[1].kind is MediaKind.IMAGE
+
+    def test_a_single_part_list_is_unwrapped_not_a_message(self, tmp_path: Path) -> None:
+        (tmp_path / "a.png").write_bytes(b"img")
+        decl = self._load(tmp_path, "  - [ { image: ./a.png } ]\n")
+        (value,) = decl.inputs  # type: ignore[attr-defined]
+        assert isinstance(value, FileInput)  # bare part, exactly as in phase 1
+
+    def test_part_order_is_significant_to_identity(self, tmp_path: Path) -> None:
+        (tmp_path / "a.png").write_bytes(b"img")
+        text_first = self._load(
+            tmp_path, '  - - text: "caption"\n    - image: ./a.png\n', "tf.yaml"
+        )
+        image_first = self._load(
+            tmp_path, '  - - image: ./a.png\n    - text: "caption"\n', "if.yaml"
+        )
+        assert inputs_fingerprint(text_first.inputs) != inputs_fingerprint(  # type: ignore[attr-defined]
+            image_first.inputs  # type: ignore[attr-defined]
+        )
+
+    def test_multi_part_identity_moves_with_text_and_with_media(self, tmp_path: Path) -> None:
+        (tmp_path / "a.png").write_bytes(b"img-a")
+        (tmp_path / "b.png").write_bytes(b"img-b")
+
+        def fp(caption: str, clip: str, name: str) -> str:
+            decl = self._load(tmp_path, f'  - - text: "{caption}"\n    - image: ./{clip}\n', name)
+            return inputs_fingerprint(decl.inputs)  # type: ignore[attr-defined]
+
+        base = fp("hello", "a.png", "1.yaml")
+        assert base == fp("hello", "a.png", "2.yaml")  # deterministic
+        assert base != fp("HELLO", "a.png", "3.yaml")  # text content matters
+        assert base != fp("hello", "b.png", "4.yaml")  # media content matters

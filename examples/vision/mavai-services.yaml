@@ -1,0 +1,13 @@
+# A vision-capable language model. `image-input` is the per-modality
+# capability that lets the framework encode an `image:` input part into the
+# provider's content block — without it, an image input is refused before any
+# sample runs (an undeclared capability is never sent silently).
+format: mavai-services/1
+services:
+  vision:
+    type: language-model
+    configuration:
+      system-prompt: "You are a precise vision assistant. Answer concisely."
+      model: gpt-4o
+      provider: openai
+      capabilities: [image-input]

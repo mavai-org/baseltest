@@ -13,7 +13,7 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from baseltest.contract import FileInput, MediaKind
+from baseltest.contract import FileInput, MediaKind, MessageParts
 
 from ._forms import _parse_form_entry
 from ._model import Form, FormDeclaration
@@ -102,9 +102,9 @@ def _normalised_input(entry: Any, where: str, base_dir: Path | None) -> Any:
       ``{text: {file: …}}``);
     - a flat list of *scalars* — a tuple splatted across the binding's
       positional parameters (unchanged);
-    - a list of *parts* (single-key mappings) — the ordered-parts model; in
-      this phase it must hold exactly one part, a multi-part input being
-      reserved for the multimodal-gateway phase.
+    - a list of *parts* (single-key mappings) — the ordered-parts model. A
+      single part is unwrapped to its bare value; several parts become a
+      :class:`MessageParts`, an ordered multimodal message.
     """
     if isinstance(entry, _INPUT_SCALARS):
         return entry
@@ -116,12 +116,8 @@ def _normalised_input(entry: Any, where: str, base_dir: Path | None) -> Any:
         if all(isinstance(item, _INPUT_SCALARS) for item in entry):
             return tuple(entry)
         if all(isinstance(item, dict) for item in entry):
-            if len(entry) != 1:
-                raise _fail(
-                    f"{where}: a multi-part input (more than one part in one message) "
-                    "is reserved for a later phase; give a single part"
-                )
-            return _part_mapping(entry[0], where, base_dir)
+            parts = tuple(_part_mapping(item, where, base_dir) for item in entry)
+            return parts[0] if len(parts) == 1 else MessageParts(parts)
         raise _fail(
             f"{where}: a list-valued input is a flat list of scalars (splatted across "
             "the binding's parameters) or a list of parts (text/media), not a mix"

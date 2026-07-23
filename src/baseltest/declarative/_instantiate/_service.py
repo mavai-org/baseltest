@@ -9,11 +9,12 @@ import inspect
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from baseltest.contract import FileInput
+from baseltest.contract import FileInput, MessageParts
 
 from .._errors import ContractConfigurationError
+from .._providers import require_media, resolve_provider
 from .._registry import Registry
-from .._services import ServiceDefinition
+from .._services import LanguageModelParameters, ServiceDefinition
 from .._signatures import value_fits as _value_fits
 
 
@@ -57,16 +58,18 @@ def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]
             if parameter.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD:
                 continue
             annotation = parameter.annotation
-            if annotation is str and isinstance(argument, FileInput):
+            if annotation is str and isinstance(argument, FileInput | MessageParts):
+                supplied = (
+                    f"file content ({argument.kind}: {argument.path.name})"
+                    if isinstance(argument, FileInput)
+                    else "a multi-part message"
+                )
                 raise ContractConfigurationError(
-                    f"service {service!r}: input {index} supplies file content "
-                    f"({argument.kind}: {argument.path.name}) to parameter {name!r}, "
-                    "which is typed `str`. A text parameter cannot receive a "
-                    "file-sourced part. If this is a language model, sending media to "
-                    "the model is not supported in this phase (it arrives with the "
-                    "multimodal gateway); if it is your own binding, annotate "
-                    f"{name!r} to receive the file (`baseltest.FileInput`) or use a "
-                    f"text input. The binding's signature is {rendered}"
+                    f"service {service!r}: input {index} supplies {supplied} to "
+                    f"parameter {name!r}, which is typed `str`. A text parameter "
+                    "cannot receive file-sourced or multi-part content — annotate the "
+                    f"parameter to receive it (`baseltest.FileInput`), or give a text "
+                    f"input. The binding's signature is {rendered}"
                 )
             if annotation in (str, int, float, bool) and not _value_fits(argument, annotation):
                 raise ContractConfigurationError(
@@ -74,6 +77,22 @@ def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]
                     f"{annotation.__name__}, got {type(argument).__name__} "
                     f"({argument!r}) — the binding's signature is {rendered}"
                 )
+
+
+def _validate_media(config: Any, inputs: Sequence[Any]) -> None:
+    """Refuse, before sampling, a media input a language-model service cannot carry.
+
+    Only a language-model configuration constrains media: a bound service
+    opens any file itself (deliver-to-binding), so it accepts every kind and
+    needs no check here. For an LLM configuration — the one under test, or an
+    explore/optimize point's own — the provider is resolved and each input's
+    media parts are put to the capability gate.
+    """
+    if not isinstance(config, LanguageModelParameters):
+        return
+    provider = resolve_provider(config.provider)
+    for value in inputs:
+        require_media(provider, config.capabilities, value)
 
 
 def _resolve_service(

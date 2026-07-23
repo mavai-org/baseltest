@@ -249,7 +249,7 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
     }
 
 
-def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[str], str]:
+def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[Any], str]:
     """Build the invocation callable for a language-model service.
 
     Delegates to the named provider adapter (or the generic

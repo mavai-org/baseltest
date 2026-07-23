@@ -5,7 +5,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from baseltest.contract import FileInput
+from baseltest.contract import FileInput, MessageParts
 
 
 def _canonical_entry(entry: Any) -> Any:
@@ -13,11 +13,15 @@ def _canonical_entry(entry: Any) -> Any:
 
     A file-sourced input contributes its **content** — via its content
     hash and kind — never its path, so a file that drifts behind a stable
-    path yields a different fingerprint. A text part is already a plain
-    string and needs no wrapping.
+    path yields a different fingerprint. A multi-part input canonicalises
+    each part in order (message order is significant, unlike the outer
+    input list). A text part is already a plain string and needs no
+    wrapping.
     """
     if isinstance(entry, FileInput):
         return {"file": entry.identity()}
+    if isinstance(entry, MessageParts):
+        return {"parts": [_canonical_entry(part) for part in entry.parts]}
     if isinstance(entry, tuple):
         return list(entry)
     return entry

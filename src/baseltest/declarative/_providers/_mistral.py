@@ -1,5 +1,7 @@
 """Mistral: OpenAI-compatible chat completions at api.mistral.ai."""
 
+from baseltest.contract import MediaKind
+
 from ._protocol import (
     Provider,
     bearer_headers,
@@ -20,4 +22,7 @@ PROVIDER = Provider(
     body=openai_compatible_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
+    # Pixtral vision plus document understanding; no audio-to-chat form
+    # (Mistral's audio is transcription, a deliver-to-binding path).
+    media_kinds=frozenset({MediaKind.IMAGE, MediaKind.DOCUMENT}),
 )
