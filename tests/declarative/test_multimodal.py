@@ -132,6 +132,16 @@ inputs:
 
 
 class TestPreflightIntegration:
+    @pytest.fixture(autouse=True)
+    def _credential_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # These tests validate the offline media gate, which sits behind a
+        # credential-*presence* check (a keyless service is refused before the
+        # gate is reached). A dummy key lets them reach the gate; no live call
+        # is made (`check_contract` runs zero samples), so no real key is
+        # needed. A test that genuinely calls a live API skips when the key is
+        # absent — not the case here.
+        monkeypatch.setenv("MAVAI_LLM_API_KEY", "not-a-real-key")
+
     def test_media_without_the_capability_is_refused_before_sampling(self, tmp_path: Path) -> None:
         services = """
 format: mavai-services/1
