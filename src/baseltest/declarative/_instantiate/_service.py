@@ -79,7 +79,7 @@ def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]
                 )
 
 
-def validate_media(config: Any, inputs: Sequence[Any]) -> None:
+def _validate_media(config: Any, inputs: Sequence[Any]) -> None:
     """Refuse, before sampling, a media input a language-model service cannot carry.
 
     Only a language-model configuration constrains media: a bound service

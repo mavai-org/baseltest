@@ -19,7 +19,7 @@ from .._parser import ContractDeclaration
 from .._registry import Registry
 from .._services import ServiceDefinition, configuration_values, factor_values
 from ._postconditions import _build_criterion, _expected_postconditions
-from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs, validate_media
+from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs, _validate_media
 from ._sizing_policy import DEFAULT_SAMPLES, RunSizing
 from ._views import _build_views
 
@@ -110,7 +110,7 @@ def instantiate_explore(
             notes.append(note)
         per_sample = definition.type.invoker(parameters)
         _validate_inputs(declaration.service, per_sample, declaration.inputs)
-        validate_media(parameters, declaration.inputs)
+        _validate_media(parameters, declaration.inputs)
         contract = ServiceContract(
             contract_id=declaration.contract,
             invoke=_splat_tuple_invoke(per_sample),

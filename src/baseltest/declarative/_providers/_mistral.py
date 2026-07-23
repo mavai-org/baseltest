@@ -22,5 +22,7 @@ PROVIDER = Provider(
     body=openai_compatible_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
-    media_kinds=frozenset({MediaKind.IMAGE}),
+    # Pixtral vision plus document understanding; no audio-to-chat form
+    # (Mistral's audio is transcription, a deliver-to-binding path).
+    media_kinds=frozenset({MediaKind.IMAGE, MediaKind.DOCUMENT}),
 )

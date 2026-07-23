@@ -21,7 +21,7 @@ from .._services import ServiceDefinition
 from ._baseline import BaselineContext, _empirical_criteria, _resolve_matching_baseline
 from ._latency import _latency_bar
 from ._postconditions import _build_criterion, _expected_postconditions
-from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs, validate_media
+from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs, _validate_media
 from ._sizing_policy import RunSizing, _resolve_run_size
 from ._views import _build_views
 
@@ -84,7 +84,7 @@ def instantiate(
     resolved, service_provenance = _resolve_service(declaration.service, services or {}, registry)
     _validate_inputs(declaration.service, resolved, declaration.inputs)
     definition = (services or {}).get(declaration.service)
-    validate_media(definition.configuration if definition else None, declaration.inputs)
+    _validate_media(definition.configuration if definition else None, declaration.inputs)
     response_schema = (
         getattr(definition.configuration, "response_schema", None) if definition else None
     )
