@@ -15,13 +15,22 @@ from dataclasses import dataclass
 from dataclasses import replace as _replace
 from typing import Any
 
-from .._providers import ENV_MODEL, build_invoker, resolve_provider
+from .._providers import (
+    CAPABILITY_NAMES,
+    ENV_MODEL,
+    Provider,
+    build_invoker,
+    declarable_capabilities,
+    honours,
+    resolve_provider,
+)
 from .._types import ServiceTypeContract
 from ._model import _fail
 
 _CONFIGURATION_KEYS = {
     "system-prompt",
     "provider",
+    "capabilities",
     "model",
     "temperature",
     "top-p",
@@ -35,6 +44,7 @@ _CONFIGURATION_KEYS = {
 _PARAMETER_ORDER = (
     "system-prompt",
     "provider",
+    "capabilities",
     "model",
     "temperature",
     "top-p",
@@ -65,6 +75,7 @@ class LanguageModelParameters:
 
     system_prompt: str
     provider: str | None = None
+    capabilities: frozenset[str] | None = None
     model: str | None = None
     temperature: float | None = None
     top_p: float | None = None
@@ -89,8 +100,10 @@ def _validate_configuration(
             "prompt there is a model, but no service to test"
         )
     provider_name = configuration.get("provider")
-    if provider_name is not None:
-        resolve_provider(str(provider_name))  # unknown names refused at load
+    # Resolve once (unknown names refused at load; GENERIC when omitted) so the
+    # capability allowance can be checked against what the adapter can encode.
+    provider = resolve_provider(str(provider_name) if provider_name is not None else None)
+    capabilities = _parse_capabilities(name, configuration, provider)
     top_p = configuration.get("top-p")
     if top_p is not None and (
         isinstance(top_p, bool) or not isinstance(top_p, int | float) or not 0 < top_p <= 1
@@ -135,6 +148,7 @@ def _validate_configuration(
     return LanguageModelParameters(
         system_prompt=system_prompt,
         provider=provider_name,
+        capabilities=capabilities,
         model=configuration.get("model"),
         temperature=configuration.get("temperature"),
         top_p=top_p,
@@ -145,6 +159,48 @@ def _validate_configuration(
     )
 
 
+def _parse_capabilities(
+    name: str, configuration: dict[str, Any], provider: Provider
+) -> frozenset[str] | None:
+    """The author-declared capability allowance, validated against the adapter.
+
+    A gateway adapter cannot infer from its OpenAI-compatible protocol which
+    capabilities the aliased upstream honours, so the author declares them.
+    The list is checked twice, both at load with zero samples: every name
+    against the vocabulary, then the set against what the resolved adapter can
+    actually encode. Declaring a capability the adapter has no wire form for —
+    prompt caching or thinking on the generic body, structured output on the
+    endpoint apertus deliberately declines — is a refusal, never a silent
+    no-op. Declaring one the adapter already supports statically is a redundant
+    no-op, accepted.
+    """
+    raw = configuration.get("capabilities")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise _fail(
+            f"service {name!r}: `capabilities:` must be a list of capability names "
+            f"(any of: {', '.join(CAPABILITY_NAMES)})"
+        )
+    unknown = [item for item in raw if item not in CAPABILITY_NAMES]
+    if unknown:
+        raise _fail(
+            f"service {name!r}: unknown capability {unknown} — "
+            f"supported names: {', '.join(CAPABILITY_NAMES)}"
+        )
+    declared = frozenset(raw)
+    unencodable = declared - declarable_capabilities(provider)
+    if unencodable:
+        keys = ", ".join(sorted(unencodable))
+        raise _fail(
+            f"service {name!r}: provider {provider.name!r} cannot encode "
+            f"`capabilities: [{keys}]` — its request body has no wire form for "
+            "that. Declare a capability only on an adapter that can send it "
+            "(a gateway adapter such as `litellm`), or remove it."
+        )
+    return declared
+
+
 def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     """The provenance entries a language-model-resolved run must carry."""
     entries = {
@@ -153,6 +209,12 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
         "systemPrompt": parameters.system_prompt,
         "model": parameters.model or os.environ.get(ENV_MODEL, ""),
     }
+    # The capability allowance is part of identity: widening what a service was
+    # permitted to send (a new cache marker, a reasoning parameter) changes what
+    # was measured, so a later test refuses against a baseline taken without it.
+    # Recorded sorted for a deterministic fingerprint.
+    if parameters.capabilities:
+        entries["capabilities"] = ",".join(sorted(parameters.capabilities))
     if parameters.temperature is not None:
         entries["temperature"] = str(parameters.temperature)
     if parameters.top_p is not None:
@@ -176,6 +238,7 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
     return {
         "system-prompt": parameters.system_prompt,
         "provider": parameters.provider,
+        "capabilities": sorted(parameters.capabilities) if parameters.capabilities else None,
         "model": parameters.model or os.environ.get(ENV_MODEL) or None,
         "temperature": parameters.temperature,
         "top-p": parameters.top_p,
@@ -206,8 +269,11 @@ def _language_model_explore_point(
     the configuration that actually runs — and its artefact — carries only
     what its provider honoured."""
     provider = resolve_provider(parameters.provider)
+    capabilities = parameters.capabilities
     notes: list[str] = []
-    if parameters.response_schema is not None and not provider.supports_response_schema:
+    if parameters.response_schema is not None and not honours(
+        provider, capabilities, "response-schema"
+    ):
         parameters = _replace(parameters, response_schema=None)
         notes.append(
             f"provider {parameters.provider!r} has no structured-output "
@@ -215,14 +281,14 @@ def _language_model_explore_point(
             "this configuration; carry the output shape in the system "
             "prompt if the comparison should stay fair"
         )
-    if parameters.prompt_caching and not provider.supports_prompt_caching:
+    if parameters.prompt_caching and not honours(provider, capabilities, "prompt-caching"):
         parameters = _replace(parameters, prompt_caching=None)
         notes.append(
             f"provider {parameters.provider!r} has no prompt-caching support "
             "in this reader — `prompt-caching:` is not sent for this "
             "configuration; its latency is measured uncached"
         )
-    if parameters.thinking == "adaptive" and not provider.supports_thinking:
+    if parameters.thinking == "adaptive" and not honours(provider, capabilities, "thinking"):
         parameters = _replace(parameters, thinking=None)
         notes.append(
             f"provider {parameters.provider!r} has no thinking support in "

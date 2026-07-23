@@ -27,24 +27,28 @@ from typing import TYPE_CHECKING
 from baseltest.contract import BaseltestError, ServiceDeliveryError
 
 from .._errors import ContractConfigurationError
-from . import _anthropic, _apertus, _mistral, _ollama, _openai
+from . import _anthropic, _apertus, _litellm, _mistral, _ollama, _openai
 from ._protocol import (
+    CAPABILITY_NAMES,
     ENV_API_KEY,
     ENV_ENDPOINT,
     ENV_MODEL,
     GENERIC,
     Provider,
+    declarable_capabilities,
+    honours,
 )
 
 if TYPE_CHECKING:
     from .._services import LanguageModelParameters
 
-_VENDOR_MODULES = (_openai, _anthropic, _ollama, _mistral, _apertus)
+_VENDOR_MODULES = (_openai, _anthropic, _ollama, _mistral, _apertus, _litellm)
 PROVIDERS: dict[str, Provider] = {
     module.PROVIDER.name: module.PROVIDER for module in _VENDOR_MODULES
 }
 
 __all__ = [
+    "CAPABILITY_NAMES",
     "ENV_API_KEY",
     "ENV_ENDPOINT",
     "ENV_MODEL",
@@ -52,6 +56,8 @@ __all__ = [
     "Provider",
     "ProviderResponseError",
     "build_invoker",
+    "declarable_capabilities",
+    "honours",
     "resolve_provider",
 ]
 
@@ -111,7 +117,7 @@ def _resolve_endpoint(provider: Provider) -> str:
     endpoint = os.environ.get(ENV_ENDPOINT) or provider.default_endpoint
     if not endpoint:
         raise ContractConfigurationError(
-            f"a language-model service without a named provider needs the "
+            f"provider {provider.name!r} has no default endpoint — set the "
             f"{ENV_ENDPOINT} environment variable "
             "(an OpenAI-compatible chat-completions endpoint)"
         )
@@ -122,26 +128,32 @@ def build_invoker(
     provider: Provider, parameters: "LanguageModelParameters"
 ) -> Callable[[str], str]:
     """The invocation callable: one plain request per call, no retries."""
-    if parameters.response_schema is not None and not provider.supports_response_schema:
+    capabilities = parameters.capabilities
+    if parameters.response_schema is not None and not honours(
+        provider, capabilities, "response-schema"
+    ):
         raise ContractConfigurationError(
             f"provider {provider.name!r} has no structured-output support in this "
             "reader: a declared `response-schema:` cannot be honoured, and silently "
-            "dropping it would change what is being measured. Remove the schema or "
-            "choose a provider that supports it."
+            "dropping it would change what is being measured. Remove the schema, "
+            "declare the capability if the endpoint honours it, or choose a "
+            "provider that supports it."
         )
-    if parameters.prompt_caching and not provider.supports_prompt_caching:
+    if parameters.prompt_caching and not honours(provider, capabilities, "prompt-caching"):
         raise ContractConfigurationError(
             f"provider {provider.name!r} has no prompt-caching support in this "
             "reader: `prompt-caching: true` cannot be honoured, and silently "
-            "dropping it would change what is being measured. Remove the key or "
-            "choose a provider that supports it."
+            "dropping it would change what is being measured. Remove the key, "
+            "declare the capability if the endpoint honours it, or choose a "
+            "provider that supports it."
         )
-    if parameters.thinking == "adaptive" and not provider.supports_thinking:
+    if parameters.thinking == "adaptive" and not honours(provider, capabilities, "thinking"):
         raise ContractConfigurationError(
             f"provider {provider.name!r} has no thinking support in this reader: "
             "`thinking: adaptive` cannot be honoured, and silently dropping it "
-            "would change what is being measured. Remove the key or choose a "
-            "provider that supports it."
+            "would change what is being measured. Remove the key, declare the "
+            "capability if the endpoint honours it, or choose a provider that "
+            "supports it."
         )
     refusal = provider.constraint(parameters)
     if refusal is not None:

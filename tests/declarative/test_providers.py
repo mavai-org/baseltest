@@ -60,7 +60,7 @@ def capture(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
 
 class TestRegistry:
     def test_out_of_the_box_vendors(self) -> None:
-        assert set(PROVIDERS) == {"openai", "anthropic", "ollama", "mistral", "apertus"}
+        assert set(PROVIDERS) == {"openai", "anthropic", "ollama", "mistral", "apertus", "litellm"}
 
     def test_unknown_provider_lists_supported(self) -> None:
         with pytest.raises(ContractConfigurationError, match="apertus"):

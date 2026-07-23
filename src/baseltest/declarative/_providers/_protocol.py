@@ -16,6 +16,12 @@ ENV_ENDPOINT = "MAVAI_LLM_ENDPOINT"
 ENV_API_KEY = "MAVAI_LLM_API_KEY"
 ENV_MODEL = "MAVAI_LLM_MODEL"
 
+# The provider-neutral capability vocabulary an author may name in a
+# service's `capabilities:` allowance. Each maps to one configuration key
+# whose honouring is capability-gated: `response-schema:`, `prompt-caching:`,
+# `thinking:`.
+CAPABILITY_NAMES: tuple[str, ...] = ("response-schema", "prompt-caching", "thinking")
+
 BodyBuilder = Callable[["LanguageModelParameters", str, str], dict[str, Any]]
 HeaderBuilder = Callable[[str], dict[str, str]]
 Extractor = Callable[[dict[str, Any]], Any]
@@ -45,6 +51,14 @@ class Provider:
             honoured; same refusal rule as the schema.
         supports_thinking: Whether ``thinking: adaptive`` can be honoured;
             same refusal rule as the schema.
+        extra_declarable_capabilities: Capabilities beyond the statically
+            supported set that an author may turn on with a service's
+            ``capabilities:`` allowance — the set the adapter's body can
+            *encode on demand* but does not honour by default. Empty for a
+            vendor adapter (its support is static and known); populated for a
+            gateway adapter, whose upstream capability the author declares
+            because the protocol cannot reveal it. A capability in neither
+            the supported nor this set is refused when declared.
         constraint: The vendor's own veto over an otherwise-valid
             configuration combination: ``parameters -> refusal message`` or
             ``None`` when the combination is fine. Checked at load time.
@@ -64,6 +78,46 @@ class Provider:
     body: BodyBuilder
     headers: HeaderBuilder
     extract: Extractor
+    extra_declarable_capabilities: frozenset[str] = frozenset()
+
+
+def _statically_supported(provider: Provider) -> frozenset[str]:
+    """The capabilities the adapter honours without any author declaration."""
+    supported = set()
+    if provider.supports_response_schema:
+        supported.add("response-schema")
+    if provider.supports_prompt_caching:
+        supported.add("prompt-caching")
+    if provider.supports_thinking:
+        supported.add("thinking")
+    return frozenset(supported)
+
+
+def declarable_capabilities(provider: Provider) -> frozenset[str]:
+    """The capabilities an author may assert via a service's ``capabilities:``.
+
+    A capability is declarable when the adapter's body can put it on the wire:
+    the statically supported set (already honoured, so declaring it is a
+    redundant no-op) widened by whatever the adapter can encode on demand. An
+    adapter that deliberately withholds a capability — apertus's hosted
+    endpoint declines structured output — leaves it out of both, so declaring
+    it there is refused rather than silently overriding the caution.
+    """
+    return _statically_supported(provider) | provider.extra_declarable_capabilities
+
+
+def honours(provider: Provider, declared: frozenset[str] | None, capability: str) -> bool:
+    """Effective support: honoured by default, or turned on by the author.
+
+    The single question both the refuse-at-load (measure/test) and the
+    degrade-with-note (explore) paths ask, so they stay consistent. The
+    declarable gate runs at parse time, so any capability that reaches here in
+    ``declared`` is one the adapter can encode — nothing downstream consults
+    the raw static flag.
+    """
+    if capability in _statically_supported(provider):
+        return True
+    return declared is not None and capability in declared
 
 
 def bearer_headers(key: str) -> dict[str, str]:

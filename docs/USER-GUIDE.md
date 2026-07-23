@@ -82,16 +82,16 @@ Input values are JSON-expressible scalars (string, number, boolean); a list must
 
 `criteria:` is a non-empty list. Each entry accepts:
 
-| Key | Meaning |
-|---|---|
-| `name` | The criterion's label in output, artefacts, and failure distributions. Optional — defaults to `criterion-<n>-<first form>`; names must be unique within the contract. |
-| `threshold` | The declared bar: a number in (0, 1). A criterion **with** a threshold is judged against it (a *declared* criterion). A criterion **without** one is *empirical*: its bar comes from a measured baseline (see [test](#basel-test)). `threshold: empirical` is reserved. |
-| `threshold-origin` | Optional provenance: the category of source the bar comes from — e.g. `sla`, `slo`, `regulatory`. Pure metadata, recorded in artefacts and reports. |
-| `contract-ref` | Optional provenance: the human-readable reference (e.g. `"Payment Provider SLA v2.0 §4.1"`). |
-| `tolerate` | An **empirical** criterion's sizing claim: the lowest true pass rate you are willing to accept before the test should fail, a number in (0, 1). Feeds risk-driven run sizing at test time. Contradictory alongside `threshold:` (a stipulated bar carries no baseline claim) — declaring both is refused. |
-| `confidence` | Per-criterion override of the contract-level confidence, a number in (0, 1). |
-| `postconditions` | A non-empty list of postcondition forms (below). |
-| *(form shorthand)* | For a single-check criterion, any one form key may sit directly on the entry: `contains: "hello"` is shorthand for a one-entry `postconditions:` list. |
+| Key                | Meaning                                                                                                                                                                                                                                                                                                   |
+|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`             | The criterion's label in output, artefacts, and failure distributions. Optional — defaults to `criterion-<n>-<first form>`; names must be unique within the contract.                                                                                                                                     |
+| `threshold`        | The declared bar: a number in (0, 1). A criterion **with** a threshold is judged against it (a *declared* criterion). A criterion **without** one is *empirical*: its bar comes from a measured baseline (see [test](#basel-test)). `threshold: empirical` is reserved.                                   |
+| `threshold-origin` | Optional provenance: the category of source the bar comes from — e.g. `sla`, `slo`, `regulatory`. Pure metadata, recorded in artefacts and reports.                                                                                                                                                       |
+| `contract-ref`     | Optional provenance: the human-readable reference (e.g. `"Payment Provider SLA v2.0 §4.1"`).                                                                                                                                                                                                              |
+| `tolerate`         | An **empirical** criterion's sizing claim: the lowest true pass rate you are willing to accept before the test should fail, a number in (0, 1). Feeds risk-driven run sizing at test time. Contradictory alongside `threshold:` (a stipulated bar carries no baseline claim) — declaring both is refused. |
+| `confidence`       | Per-criterion override of the contract-level confidence, a number in (0, 1).                                                                                                                                                                                                                              |
+| `postconditions`   | A non-empty list of postcondition forms (below).                                                                                                                                                                                                                                                          |
+| *(form shorthand)* | For a single-check criterion, any one form key may sit directly on the entry: `contains: "hello"` is shorthand for a one-entry `postconditions:` list.                                                                                                                                                    |
 
 A sample **passes a criterion** only when every one of its postconditions holds; a criterion's observed rate is the fraction of samples that passed it. A trial's failure reason is the *first* failing check's reason — order your checks so the most diagnostic one fails first.
 
@@ -99,14 +99,14 @@ A sample **passes a criterion** only when every one of its postconditions holds;
 
 Each postcondition entry declares exactly one form, optionally qualified by `in:` (the subject view) and `path:` (a structural selector):
 
-| Form | Argument | Holds when |
-|---|---|---|
-| `equals` | string | The subject equals the string exactly. |
-| `one-of` | list of strings | The subject is any one of the listed strings. |
-| `contains` | string | The subject contains the substring. |
-| `matches` | string (regex) | The regular expression matches somewhere in the subject (`re.search` semantics). |
-| `parses` | view name | Computing the named view *is* the check: the transformation succeeding is a pass, a `TransformError` is a failed trial. Takes no `in:` — it names its view directly. |
-| `satisfies` | check name | The named `@check` predicate (registered in `mavai-bindings.py`) holds for the subject value. |
+| Form        | Argument        | Holds when                                                                                                                                                           |
+|-------------|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `equals`    | string          | The subject equals the string exactly.                                                                                                                               |
+| `one-of`    | list of strings | The subject is any one of the listed strings.                                                                                                                        |
+| `contains`  | string          | The subject contains the substring.                                                                                                                                  |
+| `matches`   | string (regex)  | The regular expression matches somewhere in the subject (`re.search` semantics).                                                                                     |
+| `parses`    | view name       | Computing the named view *is* the check: the transformation succeeding is a pass, a `TransformError` is a failed trial. Takes no `in:` — it names its view directly. |
+| `satisfies` | check name      | The named `@check` predicate (registered in `mavai-bindings.py`) holds for the subject value.                                                                        |
 
 `in:` names the view whose value the check judges; without it, the check judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). `path:` qualifies the string forms only (`equals`, `one-of`, `contains`, `matches`) and requires `in:` naming a declared view — the raw response is unstructured text.
 
@@ -140,12 +140,12 @@ transforms:
 
 The `transforms:` block declares named **views**: each is a transformation of the raw response, computed **at most once per response** and shared by every check that names it — a semantic guarantee, not an optimisation. `raw` is reserved and cannot be declared. The transformation name is either a stock one or a registration:
 
-| Transform | Produces | Notes |
-|---|---|---|
-| `json` | The parsed JSON value | A non-parsing response is a failed trial (`transform failed…`), never an abort. |
-| `xml` | A parsed `ElementTree.Element` | Same failure semantics. XPath 1.0 applies. |
-| `yaml` | The YAML document, projected into the JSON data model | YAML 1.2 core schema, safe construction only; a multi-document stream, non-core tag, non-string mapping key, or expansion past the budget is a failed trial. JSONPath applies. |
-| *registered name* | Whatever the `@transform` callable returns | See [Part 4](#transform--named-transformations). Structured returns are addressable with `path:`. |
+| Transform         | Produces                                              | Notes                                                                                                                                                                          |
+|-------------------|-------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `json`            | The parsed JSON value                                 | A non-parsing response is a failed trial (`transform failed…`), never an abort.                                                                                                |
+| `xml`             | A parsed `ElementTree.Element`                        | Same failure semantics. XPath 1.0 applies.                                                                                                                                     |
+| `yaml`            | The YAML document, projected into the JSON data model | YAML 1.2 core schema, safe construction only; a multi-document stream, non-core tag, non-string mapping key, or expansion past the budget is a failed trial. JSONPath applies. |
+| *registered name* | Whatever the `@transform` callable returns            | See [Part 4](#transform--named-transformations). Structured returns are addressable with `path:`.                                                                              |
 
 ### The `latency:` block
 
