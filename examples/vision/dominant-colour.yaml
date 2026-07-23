@@ -1,0 +1,24 @@
+# Vision: an image goes to a multimodal model, its answer judged.
+#
+# Each input is a multi-part message — a text instruction beside an `image:`
+# part. The framework base64-encodes the image into the provider's content
+# block (here OpenAI's `image_url` data URI) and sends it as one user message;
+# the model's reply is judged by the postconditions like any text response.
+#
+#   basel check dominant-colour.yaml   -> validates offline (assembles the request, checks the capability)
+#   basel test  dominant-colour.yaml   -> needs a real multimodal endpoint (see README)
+format: mavai-contract/1
+contract: vision-names-the-dominant-colour
+service: vision
+intent: smoke
+
+criteria:
+  - name: names-the-dominant-colour
+    threshold: 0.8
+    postconditions:
+      - matches: '(?i)red'             # the answer mentions red, in any case
+
+inputs:
+  # A bare multi-part input: text then image, in message order.
+  - - text: "What colour dominates this image? Answer with a single word."
+    - image: ./images/swatch-red.png
