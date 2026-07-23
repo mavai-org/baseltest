@@ -32,6 +32,7 @@ from .evaluation import (
 from .model import (
     PERCENTILE_LEVELS,
     Criterion,
+    FileInput,
     LatencyBar,
     LatencyBound,
     ServiceContract,
@@ -54,6 +55,7 @@ __all__ = [
     "BaseltestError",
     "ContractValidationError",
     "Criterion",
+    "FileInput",
     "LatencyBar",
     "LatencyBound",
     "CriterionTally",

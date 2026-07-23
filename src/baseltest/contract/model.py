@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
 from typing import Generic, Protocol, TypeVar
 
@@ -53,6 +54,41 @@ class ServiceDeliveryError(BaseltestError):
     Reserve other exceptions for genuine defects (misconfiguration, a bug
     in a binding) — those still abort the run.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class FileInput:
+    """A file-sourced input part, handed to a bound service verbatim.
+
+    The typed reference the framework delivers for a media (or otherwise
+    file-sourced) input part: the resolved ``path``, the declared ``kind``
+    (``audio`` / ``image`` / ``document`` / ``file``), the ``data`` bytes
+    read once at load time, and their SHA-256 ``content_hash``. A bound
+    service opens or forwards it and calls whatever it likes -- an STT SDK,
+    a cloud API -- and the framework never interprets the bytes.
+
+    A *text* input part is deliberately not a ``FileInput``: it resolves to
+    the decoded ``str``, so ``FileInput`` always carries opaque/binary
+    content. Only the content (via ``content_hash``), never the path, feeds
+    a baseline's inputs identity -- a file that drifts behind a stable path
+    changes the identity, so a baseline cannot be silently reused over
+    other bytes.
+    """
+
+    path: Path
+    kind: str
+    data: bytes = field(repr=False)
+    content_hash: str
+
+    @property
+    def text(self) -> str:
+        """The bytes decoded as UTF-8 -- for a binding that wants text."""
+        return self.data.decode("utf-8")
+
+    def identity(self) -> dict[str, str]:
+        """The canonical identity fragment folded into a baseline's inputs
+        identity: content hash and kind, never the path."""
+        return {"kind": self.kind, "sha256": self.content_hash}
 
 
 @dataclass(frozen=True, slots=True)
