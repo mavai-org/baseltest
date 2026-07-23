@@ -1,0 +1,42 @@
+# Speech-to-text: a service whose input is an AUDIO FILE, not a string.
+#
+# This is the file-sourced-input demonstrator. Each input is an `audio:`
+# part naming a clip on disk; the framework resolves the path (relative to
+# this contract), reads the bytes once, hashes them into the baseline's
+# inputs identity, and hands the binding a FileInput. The bound `stt`
+# service (mavai-bindings.py) opens it and returns a transcript, which the
+# postconditions judge exactly as they would judge any text response.
+#
+#   basel test transcription.yaml                 -> verdict (n = 5 under intent: smoke)
+#   basel test transcription.yaml --samples 200   -> a tighter interval
+#   basel measure transcription.yaml --samples 200 -> characterisation + baseline
+#
+# No network, no key, no model: the transcriber is a local simulation (see
+# mavai-bindings.py). The point is the input surface — an audio file in, a
+# transcript judged — and the identity behaviour, not a production ASR.
+format: mavai-contract/1
+contract: stt-recovers-the-spoken-words
+service: stt
+intent: smoke
+
+criteria:
+  - name: transcript-recovers-the-utterance
+    threshold: 0.8
+    postconditions:
+      - matches: '\w'                  # every transcript carries words
+
+inputs:
+  # One `audio:` part per input. The `expected:` block judges the response
+  # (the transcript) — identical in shape to any text input's expectations.
+  - input:
+      - audio: ./audio/clip-01.m4a
+    expected:
+      - contains: "fox"
+  - input:
+      - audio: ./audio/clip-02.m4a
+    expected:
+      - contains: "city"
+  - input:
+      - audio: ./audio/clip-03.m4a
+    expected:
+      - contains: "three"

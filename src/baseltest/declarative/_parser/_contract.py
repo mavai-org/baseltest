@@ -35,7 +35,8 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
         raise _fail(f"unknown `intent: {intent_raw}` — expected verification or smoke") from None
 
     views = _parse_transforms(data)
-    inputs, expected_pairs = _parse_inputs(data["inputs"], views)
+    base_dir = source_path.parent if source_path is not None else None
+    inputs, expected_pairs = _parse_inputs(data["inputs"], views, base_dir)
 
     criteria_value = data["criteria"]
     if not isinstance(criteria_value, list) or not criteria_value:

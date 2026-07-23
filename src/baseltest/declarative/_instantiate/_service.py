@@ -9,6 +9,8 @@ import inspect
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from baseltest.contract import FileInput
+
 from .._errors import ContractConfigurationError
 from .._registry import Registry
 from .._services import ServiceDefinition
@@ -55,6 +57,17 @@ def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]
             if parameter.kind is not inspect.Parameter.POSITIONAL_OR_KEYWORD:
                 continue
             annotation = parameter.annotation
+            if annotation is str and isinstance(argument, FileInput):
+                raise ContractConfigurationError(
+                    f"service {service!r}: input {index} supplies file content "
+                    f"({argument.kind}: {argument.path.name}) to parameter {name!r}, "
+                    "which is typed `str`. A text parameter cannot receive a "
+                    "file-sourced part. If this is a language model, sending media to "
+                    "the model is not supported in this phase (it arrives with the "
+                    "multimodal gateway); if it is your own binding, annotate "
+                    f"{name!r} to receive the file (`baseltest.FileInput`) or use a "
+                    f"text input. The binding's signature is {rendered}"
+                )
             if annotation in (str, int, float, bool) and not _value_fits(argument, annotation):
                 raise ContractConfigurationError(
                     f"service {service!r}: input {index}: parameter {name!r} expects "
