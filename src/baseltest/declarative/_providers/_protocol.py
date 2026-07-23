@@ -9,20 +9,44 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from baseltest.contract import FileInput, MediaKind
+
+from ._media import (
+    CAPABILITY_FOR,
+    MEDIA_CAPABILITY_NAMES,
+    content_blocks,
+    data_uri,
+    unexpected_kind,
+)
+from ._media import b64 as _b64
+
 if TYPE_CHECKING:
     from .._services import LanguageModelParameters
+
+# The media kinds the OpenAI-compatible protocol can put on the wire — shared
+# by every adapter that composes `openai_compatible_body` (openai, mistral,
+# apertus, litellm, the generic endpoint).
+OPENAI_MEDIA_KINDS: frozenset[MediaKind] = frozenset(
+    {MediaKind.IMAGE, MediaKind.DOCUMENT, MediaKind.AUDIO}
+)
 
 ENV_ENDPOINT = "MAVAI_LLM_ENDPOINT"
 ENV_API_KEY = "MAVAI_LLM_API_KEY"
 ENV_MODEL = "MAVAI_LLM_MODEL"
 
 # The provider-neutral capability vocabulary an author may name in a
-# service's `capabilities:` allowance. Each maps to one configuration key
-# whose honouring is capability-gated: `response-schema:`, `prompt-caching:`,
-# `thinking:`.
-CAPABILITY_NAMES: tuple[str, ...] = ("response-schema", "prompt-caching", "thinking")
+# service's `capabilities:` allowance. The first three each gate one
+# configuration key (`response-schema:`, `prompt-caching:`, `thinking:`);
+# the media-input tokens gate an input modality, single-sourced from
+# `_media.CAPABILITY_FOR`.
+CAPABILITY_NAMES: tuple[str, ...] = (
+    "response-schema",
+    "prompt-caching",
+    "thinking",
+    *MEDIA_CAPABILITY_NAMES,
+)
 
-BodyBuilder = Callable[["LanguageModelParameters", str, str], dict[str, Any]]
+BodyBuilder = Callable[["LanguageModelParameters", str, Any], dict[str, Any]]
 HeaderBuilder = Callable[[str], dict[str, str]]
 Extractor = Callable[[dict[str, Any]], Any]
 Constraint = Callable[["LanguageModelParameters"], str | None]
@@ -79,6 +103,7 @@ class Provider:
     headers: HeaderBuilder
     extract: Extractor
     extra_declarable_capabilities: frozenset[str] = frozenset()
+    media_kinds: frozenset[MediaKind] = frozenset()
 
 
 def _statically_supported(provider: Provider) -> frozenset[str]:
@@ -98,12 +123,14 @@ def declarable_capabilities(provider: Provider) -> frozenset[str]:
 
     A capability is declarable when the adapter's body can put it on the wire:
     the statically supported set (already honoured, so declaring it is a
-    redundant no-op) widened by whatever the adapter can encode on demand. An
-    adapter that deliberately withholds a capability — apertus's hosted
-    endpoint declines structured output — leaves it out of both, so declaring
+    redundant no-op), widened by whatever the adapter can encode on demand,
+    widened by the media-input token for each modality the adapter's protocol
+    carries. An adapter that deliberately withholds a capability — apertus's
+    hosted endpoint declines structured output — leaves it out, so declaring
     it there is refused rather than silently overriding the caution.
     """
-    return _statically_supported(provider) | provider.extra_declarable_capabilities
+    media = frozenset(CAPABILITY_FOR[kind] for kind in provider.media_kinds)
+    return _statically_supported(provider) | provider.extra_declarable_capabilities | media
 
 
 def honours(provider: Provider, declared: frozenset[str] | None, capability: str) -> bool:
@@ -133,15 +160,33 @@ def plain_headers(_key: str) -> dict[str, str]:
     return {"Content-Type": "application/json"}
 
 
+def openai_block(part: FileInput) -> dict[str, Any]:
+    """One OpenAI-compatible content block for a media part."""
+    if part.kind is MediaKind.IMAGE:
+        return {"type": "image_url", "image_url": {"url": data_uri(part)}}
+    if part.kind is MediaKind.AUDIO:
+        return {
+            "type": "input_audio",
+            "input_audio": {"data": _b64(part), "format": part.path.suffix.lstrip(".")},
+        }
+    if part.kind is MediaKind.DOCUMENT:
+        return {"type": "file", "file": {"filename": part.path.name, "file_data": data_uri(part)}}
+    raise unexpected_kind(part, "openai-compatible")
+
+
 def openai_compatible_body(
-    parameters: "LanguageModelParameters", model: str, user_prompt: str
+    parameters: "LanguageModelParameters", model: str, user_input: Any
 ) -> dict[str, Any]:
-    """The chat-completions request body, with structured output when declared."""
+    """The chat-completions request body, with structured output when declared.
+
+    The user message's ``content`` is the plain prompt when the input is
+    text-only, and an ordered list of text/media blocks when it carries media.
+    """
     body: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": parameters.system_prompt},
-            {"role": "user", "content": user_prompt},
+            {"role": "user", "content": content_blocks(user_input, openai_block)},
         ],
         "max_tokens": parameters.max_tokens,
     }
@@ -174,4 +219,5 @@ GENERIC = Provider(
     body=openai_compatible_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
+    media_kinds=OPENAI_MEDIA_KINDS,
 )

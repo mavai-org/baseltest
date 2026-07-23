@@ -22,12 +22,13 @@ import os
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from baseltest.contract import BaseltestError, ServiceDeliveryError
 
 from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _litellm, _mistral, _ollama, _openai
+from ._media import CAPABILITY_FOR, media_kinds_present
 from ._protocol import (
     CAPABILITY_NAMES,
     ENV_API_KEY,
@@ -58,8 +59,35 @@ __all__ = [
     "build_invoker",
     "declarable_capabilities",
     "honours",
+    "require_media",
     "resolve_provider",
 ]
+
+
+def require_media(provider: Provider, declared: frozenset[str] | None, user_input: Any) -> None:
+    """Refuse, before any sample, a media input this LLM service cannot carry.
+
+    A media kind is carried when the adapter's protocol can encode it
+    (``provider.media_kinds``) *and* the service declared the matching
+    capability — an undeclared capability is never sent silently, the same
+    rule the schema/caching/thinking gates follow. The ``file`` kind is
+    deliver-to-binding only; it has no model wire form and is always refused.
+    """
+    for kind in media_kinds_present(user_input):
+        token = CAPABILITY_FOR.get(kind)
+        if token is None or kind not in provider.media_kinds:
+            raise ContractConfigurationError(
+                f"provider {provider.name!r} cannot carry {kind.value!r} input to the "
+                "model — its request protocol has no content block for it. Choose a "
+                "provider that does, or hand the file to a bound service instead."
+            )
+        if not honours(provider, declared, token):
+            raise ContractConfigurationError(
+                f"provider {provider.name!r} can carry {kind.value!r} input, but the "
+                f"service has not allowed it — add `capabilities: [{token}]` to the "
+                "service configuration so the media is sent (an undeclared capability "
+                "is never sent silently)."
+            )
 
 
 class ProviderResponseError(BaseltestError):
@@ -126,7 +154,7 @@ def _resolve_endpoint(provider: Provider) -> str:
 
 def build_invoker(
     provider: Provider, parameters: "LanguageModelParameters"
-) -> Callable[[str], str]:
+) -> Callable[[Any], str]:
     """The invocation callable: one plain request per call, no retries."""
     capabilities = parameters.capabilities
     if parameters.response_schema is not None and not honours(
@@ -167,10 +195,10 @@ def build_invoker(
         )
     headers = provider.headers(_api_key(provider))
 
-    def invoke(user_prompt: str) -> str:
+    def invoke(user_input: Any) -> str:
         request = urllib.request.Request(
             endpoint,
-            data=json.dumps(provider.body(parameters, model, user_prompt)).encode("utf-8"),
+            data=json.dumps(provider.body(parameters, model, user_input)).encode("utf-8"),
             headers=headers,
             method="POST",
         )

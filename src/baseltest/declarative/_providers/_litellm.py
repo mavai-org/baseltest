@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from ._protocol import (
     CAPABILITY_NAMES,
+    OPENAI_MEDIA_KINDS,
     Provider,
     bearer_headers,
     no_constraint,
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
 _ADAPTIVE_REASONING_EFFORT = "medium"
 
 
-def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -> dict[str, Any]:
+def _body(parameters: "LanguageModelParameters", model: str, user_input: Any) -> dict[str, Any]:
     """The OpenAI-compatible body, plus the encodings the author declared.
 
     ``response_format`` for a schema comes from the shared generic body.
@@ -62,7 +63,7 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
     marked ``cache_control: ephemeral`` (litellm forwards the marker to
     caching-capable upstreams); thinking adds a reasoning parameter.
     """
-    body = openai_compatible_body(parameters, model, user_prompt)
+    body = openai_compatible_body(parameters, model, user_input)
     if parameters.prompt_caching:
         body["messages"][0]["content"] = [
             {
@@ -89,4 +90,5 @@ PROVIDER = Provider(
     body=_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
+    media_kinds=OPENAI_MEDIA_KINDS,
 )

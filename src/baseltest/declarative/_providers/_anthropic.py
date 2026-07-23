@@ -26,8 +26,9 @@ via the vendor constraint below.
 
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import ServiceDeliveryError
+from baseltest.contract import FileInput, MediaKind, ServiceDeliveryError
 
+from ._media import b64, content_blocks, mime_type, unexpected_kind
 from ._protocol import Provider
 
 if TYPE_CHECKING:
@@ -35,8 +36,23 @@ if TYPE_CHECKING:
 
 _VERSION = "2023-06-01"
 
+# The media kinds the Anthropic messages protocol carries as base64 source
+# blocks. No audio content block exists, so `audio` is refused at the gate.
+ANTHROPIC_MEDIA_KINDS: frozenset[MediaKind] = frozenset({MediaKind.IMAGE, MediaKind.DOCUMENT})
 
-def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -> dict[str, Any]:
+
+def _anthropic_block(part: FileInput) -> dict[str, Any]:
+    """One Anthropic content block for a media part (base64 source)."""
+    if part.kind is MediaKind.IMAGE or part.kind is MediaKind.DOCUMENT:
+        block_type = "image" if part.kind is MediaKind.IMAGE else "document"
+        return {
+            "type": block_type,
+            "source": {"type": "base64", "media_type": mime_type(part), "data": b64(part)},
+        }
+    raise unexpected_kind(part, "anthropic")
+
+
+def _body(parameters: "LanguageModelParameters", model: str, user_input: Any) -> dict[str, Any]:
     system: Any = parameters.system_prompt
     if parameters.prompt_caching:
         system = [
@@ -50,7 +66,7 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
         "model": model,
         "system": system,
         "max_tokens": parameters.max_tokens,
-        "messages": [{"role": "user", "content": user_prompt}],
+        "messages": [{"role": "user", "content": content_blocks(user_input, _anthropic_block)}],
     }
     if parameters.thinking == "adaptive":
         body["thinking"] = {"type": "adaptive"}
@@ -114,4 +130,5 @@ PROVIDER = Provider(
     body=_body,
     headers=_headers,
     extract=_extract,
+    media_kinds=ANTHROPIC_MEDIA_KINDS,
 )

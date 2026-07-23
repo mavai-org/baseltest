@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 from ._protocol import (
+    OPENAI_MEDIA_KINDS,
     Provider,
     bearer_headers,
     no_constraint,
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from .._services import LanguageModelParameters
 
 
-def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -> dict[str, Any]:
+def _body(parameters: "LanguageModelParameters", model: str, user_input: Any) -> dict[str, Any]:
     """The chat-completions body, with the ceiling under the current key.
 
     OpenAI's current chat-completions API names the output ceiling
@@ -23,7 +24,7 @@ def _body(parameters: "LanguageModelParameters", model: str, user_prompt: str) -
     is renamed here — the one place OpenAI diverges from the Mistral/Apertus
     dialect that keeps ``max_tokens``.
     """
-    body = openai_compatible_body(parameters, model, user_prompt)
+    body = openai_compatible_body(parameters, model, user_input)
     body["max_completion_tokens"] = body.pop("max_tokens")
     return body
 
@@ -40,4 +41,5 @@ PROVIDER = Provider(
     body=_body,
     headers=bearer_headers,
     extract=openai_compatible_extract,
+    media_kinds=OPENAI_MEDIA_KINDS,
 )

@@ -21,7 +21,7 @@ from .._parser import ContractDeclaration
 from .._registry import Registry
 from .._services import ServiceDefinition, configuration_values
 from ._postconditions import _build_criterion, _expected_postconditions
-from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs
+from ._service import _resolve_service, _splat_tuple_invoke, _validate_inputs, validate_media
 from ._views import _build_views
 
 
@@ -91,6 +91,7 @@ def instantiate_optimize_point(
     """
     per_sample = definition.type.invoker(parameters)
     _validate_inputs(declaration.service, per_sample, declaration.inputs)
+    validate_media(parameters, declaration.inputs)
     transforms = declaration.transforms
     views = _build_views(declaration, registry)
     expected = _expected_postconditions(declaration.expected_pairs, transforms, registry)
