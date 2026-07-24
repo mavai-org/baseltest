@@ -33,7 +33,12 @@ path above.
 ## Cutting a release
 
 1. Update `version` in `pyproject.toml` to the release version (drop any
-   `.devN` suffix) and land it on `main` (e.g. a `Release X.Y.Z` commit).
+   `.devN` suffix) and land it on `main` **via a `Release X.Y.Z` pull request**
+   (not a direct push). Routing the version bump through a PR is what triggers
+   the release maxims panel (`maxims-review-release.yml`), which keys on the
+   final `X.Y.Z` version rather than a branch name — so protect `main` to
+   require PRs, and the deeper review cannot be skipped by cutting a release
+   another way.
 2. Tag the release commit and push the tag:
    ```
    git tag vX.Y.Z

@@ -1,0 +1,105 @@
+name: Maxims review (release panel)
+
+# Deeper, four-persona maxims review for release preparation.
+#
+# baseltest has no `release/**` branch: a release is cut by bumping
+# pyproject.toml to a final `X.Y.Z` version (dropping the `.devN` suffix) on a
+# "Release X.Y.Z" PR, then tagging the merge commit (see RELEASING.md). So this
+# panel keys on that version bump — the one act every release must perform —
+# rather than on a branch name that a release could forget to use. A manual
+# `workflow_dispatch` can also force the panel against any PR.
+#
+# The personas and maxims are fetched from a private source repo — not in this
+# public tree. See DIR-BAS-CI-maxims-review in the orchestrator.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - pyproject.toml
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to review
+        required: true
+
+jobs:
+  gate:
+    # Run the panel only when this PR is preparing a release — i.e. its
+    # pyproject.toml version is a final `X.Y.Z` (no `.devN` / pre-release
+    # suffix). Between releases the version is always `.devN` (RELEASING.md
+    # bumps back-to-development after each release), so a final version on a PR
+    # marks the release-preparation PR. A manual dispatch always runs.
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "manual dispatch — running panel"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ver="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          if printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release version $ver — running panel"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "development version $ver — not a release PR, skipping panel"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  panel:
+    needs: gate
+    # Skip on fork PRs (secrets, and thus the private source, are withheld).
+    if: >-
+      needs.gate.outputs.run == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        persona: [structural, type-state, interface-error, python-idiom]
+    steps:
+      - name: Checkout the PR under review
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch the private QA source (maxims + personas)
+        uses: actions/checkout@v4
+        with:
+          repository: mavai-org/mavai-orchestrator
+          token: ${{ secrets.MAXIMS_SOURCE_TOKEN }}
+          path: .qa-source
+          sparse-checkout: |
+            .claude-submodules/baseltest-MAXIMS.md
+            plan/qa/baseltest
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: ${{ matrix.persona }} maxims review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Read .qa-source/plan/qa/baseltest/maxims-review-${{ matrix.persona }}.md and
+            follow it exactly. The maxims are in
+            .qa-source/.claude-submodules/baseltest-MAXIMS.md. Review the diff of
+            PR #${{ github.event.pull_request.number || github.event.inputs.pr }}
+            through this persona's lens only, and post one advisory review section
+            headed with the persona name. Do not print the maxims or persona files.
