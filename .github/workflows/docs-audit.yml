@@ -31,7 +31,7 @@ jobs:
           token: ${{ secrets.MAXIMS_SOURCE_TOKEN }}
           path: .qa-source
           sparse-checkout: |
-            plan/qa
+            plan/qa/baseltest
           sparse-checkout-cone-mode: false
           fetch-depth: 1
 
@@ -40,7 +40,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Read .qa-source/plan/qa/docs-quality-persona.md and follow it exactly,
+            Read .qa-source/plan/qa/baseltest/docs-quality-persona.md and follow it exactly,
             in PROACTIVE (full-corpus sweep) mode. Read the entire primary docs
             corpus (README.md, docs/GETTING-STARTED.md, docs/USER-GUIDE.md) against
             the current feature surface. Find the open issue in

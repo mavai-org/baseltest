@@ -33,7 +33,7 @@ jobs:
           path: .qa-source
           sparse-checkout: |
             .claude-submodules/baseltest-MAXIMS.md
-            plan/qa
+            plan/qa/baseltest
           sparse-checkout-cone-mode: false
           fetch-depth: 1
 
@@ -42,7 +42,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Read .qa-source/plan/qa/maxims-review-persona.md and follow it
+            Read .qa-source/plan/qa/baseltest/maxims-review-persona.md and follow it
             exactly. The maxims it refers to are in
             .qa-source/.claude-submodules/baseltest-MAXIMS.md. Review pull
             request ${{ github.repository }}#${{ github.event.pull_request.number }}

@@ -44,7 +44,7 @@ jobs:
           path: .qa-source
           sparse-checkout: |
             .claude-submodules/baseltest-MAXIMS.md
-            plan/qa
+            plan/qa/baseltest
           sparse-checkout-cone-mode: false
           fetch-depth: 1
 
@@ -53,7 +53,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
-            Read .qa-source/plan/qa/maxims-review-${{ matrix.persona }}.md and
+            Read .qa-source/plan/qa/baseltest/maxims-review-${{ matrix.persona }}.md and
             follow it exactly. The maxims are in
             .qa-source/.claude-submodules/baseltest-MAXIMS.md. Review the diff of
             PR #${{ github.event.pull_request.number || github.event.inputs.pr }}
