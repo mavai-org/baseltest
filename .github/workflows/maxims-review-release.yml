@@ -1,0 +1,61 @@
+name: Maxims review (release panel)
+
+# Deeper, four-persona maxims review for release preparation. Triggered on PRs
+# targeting a release branch, the `pre-release-review` label, or a manual
+# dispatch. The personas and maxims are fetched from a private source repo — not
+# in this public tree. See DIR-BAS-CI-maxims-review in the orchestrator.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    branches: ["release/**"]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to review
+        required: true
+
+jobs:
+  panel:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event.action != 'labeled' || github.event.label.name == 'pre-release-review'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        persona: [structural, type-state, interface-error, python-idiom]
+    steps:
+      - name: Checkout the PR under review
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Fetch the private QA source (maxims + personas)
+        uses: actions/checkout@v4
+        with:
+          repository: mavai-org/mavai-orchestrator
+          token: ${{ secrets.MAXIMS_SOURCE_TOKEN }}
+          path: .qa-source
+          sparse-checkout: |
+            .claude-submodules/baseltest-MAXIMS.md
+            plan/qa
+          sparse-checkout-cone-mode: false
+          fetch-depth: 1
+
+      - name: ${{ matrix.persona }} maxims review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Read .qa-source/plan/qa/maxims-review-${{ matrix.persona }}.md and
+            follow it exactly. The maxims are in
+            .qa-source/.claude-submodules/baseltest-MAXIMS.md. Review the diff of
+            PR #${{ github.event.pull_request.number || github.event.inputs.pr }}
+            through this persona's lens only, and post one advisory review section
+            headed with the persona name. Do not print the maxims or persona files.
