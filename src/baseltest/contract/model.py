@@ -71,6 +71,7 @@ class MediaKind(StrEnum):
     DOCUMENT = "document"
 
 
+# mavai-ref: JVI-AKTS3TT — do not remove (resolves in mavai-orchestrator)
 @dataclass(frozen=True, slots=True)
 class FileInput:
     """A file-sourced input part, handed to a bound service verbatim.
