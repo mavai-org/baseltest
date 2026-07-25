@@ -10,15 +10,12 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.9.1** (the first release carrying the formats
-asset), with one correction applied ahead of the next release: the two
-`optimization-max-iterations-*` cases carry upstream `mavai-R` commit
-`18dffe5` (this adoption surfaced that they refused before reaching their
-category — a corpus defect; the fix isolates each case to its one defect).
-Re-pin cleanly at the next tagged release. The copy is vendored, not
-fetched, so the build passes offline; bump it by replacing `manifest.yaml`
-and `corpus/` with the contents of the new release's `formats-vX.Y.Z.zip`
-and updating this pin note.
+Pinned at `mavai-R` **v0.9.2**. (This adoption surfaced that v0.9.1's two
+`optimization-max-iterations-*` cases refused before reaching their
+category — a corpus defect; v0.9.2 isolates each case to its one defect.)
+The copy is vendored, not fetched, so the build passes offline; bump it by
+replacing `manifest.yaml` and `corpus/` with the contents of the new
+release's `formats-vX.Y.Z.zip` and updating this pin note.
 
 The published JSON Schemas are deliberately not vendored: they are the
 structural projection consumed by the oracle's own build; this package's
