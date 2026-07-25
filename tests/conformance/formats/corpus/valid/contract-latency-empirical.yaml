@@ -1,0 +1,15 @@
+# The latency block, empirical shape (Part III): percentiles whose bounds
+# derive from the measured baseline at test time, with the derivation
+# confidence.
+format: mavai-contract/1
+contract: triage-stays-as-fast-as-measured
+service: triage-assistant
+latency:
+  empirical: [p95, p99]
+  confidence: 0.95
+criteria:
+  - threshold: 0.7
+    matches: "category: (billing|access|shipping)"
+inputs:
+  - "I was charged twice for one invoice"
+  - "my account is locked"

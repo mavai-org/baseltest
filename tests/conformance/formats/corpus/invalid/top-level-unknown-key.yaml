@@ -1,0 +1,9 @@
+# REFUSED: unknown keys refuse at every level — the file's top level
+# included (II.5).
+format: mavai-services/1
+comment: "not a services key"
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."

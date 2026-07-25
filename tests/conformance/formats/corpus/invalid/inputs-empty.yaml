@@ -1,0 +1,7 @@
+# REFUSED: the input list is the fixed, finite pool the engine cycles
+# over — it cannot be empty (Part I, Keys; II.4).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: []

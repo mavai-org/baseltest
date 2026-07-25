@@ -1,0 +1,13 @@
+# REFUSED: parses: names its view as its argument and takes no in:
+# qualifier (Part I, subject rule; clarified 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  basket: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: basket
+        parses: basket
+inputs: ["Alice"]

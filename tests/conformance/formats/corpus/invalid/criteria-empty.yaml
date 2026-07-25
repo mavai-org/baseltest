@@ -1,0 +1,7 @@
+# REFUSED: the criteria section is a list of one or more entries
+# (Part I, criteria section).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: []
+inputs: ["Alice"]

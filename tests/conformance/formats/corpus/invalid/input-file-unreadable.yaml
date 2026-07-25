@@ -1,0 +1,9 @@
+# REFUSED (semantic): a file-sourced part is read at load time; an
+# unreadable file refuses before any invocation (Part I, input-values
+# section). The referenced asset deliberately does not exist.
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs:
+  - - audio: ./assets/missing.m4a

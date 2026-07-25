@@ -1,0 +1,11 @@
+# REFUSED: an entry states replacements — a key with no value is not a
+# deviation; omit the key to keep its baseline value (Part I; II.6).
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+      temperature: 0.2
+    explorations:
+      - temperature:

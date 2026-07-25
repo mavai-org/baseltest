@@ -1,0 +1,6 @@
+# REFUSED: threshold: empirical is the reserved strict form (Part III).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: empirical, contains: "ok" }]
+inputs: ["Alice"]

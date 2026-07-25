@@ -1,0 +1,27 @@
+# Input-specific postconditions (Part I): the single-form sugar and the
+# full postcondition-list form with views and path — legal because the
+# criteria list has exactly one entry.
+format: mavai-contract/1
+contract: basket-builder-honours-each-instruction
+service: basket-builder
+transforms:
+  basket: json
+criteria:
+  - name: response-is-a-valid-basket
+    threshold: 0.8
+    postconditions:
+      - in: basket
+        path: "$.items[*].name"
+        matches: '\w'
+inputs:
+  - input: "two bottles of milk"
+    expected: { contains: "milk" }
+  - input: "a dozen eggs, please"
+    expected:
+      - in: basket
+        path: "$.items[*].name"
+        equals: "egg"
+      - in: basket
+        path: "$.items[?@.name == 'egg'].quantity"
+        equals: "12"
+  - "just a plain input"

@@ -1,0 +1,8 @@
+# REFUSED: sample sizing left the file — refused naming the --samples
+# flag (II.4, invocation-time-sizing amendment).
+format: mavai-contract/1
+contract: c
+service: s
+samples: 100
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

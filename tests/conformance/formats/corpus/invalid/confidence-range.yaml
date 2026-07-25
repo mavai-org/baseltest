@@ -1,0 +1,7 @@
+# REFUSED: the confidence level is a number in (0, 1) (Part I, Keys; II.4).
+format: mavai-contract/1
+contract: c
+service: s
+confidence: 1.2
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

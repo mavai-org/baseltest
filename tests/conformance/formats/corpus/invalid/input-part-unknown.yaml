@@ -1,0 +1,8 @@
+# REFUSED: an input part is one of text/audio/image/document/file
+# (Part I, input-values section; amended 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs:
+  - - video: ./assets/clip.mp4

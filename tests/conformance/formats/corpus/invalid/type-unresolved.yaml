@@ -1,0 +1,9 @@
+# REFUSED (semantic): type: names a registered service implementation;
+# under the corpus's empty user-registration environment nothing
+# resolves warp-drive (II.7). Structurally well-formed.
+format: mavai-services/1
+services:
+  impossible:
+    type: warp-drive
+    configuration:
+      dilithium: high

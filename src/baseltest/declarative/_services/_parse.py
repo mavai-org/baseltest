@@ -148,6 +148,12 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
         raise _fail("the services file must be a mapping")
     if data.get("format") != SERVICES_FORMAT_IDENTIFIER:
         raise _fail(f"`format:` must be {SERVICES_FORMAT_IDENTIFIER!r}")
+    for key in data:
+        if key not in ("format", "services"):
+            raise _fail(
+                f"the services file has unknown key `{key}:` — it holds `format:` "
+                "and the `services:` block, nothing else"
+            )
     services = data.get("services")
     if not isinstance(services, dict) or not services:
         raise _fail("`services:` must be a non-empty mapping")
@@ -169,9 +175,7 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
     return definitions
 
 
-def discover_services(
-    contract_path: Path, registry: "Registry"
-) -> dict[str, ServiceDefinition]:
+def discover_services(contract_path: Path, registry: "Registry") -> dict[str, ServiceDefinition]:
     """Load definitions from the conventional locations, nearest first."""
     for directory in (contract_path.parent, Path.cwd()):
         candidate = directory / SERVICES_FILENAME

@@ -1,0 +1,16 @@
+# The unified configuration grid (Part I, §II.6): the baseline factor
+# record plus builder-style delta entries — each declaring only what
+# deviates, every resolved point distinct.
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+      model: small-model
+      temperature: 0.2
+    explorations:
+      - temperature: 0.0
+      - temperature: 0.7
+      - model: other-model
+        temperature: 0.7

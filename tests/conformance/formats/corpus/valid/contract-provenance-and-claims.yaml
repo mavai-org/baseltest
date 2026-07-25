@@ -1,0 +1,21 @@
+# Threshold provenance on the criterion entry (Part III), the empirical
+# criterion's risk claim (tolerate: with its own confidence:, amendment
+# 2026-07-12), a contract-level confidence, and an explicit intent.
+format: mavai-contract/1
+contract: payment-meets-its-published-bar
+service: payment-gateway
+intent: verification
+confidence: 0.9
+criteria:
+  - name: reference-is-well-formed
+    threshold: 0.99
+    threshold-origin: sla
+    contract-ref: "Payment Provider SLA v2.0 §4.1"
+    matches: "RF-\\d{8}"
+  - name: no-worse-than-measured
+    tolerate: 0.9
+    confidence: 0.99
+    contains: "confirmed"
+inputs:
+  - "refund order 1832"
+  - "refund order 2044"

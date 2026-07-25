@@ -1,0 +1,9 @@
+# REFUSED: max-tokens is a positive integer of at most 16,000 (II.3;
+# adopted 2026-07-25).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      max-tokens: 0

@@ -1,0 +1,8 @@
+# REFUSED: thinking is adaptive or none (II.3, client factors).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      thinking: deep

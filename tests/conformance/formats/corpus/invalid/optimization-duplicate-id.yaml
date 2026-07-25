@@ -1,0 +1,18 @@
+# REFUSED (semantic): each optimization names its own run and artefact —
+# ids are unique within the definition (Part I, optimizations).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+      temperature: 0.2
+    optimizations:
+      - id: tune
+        stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        max-iterations: 5
+      - id: tune
+        stepper: refining-grid
+        stepper-config: { key: temperature, lo: 0.0, hi: 1.0, step: 0.25, min-step: 0.05 }
+        max-iterations: 5

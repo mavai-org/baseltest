@@ -1,0 +1,7 @@
+# REFUSED: an unknown top-level key, named in the refusal (Part I; II.5).
+format: mavai-contract/1
+contract: c
+service: s
+flavour: vanilla
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

@@ -1,0 +1,9 @@
+# REFUSED: a latency block declares bounds — explicit ceilings or
+# empirical percentiles (Part III, latency).
+format: mavai-contract/1
+contract: c
+service: s
+latency:
+  confidence: 0.9
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

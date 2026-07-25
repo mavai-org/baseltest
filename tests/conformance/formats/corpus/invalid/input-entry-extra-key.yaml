@@ -1,0 +1,10 @@
+# REFUSED: an expectations-carrying entry is exactly {input, expected}
+# (Part I, input-specific postconditions).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs:
+  - input: "Alice"
+    expected: { contains: "ok" }
+    note: "extra"

@@ -1,0 +1,9 @@
+# REFUSED: raw is the reserved name of the untransformed response and
+# cannot be declared as a view (Part I, Views; II.10).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  raw: json
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

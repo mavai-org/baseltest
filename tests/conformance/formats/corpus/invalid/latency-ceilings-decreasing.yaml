@@ -1,0 +1,11 @@
+# REFUSED (semantic): ceilings must be non-decreasing across
+# percentiles — a tighter bound on a higher percentile contradicts
+# itself (Part III, latency).
+format: mavai-contract/1
+contract: c
+service: s
+latency:
+  p50: 1000
+  p95: 500
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

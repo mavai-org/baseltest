@@ -1,0 +1,12 @@
+# REFUSED (semantic): per-input expected entries require exactly one
+# criteria entry — with several, their owner would be ambiguous
+# (Part I, input-specific postconditions).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - { name: first, threshold: 0.9, contains: "ok" }
+  - { name: second, threshold: 0.8, matches: '\w' }
+inputs:
+  - input: "Alice"
+    expected: { contains: "ok" }

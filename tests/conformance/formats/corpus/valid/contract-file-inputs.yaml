@@ -1,0 +1,23 @@
+# The input-value shapes (Part I, input-values section, amended
+# 2026-07-25): a scalar, a flat scalar argument list, file-sourced parts
+# (media and external text), an ordered multi-part message, and an
+# {input, expected} entry over a part input. Paths resolve relative to
+# this file; the referenced assets ship with the corpus.
+format: mavai-contract/1
+contract: assistant-handles-every-input-shape
+service: assistant
+intent: smoke
+criteria:
+  - name: response-carries-words
+    threshold: 0.8
+    matches: '\w'
+inputs:
+  - "a plain scalar instruction"
+  - ["milk", 2, true]
+  - - text: "What colour dominates this image? Answer with one word."
+    - image: ./assets/swatch.png
+  - - text: { file: ./assets/note.txt }
+  - input:
+      - audio: ./assets/clip.m4a
+    expected:
+      - contains: "fox"

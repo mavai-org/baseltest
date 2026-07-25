@@ -1,0 +1,18 @@
+# The latency block, explicit shape (Part III, amendment 2026-07-09):
+# per-percentile millisecond ceilings, non-decreasing, with the provenance
+# keys and a recorded confidence (legal on either shape, 2026-07-25).
+format: mavai-contract/1
+contract: payment-meets-latency-sla
+service: payment-gateway
+latency:
+  p50: 200
+  p95: 500
+  p99: 1500
+  confidence: 0.9
+  threshold-origin: slo
+  contract-ref: "Payments SLO 2026 §2"
+criteria:
+  - threshold: 0.95
+    contains: "confirmed"
+inputs:
+  - "refund order 1832"

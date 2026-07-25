@@ -1,0 +1,14 @@
+# REFUSED: per-input expected excludes parses: — a criterion-level form
+# (Part I, input-specific postconditions; clarified 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  basket: json
+criteria:
+  - threshold: 0.9
+    contains: "ok"
+inputs:
+  - input: "Alice"
+    expected:
+      - parses: basket

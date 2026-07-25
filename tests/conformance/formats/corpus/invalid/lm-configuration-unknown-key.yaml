@@ -1,0 +1,8 @@
+# REFUSED: an unknown language-model configuration key, named (II.3).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      flavour: vanilla

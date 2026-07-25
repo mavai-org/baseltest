@@ -1,0 +1,9 @@
+# REFUSED: a list-valued input is an argument list or a message, never
+# both (Part I, input-values section; amended 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs:
+  - - "a scalar"
+    - image: ./assets/swatch.png

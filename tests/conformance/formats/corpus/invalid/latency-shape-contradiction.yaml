@@ -1,0 +1,10 @@
+# REFUSED: explicit ceilings and empirical: together are contradictory —
+# a bound is stipulated or derived, not both (Part III, latency).
+format: mavai-contract/1
+contract: c
+service: s
+latency:
+  p95: 500
+  empirical: [p99]
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

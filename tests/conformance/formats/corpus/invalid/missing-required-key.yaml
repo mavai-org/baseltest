@@ -1,0 +1,5 @@
+# REFUSED: a required key is absent — no criteria section (Part I, Keys).
+format: mavai-contract/1
+contract: c
+service: s
+inputs: ["Alice"]

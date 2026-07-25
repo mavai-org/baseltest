@@ -1,0 +1,17 @@
+# REFUSED (semantic): id: is required when the definition declares more
+# than one optimization (Part I, optimizations).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+      temperature: 0.2
+    optimizations:
+      - id: tune
+        stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        max-iterations: 5
+      - stepper: refining-grid
+        stepper-config: { key: temperature, lo: 0.0, hi: 1.0, step: 0.25, min-step: 0.05 }
+        max-iterations: 5

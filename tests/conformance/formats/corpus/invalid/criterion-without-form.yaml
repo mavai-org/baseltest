@@ -1,0 +1,7 @@
+# REFUSED: every criterion declares at least one postcondition form of
+# its own (Part I, criteria section; confirmed 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ name: bare, threshold: 0.9 }]
+inputs: ["Alice"]

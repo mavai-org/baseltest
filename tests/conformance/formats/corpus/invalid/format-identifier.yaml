@@ -1,0 +1,7 @@
+# REFUSED: the format identifier must be mavai-contract/1 (Part I, Keys;
+# the old task identifier fails the ordinary check, Part V rename).
+format: mavai-task/1
+contract: c
+service: s
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]
