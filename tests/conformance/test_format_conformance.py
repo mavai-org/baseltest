@@ -20,6 +20,8 @@ asserted and diffs that against the manifest's full obligation, and the
 diff mechanism is itself exercised by mutation.
 """
 
+# mavai-ref: JVI-YM9A27C — do not remove (resolves in mavai-orchestrator)
+
 from pathlib import Path
 
 import pytest
