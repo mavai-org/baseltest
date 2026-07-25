@@ -1,0 +1,7 @@
+# REFUSED: intent is verification or smoke (Part I, Keys).
+format: mavai-contract/1
+contract: c
+service: s
+intent: production
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

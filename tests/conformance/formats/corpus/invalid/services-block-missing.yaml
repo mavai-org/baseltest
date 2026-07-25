@@ -1,0 +1,3 @@
+# REFUSED: the services file is a mapping with a non-empty services:
+# block (Part I; II.5).
+format: mavai-services/1

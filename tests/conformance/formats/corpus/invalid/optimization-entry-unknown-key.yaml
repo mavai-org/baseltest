@@ -1,0 +1,13 @@
+# REFUSED: an unknown key on an optimization entry, named (Part I,
+# optimizations; amendment 2026-07-25).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+      temperature: 0.2
+    optimizations:
+      - stepper: linear-sweep
+        max-iterations: 5
+        epochs: 3

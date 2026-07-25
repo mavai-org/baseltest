@@ -1,0 +1,11 @@
+# REFUSED: each postcondition entry declares exactly one form
+# (Part I, criteria section).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - equals: "a"
+        contains: "b"
+inputs: ["Alice"]

@@ -53,8 +53,13 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
             "several criteria their owner would be ambiguous; move the expectations "
             "into the criterion entries"
         )
-    if not any(c.forms for c in criteria) and not expected_pairs:
-        raise _fail("every criterion declares at least one postcondition form")
+    for criterion in criteria:
+        if not criterion.forms:
+            raise _fail(
+                f"criterion {criterion.name!r} declares no postcondition form — "
+                "every criterion declares at least one form of its own; per-input "
+                "`expected:` entries supplement a criterion's forms, never replace them"
+            )
 
     confidence = data.get("confidence", DEFAULT_CONFIDENCE_LEVEL)
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:

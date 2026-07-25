@@ -1,0 +1,7 @@
+# REFUSED: a per-criterion confidence: is the empirical criterion's
+# alone (Part I, criteria section; clarified 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.95, confidence: 0.99, contains: "ok" }]
+inputs: ["Alice"]

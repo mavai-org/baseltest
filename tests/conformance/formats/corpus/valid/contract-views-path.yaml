@@ -1,0 +1,39 @@
+# The views model (Part I, Views; addressing per II.10): stock transforms
+# (json/xml/yaml), a registered transformation, in:-qualified subjects,
+# path selection in both pinned languages, parses:, and satisfies:.
+format: mavai-contract/1
+contract: order-service-returns-clean-documents
+service: order-service
+transforms:
+  basket: json
+  receipt: xml
+  settings: yaml
+  judged: basket-judge
+criteria:
+  - name: response-is-a-clean-basket
+    threshold: 0.95
+    postconditions:
+      - matches: '^\s*\{'
+      - in: basket
+        path: "$.items[*].name"
+        matches: '\w'
+      - in: judged
+        path: "$.namesUnique"
+        equals: "true"
+  - name: receipt-carries-a-total
+    threshold: 0.9
+    postconditions:
+      - in: receipt
+        path: "/receipt/total"
+        matches: '^\d+\.\d{2}$'
+      - in: settings
+        path: "$.currency"
+        one-of: ["CHF", "EUR"]
+  - name: response-parses-at-all
+    threshold: 0.99
+    postconditions:
+      - parses: basket
+      - satisfies: looks-right
+inputs:
+  - "two bottles of milk"
+  - "a dozen eggs"

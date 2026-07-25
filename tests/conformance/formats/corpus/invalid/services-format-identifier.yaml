@@ -1,0 +1,7 @@
+# REFUSED: format: must be mavai-services/1 (II.5).
+format: mavai-services/2
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."

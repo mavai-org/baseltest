@@ -1,0 +1,6 @@
+# REFUSED: a threshold is a rate in (0, 1) (Part I, criteria section).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 1.5, contains: "ok" }]
+inputs: ["Alice"]

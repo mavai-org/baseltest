@@ -1,0 +1,8 @@
+# REFUSED: the system prompt is the defining covariate of a
+# language-model-backed service — required (II.3).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      model: gpt-4o-mini

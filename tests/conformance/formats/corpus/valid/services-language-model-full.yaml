@@ -1,0 +1,33 @@
+# The full language-model configuration surface (§II.3, incl. the
+# client-factors amendment 2026-07-17 and the capabilities allowance
+# 2026-07-25): every declarable parameter in one block.
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: >
+        You translate shopping instructions into a JSON basket.
+        Respond with only a JSON object.
+      provider: openai
+      model: gpt-4o-mini
+      temperature: 0.2
+      top-p: 0.9
+      thinking: none
+      prompt-caching: false
+      max-tokens: 8000
+      capabilities: [image-input, response-schema]
+      response-schema:
+        type: object
+        additionalProperties: false
+        required: [items]
+        properties:
+          items:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [name, quantity]
+              properties:
+                name: { type: string }
+                quantity: { type: integer }

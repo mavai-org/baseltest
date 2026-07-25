@@ -1,0 +1,12 @@
+# REFUSED: max-iterations is a positive integer (Part I, optimizations).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+      temperature: 0.2
+    optimizations:
+      - stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        max-iterations: 0

@@ -1,0 +1,11 @@
+# REFUSED: a reserved extension seam, rejected with the seam pointer,
+# never silently ignored (Part III).
+format: mavai-contract/1
+contract: c
+service: s
+facets:
+  refund:
+    inputs: ["refund my order"]
+    criteria: [{ threshold: 0.9, matches: "RF-\\d+" }]
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

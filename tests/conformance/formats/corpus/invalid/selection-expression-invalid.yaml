@@ -1,0 +1,14 @@
+# REFUSED (semantic): a selection expression that does not parse in its
+# view's language — JSONPath per RFC 9535 (II.10, load-time validation).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  basket: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: basket
+        path: "$["
+        contains: "milk"
+inputs: ["Alice"]

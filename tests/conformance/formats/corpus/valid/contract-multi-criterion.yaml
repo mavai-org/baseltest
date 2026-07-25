@@ -1,0 +1,22 @@
+# Several criteria are several Bernoulli streams over one run (Part I,
+# criteria section): a thresholded (normative) criterion beside an
+# unthresholded (empirical) one, and an entry combining a direct form
+# with a postconditions list.
+format: mavai-contract/1
+contract: fortune-teller-is-usually-encouraging
+service: fortune-teller
+criteria:
+  - name: fortune-is-delivered
+    threshold: 0.8
+    matches: "fortune|favour|surprise"
+  - name: spirits-stay-polite
+    contains: "."
+  - name: fortune-is-substantial
+    threshold: 0.6
+    contains: "you"
+    postconditions:
+      - matches: "\\w{3,}"
+inputs:
+  - "Alice"
+  - "Bob"
+  - "Chandrima"

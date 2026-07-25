@@ -1,0 +1,8 @@
+# REFUSED: kind: is withdrawn — the run mode is the invocation verb
+# (Part V, run-mode amendment).
+format: mavai-contract/1
+contract: c
+service: s
+kind: test
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

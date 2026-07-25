@@ -1,0 +1,12 @@
+# REFUSED: an id is letters, digits, dots, underscores, or hyphens — it
+# names the artefact file (Part I, optimizations).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+    optimizations:
+      - id: "has spaces"
+        stepper: linear-sweep
+        max-iterations: 5

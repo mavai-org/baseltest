@@ -1,0 +1,13 @@
+# REFUSED: only a string form may carry path: (Part I, subject rule).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  basket: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: basket
+        path: "$.items"
+        satisfies: looks-right
+inputs: ["Alice"]

@@ -1,0 +1,8 @@
+# REFUSED: the supported percentiles are p50/p90/p95/p99 (Part III, latency).
+format: mavai-contract/1
+contract: c
+service: s
+latency:
+  empirical: [p42]
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

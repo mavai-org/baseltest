@@ -1,0 +1,14 @@
+# A user-registered configurable type (§II.7): the factory's signature is
+# the configuration schema, values are scalars, and the grid semantics
+# apply through the same generic layer. This file presumes a user type
+# named triage is registered (see the manifest's requires field).
+format: mavai-services/1
+services:
+  triage-assistant:
+    type: triage
+    configuration:
+      tone: matter-of-fact
+      certainty: 0.9
+    explorations:
+      - certainty: 0.7
+      - tone: reassuring

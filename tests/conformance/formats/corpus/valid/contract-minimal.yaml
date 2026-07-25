@@ -1,0 +1,12 @@
+# The specification's own minimal contract (Part I): header, one criterion,
+# three inputs. A first green result requires nothing beyond this.
+format: mavai-contract/1
+contract: greeting-service-is-polite
+service: greeting-service
+criteria:
+  - threshold: 0.95
+    contains: "hello"
+inputs:
+  - "Alice"
+  - "Bob"
+  - "Charlie"

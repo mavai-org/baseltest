@@ -1,0 +1,11 @@
+# REFUSED (semantic): an entry restating baseline values resolves to
+# the same covariate point — one population, one grid point (II.6).
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+      temperature: 0.2
+    explorations:
+      - temperature: 0.2

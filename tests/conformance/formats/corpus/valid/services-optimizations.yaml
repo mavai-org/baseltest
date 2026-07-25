@@ -1,0 +1,29 @@
+# The optimizations section (Part I, amendment 2026-07-25): two entries
+# with distinct ids — a meta-LLM prompt engineer and a linear sweep with
+# an iteration-0 overlay. Stepper names resolve against the reader's
+# registry; this file presumes the named steppers are registered (see the
+# manifest's requires field).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You translate shopping instructions into a JSON basket."
+      temperature: 0.2
+    optimizations:
+      - id: prompt-tuning
+        stepper: prompt-engineer
+        stepper-config:
+          model: gpt-4o
+          temperature: 0.1
+          max-exemplars: 1
+        scorer: pass-rate
+        objective: maximize
+        max-iterations: 8
+        no-improvement-window: 2
+      - id: temperature-linear
+        stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        initial: { temperature: 0.0 }
+        max-iterations: 11
+        no-improvement-window: 3

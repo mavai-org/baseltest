@@ -1,0 +1,7 @@
+# REFUSED: tolerate: beside threshold: — a stipulated bar has no
+# baseline claim to protect (Part I, criteria section).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.95, tolerate: 0.9, contains: "ok" }]
+inputs: ["Alice"]

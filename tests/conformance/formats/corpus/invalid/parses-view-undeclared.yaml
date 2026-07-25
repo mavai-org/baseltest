@@ -1,0 +1,9 @@
+# REFUSED (semantic): parses: references an undeclared view (II.10).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - parses: basket
+inputs: ["Alice"]

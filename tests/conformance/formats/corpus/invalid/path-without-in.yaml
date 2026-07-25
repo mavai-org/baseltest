@@ -1,0 +1,11 @@
+# REFUSED: path: requires an in: naming a declared view — the raw
+# response is unstructured text (Part I, subject rule).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - path: "$.items[*].name"
+        matches: '\w'
+inputs: ["Alice"]

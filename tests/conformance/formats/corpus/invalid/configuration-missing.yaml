@@ -1,0 +1,6 @@
+# REFUSED: a configuration: block is required — the complete set of
+# covariate values the service runs under (Part I).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model

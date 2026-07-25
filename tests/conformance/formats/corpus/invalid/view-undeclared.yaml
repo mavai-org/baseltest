@@ -1,0 +1,11 @@
+# REFUSED (semantic): in: names an undeclared view (II.10, load-time
+# validation). Structurally well-formed — the schema accepts it.
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: basket
+        contains: "milk"
+inputs: ["Alice"]

@@ -1,0 +1,10 @@
+# REFUSED: stepper: is required — the registered name of the proposing
+# algorithm (Part I, optimizations).
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You build baskets."
+    optimizations:
+      - max-iterations: 5

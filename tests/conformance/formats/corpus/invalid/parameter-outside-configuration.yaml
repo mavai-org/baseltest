@@ -1,0 +1,9 @@
+# REFUSED: no parameter lives outside the configuration block —
+# covariates are communicated one way, uniformly (Part I; II.5).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    temperature: 0.2
+    configuration:
+      system-prompt: "You are a polite greeter."

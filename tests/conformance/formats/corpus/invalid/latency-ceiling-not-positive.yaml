@@ -1,0 +1,9 @@
+# REFUSED: a ceiling is a positive whole number of milliseconds
+# (Part III, latency).
+format: mavai-contract/1
+contract: c
+service: s
+latency:
+  p95: 0
+criteria: [{ threshold: 0.9, contains: "ok" }]
+inputs: ["Alice"]

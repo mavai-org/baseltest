@@ -1,0 +1,7 @@
+# REFUSED: threshold-origin is the closed set sla/slo/policy
+# (Part III, threshold provenance; clarified 2026-07-25).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ threshold: 0.95, threshold-origin: contract, contains: "ok" }]
+inputs: ["Alice"]

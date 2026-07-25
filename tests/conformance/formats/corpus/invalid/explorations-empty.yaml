@@ -1,0 +1,8 @@
+# REFUSED: explorations: is a non-empty list of delta entries (Part I; II.6).
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+    explorations: []

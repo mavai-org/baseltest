@@ -41,6 +41,19 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
     form = keys.pop()
     if form not in _FORM_KEYS:
         raise _fail(f"{where}: unknown postcondition form `{form}`")
+    argument = entry[form]
+    if form == "one-of":
+        if (
+            not isinstance(argument, list)
+            or not argument
+            or not all(isinstance(item, str) for item in argument)
+        ):
+            raise _fail(f"{where}: `one-of:` takes a non-empty list of strings")
+    elif form in ("equals", "contains", "matches"):
+        if not isinstance(argument, str):
+            raise _fail(f"{where}: `{form}:` takes a string")
+    elif form == "satisfies" and (not isinstance(argument, str) or not argument):
+        raise _fail(f"{where}: `satisfies:` names a check registered in code")
     if path is not None:
         if form not in _STRING_FORMS:
             raise _fail(f"{where}: `path:` qualifies the string forms only")

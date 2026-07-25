@@ -1,0 +1,172 @@
+# The conformance-corpus manifest: every corpus file with its expected
+# outcome, and the refusal-category registry the outcomes reference.
+#
+# BINDING vs INFORMATIONAL (the family's published-but-unconsumed-truth
+# remedy): for every case, the outcome (loads / refused) and — for
+# refusals — the category are BINDING on every consuming framework; the
+# wording of refusal messages is INFORMATIONAL (each framework speaks its
+# own author vocabulary). A consumer's format-conformance run diffs the
+# assertions it actually made against these binding obligations, so
+# selective assertion fails the build.
+#
+# Categories carry their mandating spec section (the prose format
+# specifications in the family's internal requirements catalog) and a
+# refusal classification consumed by scripts/validate_formats.R:
+#   structural — the published JSON Schema refuses the file
+#   semantic   — the schema (deliberately) accepts it; the refusal is the
+#                consuming loader's obligation
+#
+# ENVIRONMENT: corpus outcomes hold under an empty user-registration
+# environment plus each case's requires: list — registered artefacts a
+# consumer provisions before loading that case (stepper:<name>,
+# scorer:<name>, transform:<name>, check:<name>, type:<name>). A named
+# requirement mirrors the reader's own registration idiom; the corpus
+# never prescribes host-language code.
+
+covers:
+  - mavai-contract/1
+  - mavai-services/1
+
+categories:
+  # ── mavai-contract/1 ──────────────────────────────────────────────
+  format-identifier: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Keys)", refusal: structural }
+  missing-required-key: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Keys)", refusal: structural }
+  unknown-key: { spec: "MAVAI-CONTRACT-FORMAT.md Part I; §II.5", refusal: structural }
+  reserved-seam-key: { spec: "MAVAI-CONTRACT-FORMAT.md Part III", refusal: structural }
+  withdrawn-sizing-key: { spec: "MAVAI-CONTRACT-FORMAT.md §II.4", refusal: structural }
+  withdrawn-run-mode-key: { spec: "MAVAI-CONTRACT-FORMAT.md Part V (run-mode amendment)", refusal: structural }
+  threshold-range: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
+  threshold-empirical-reserved: { spec: "MAVAI-CONTRACT-FORMAT.md Part III", refusal: structural }
+  tolerate-with-threshold: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
+  criterion-confidence-with-threshold: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria, 2026-07-25)", refusal: structural }
+  threshold-origin-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (provenance, 2026-07-25)", refusal: structural }
+  criterion-without-form: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria, 2026-07-25)", refusal: structural }
+  postcondition-form-cardinality: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
+  path-without-in: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule)", refusal: structural }
+  path-on-non-string-form: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule)", refusal: structural }
+  parses-with-in: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-25)", refusal: structural }
+  parses-in-expected: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions, 2026-07-25)", refusal: structural }
+  raw-view-declared: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Views); §II.10", refusal: structural }
+  inputs-empty: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Keys); §II.4", refusal: structural }
+  criteria-empty: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
+  input-list-mixed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input values, 2026-07-25)", refusal: structural }
+  input-part-unknown: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input values, 2026-07-25)", refusal: structural }
+  input-entry-extra-key: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions)", refusal: structural }
+  intent-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Keys)", refusal: structural }
+  confidence-range: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (Keys); §II.4", refusal: structural }
+  latency-shape-contradiction: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
+  latency-without-bounds: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
+  latency-ceiling-not-positive: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
+  latency-percentile-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
+  view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
+  parses-view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
+  expected-requires-single-criterion: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions)", refusal: semantic }
+  selection-expression-invalid: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
+  latency-ceilings-decreasing: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: semantic }
+  input-file-unreadable: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input values, 2026-07-25)", refusal: semantic }
+  # ── mavai-services/1 ──────────────────────────────────────────────
+  services-format-identifier: { spec: "MAVAI-SERVICES-FORMAT.md §II.5", refusal: structural }
+  services-block-missing: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.5", refusal: structural }
+  configuration-missing: { spec: "MAVAI-SERVICES-FORMAT.md Part I", refusal: structural }
+  parameter-outside-configuration: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.5", refusal: structural }
+  definition-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.5", refusal: structural }
+  top-level-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.5", refusal: structural }
+  lm-system-prompt-missing: { spec: "MAVAI-SERVICES-FORMAT.md §II.3", refusal: structural }
+  lm-configuration-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.3", refusal: structural }
+  lm-provider-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.3", refusal: structural }
+  lm-thinking-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
+  lm-top-p-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
+  lm-prompt-caching-type: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
+  lm-max-tokens-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (max-tokens, 2026-07-25)", refusal: structural }
+  lm-capabilities-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (capabilities, 2026-07-25)", refusal: structural }
+  explorations-empty: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6", refusal: structural }
+  exploration-entry-null-value: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6", refusal: structural }
+  optimization-entry-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
+  optimization-stepper-missing: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
+  optimization-max-iterations-missing: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
+  optimization-max-iterations-not-positive: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
+  optimization-id-shape: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
+  type-unresolved: { spec: "MAVAI-SERVICES-FORMAT.md §II.7", refusal: semantic }
+  exploration-duplicate-point: { spec: "MAVAI-SERVICES-FORMAT.md §II.6", refusal: semantic }
+  optimization-duplicate-id: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
+  optimization-id-required-when-multiple: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
+  optimization-initial-restates-baseline: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
+
+corpus:
+  # ── valid/ ────────────────────────────────────────────────────────
+  - { file: contract-minimal.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I" }
+  - { file: contract-multi-criterion.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)" }
+  - { file: contract-views-path.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (Views); §II.10", requires: ["transform:basket-judge", "check:looks-right"] }
+  - { file: contract-per-input-expected.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions)" }
+  - { file: contract-provenance-and-claims.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria); Part III (provenance)" }
+  - { file: contract-latency-explicit.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)" }
+  - { file: contract-latency-empirical.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)" }
+  - { file: contract-file-inputs.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (input values, 2026-07-25)" }
+  - { file: services-minimal.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I" }
+  - { file: services-language-model-full.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.3" }
+  - { file: services-explorations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6" }
+  - { file: services-optimizations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", requires: ["stepper:prompt-engineer", "stepper:linear-sweep", "scorer:pass-rate"] }
+  - { file: services-user-type.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.7", requires: ["type:triage"] }
+  # ── invalid/ — mavai-contract/1 ───────────────────────────────────
+  - { file: format-identifier.yaml, format: mavai-contract/1, outcome: refused, category: format-identifier }
+  - { file: missing-required-key.yaml, format: mavai-contract/1, outcome: refused, category: missing-required-key }
+  - { file: unknown-key.yaml, format: mavai-contract/1, outcome: refused, category: unknown-key }
+  - { file: reserved-seam-key.yaml, format: mavai-contract/1, outcome: refused, category: reserved-seam-key }
+  - { file: withdrawn-sizing-key.yaml, format: mavai-contract/1, outcome: refused, category: withdrawn-sizing-key }
+  - { file: withdrawn-run-mode-key.yaml, format: mavai-contract/1, outcome: refused, category: withdrawn-run-mode-key }
+  - { file: threshold-range.yaml, format: mavai-contract/1, outcome: refused, category: threshold-range }
+  - { file: threshold-empirical-reserved.yaml, format: mavai-contract/1, outcome: refused, category: threshold-empirical-reserved }
+  - { file: tolerate-with-threshold.yaml, format: mavai-contract/1, outcome: refused, category: tolerate-with-threshold }
+  - { file: criterion-confidence-with-threshold.yaml, format: mavai-contract/1, outcome: refused, category: criterion-confidence-with-threshold }
+  - { file: threshold-origin-vocabulary.yaml, format: mavai-contract/1, outcome: refused, category: threshold-origin-vocabulary }
+  - { file: criterion-without-form.yaml, format: mavai-contract/1, outcome: refused, category: criterion-without-form }
+  - { file: postcondition-form-cardinality.yaml, format: mavai-contract/1, outcome: refused, category: postcondition-form-cardinality }
+  - { file: path-without-in.yaml, format: mavai-contract/1, outcome: refused, category: path-without-in }
+  - { file: path-on-non-string-form.yaml, format: mavai-contract/1, outcome: refused, category: path-on-non-string-form }
+  - { file: parses-with-in.yaml, format: mavai-contract/1, outcome: refused, category: parses-with-in }
+  - { file: parses-in-expected.yaml, format: mavai-contract/1, outcome: refused, category: parses-in-expected }
+  - { file: raw-view-declared.yaml, format: mavai-contract/1, outcome: refused, category: raw-view-declared }
+  - { file: inputs-empty.yaml, format: mavai-contract/1, outcome: refused, category: inputs-empty }
+  - { file: criteria-empty.yaml, format: mavai-contract/1, outcome: refused, category: criteria-empty }
+  - { file: input-list-mixed.yaml, format: mavai-contract/1, outcome: refused, category: input-list-mixed }
+  - { file: input-part-unknown.yaml, format: mavai-contract/1, outcome: refused, category: input-part-unknown }
+  - { file: input-entry-extra-key.yaml, format: mavai-contract/1, outcome: refused, category: input-entry-extra-key }
+  - { file: intent-vocabulary.yaml, format: mavai-contract/1, outcome: refused, category: intent-vocabulary }
+  - { file: confidence-range.yaml, format: mavai-contract/1, outcome: refused, category: confidence-range }
+  - { file: latency-shape-contradiction.yaml, format: mavai-contract/1, outcome: refused, category: latency-shape-contradiction }
+  - { file: latency-without-bounds.yaml, format: mavai-contract/1, outcome: refused, category: latency-without-bounds }
+  - { file: latency-ceiling-not-positive.yaml, format: mavai-contract/1, outcome: refused, category: latency-ceiling-not-positive }
+  - { file: latency-percentile-vocabulary.yaml, format: mavai-contract/1, outcome: refused, category: latency-percentile-vocabulary }
+  - { file: view-undeclared.yaml, format: mavai-contract/1, outcome: refused, category: view-undeclared }
+  - { file: parses-view-undeclared.yaml, format: mavai-contract/1, outcome: refused, category: parses-view-undeclared }
+  - { file: expected-requires-single-criterion.yaml, format: mavai-contract/1, outcome: refused, category: expected-requires-single-criterion }
+  - { file: selection-expression-invalid.yaml, format: mavai-contract/1, outcome: refused, category: selection-expression-invalid }
+  - { file: latency-ceilings-decreasing.yaml, format: mavai-contract/1, outcome: refused, category: latency-ceilings-decreasing }
+  - { file: input-file-unreadable.yaml, format: mavai-contract/1, outcome: refused, category: input-file-unreadable }
+  # ── invalid/ — mavai-services/1 ───────────────────────────────────
+  - { file: services-format-identifier.yaml, format: mavai-services/1, outcome: refused, category: services-format-identifier }
+  - { file: services-block-missing.yaml, format: mavai-services/1, outcome: refused, category: services-block-missing }
+  - { file: configuration-missing.yaml, format: mavai-services/1, outcome: refused, category: configuration-missing }
+  - { file: parameter-outside-configuration.yaml, format: mavai-services/1, outcome: refused, category: parameter-outside-configuration }
+  - { file: definition-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: definition-unknown-key }
+  - { file: top-level-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: top-level-unknown-key }
+  - { file: lm-system-prompt-missing.yaml, format: mavai-services/1, outcome: refused, category: lm-system-prompt-missing }
+  - { file: lm-configuration-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: lm-configuration-unknown-key }
+  - { file: lm-provider-vocabulary.yaml, format: mavai-services/1, outcome: refused, category: lm-provider-vocabulary }
+  - { file: lm-thinking-vocabulary.yaml, format: mavai-services/1, outcome: refused, category: lm-thinking-vocabulary }
+  - { file: lm-top-p-range.yaml, format: mavai-services/1, outcome: refused, category: lm-top-p-range }
+  - { file: lm-prompt-caching-type.yaml, format: mavai-services/1, outcome: refused, category: lm-prompt-caching-type }
+  - { file: lm-max-tokens-range.yaml, format: mavai-services/1, outcome: refused, category: lm-max-tokens-range }
+  - { file: lm-capabilities-vocabulary.yaml, format: mavai-services/1, outcome: refused, category: lm-capabilities-vocabulary }
+  - { file: explorations-empty.yaml, format: mavai-services/1, outcome: refused, category: explorations-empty }
+  - { file: exploration-entry-null-value.yaml, format: mavai-services/1, outcome: refused, category: exploration-entry-null-value }
+  - { file: optimization-entry-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: optimization-entry-unknown-key }
+  - { file: optimization-stepper-missing.yaml, format: mavai-services/1, outcome: refused, category: optimization-stepper-missing }
+  - { file: optimization-max-iterations-missing.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-missing, requires: ["stepper:linear-sweep"] }
+  - { file: optimization-max-iterations-not-positive.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-not-positive, requires: ["stepper:linear-sweep"] }
+  - { file: optimization-id-shape.yaml, format: mavai-services/1, outcome: refused, category: optimization-id-shape }
+  - { file: type-unresolved.yaml, format: mavai-services/1, outcome: refused, category: type-unresolved }
+  - { file: exploration-duplicate-point.yaml, format: mavai-services/1, outcome: refused, category: exploration-duplicate-point }
+  - { file: optimization-duplicate-id.yaml, format: mavai-services/1, outcome: refused, category: optimization-duplicate-id }
+  - { file: optimization-id-required-when-multiple.yaml, format: mavai-services/1, outcome: refused, category: optimization-id-required-when-multiple }
+  - { file: optimization-initial-restates-baseline.yaml, format: mavai-services/1, outcome: refused, category: optimization-initial-restates-baseline, requires: ["stepper:linear-sweep"] }

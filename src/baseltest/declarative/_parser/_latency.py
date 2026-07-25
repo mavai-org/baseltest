@@ -9,6 +9,7 @@ from typing import Any
 
 from baseltest.contract import PERCENTILE_LEVELS
 
+from ._criteria import THRESHOLD_ORIGINS
 from ._model import LatencyDeclaration
 from ._shape import _fail, _require_mapping
 
@@ -93,8 +94,11 @@ def _parse_latency(data: dict[str, Any]) -> LatencyDeclaration | None:
         raise _fail("`latency: confidence:` must be a number in (0, 1)")
 
     origin = block.get("threshold-origin")
-    if origin is not None and (not isinstance(origin, str) or not origin):
-        raise _fail("`latency: threshold-origin:` must be a non-empty string")
+    if origin is not None and origin not in THRESHOLD_ORIGINS:
+        raise _fail(
+            "`latency: threshold-origin:` names the bar's provenance category — "
+            f"one of {', '.join(THRESHOLD_ORIGINS)} — got {origin!r}"
+        )
     contract_ref = block.get("contract-ref")
     if contract_ref is not None and (not isinstance(contract_ref, str) or not contract_ref):
         raise _fail("`latency: contract-ref:` must be a non-empty string")
