@@ -118,6 +118,10 @@ class TestVerdictRecord:
         assert clauses and all(int(c.get("count") or 0) > 0 for c in clauses)
 
     def test_validates_against_the_family_xsd_when_xmllint_available(self, tmp_path: Path) -> None:
+        # The XSD is this package's own vendored snapshot of the published
+        # family schema (tests/conformance/interchange/, pinned per mavai-R
+        # release) — never another framework's embedded copy reached across
+        # repositories, which only resolved in one workspace layout.
         import shutil
         import subprocess
 
@@ -125,11 +129,12 @@ class TestVerdictRecord:
 
         xmllint = shutil.which("xmllint")
         xsd = (
-            Path(__file__).resolve().parents[3]
-            / "punit/punit-report/src/main/resources/org/mavai/punit/report/verdict-1.2.xsd"
+            Path(__file__).resolve().parents[1]
+            / "conformance/interchange/verdict-1.2.xsd"
         )
-        if xmllint is None or not xsd.is_file():
-            pytest.skip("xmllint or the family XSD not available on this machine")
+        assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
+        if xmllint is None:
+            pytest.skip("xmllint not available on this machine")
         record = tmp_path / "record.xml"
         record.write_text(render_verdict_record(run_result()), encoding="utf-8")
         completed = subprocess.run(
