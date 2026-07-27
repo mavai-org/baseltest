@@ -439,9 +439,26 @@ class TestOtherVerbsIgnoreTheGrid:
         text_a = next((tmp_path / "a").glob("*.yaml")).read_text(encoding="utf-8")
         text_b = next((tmp_path / "b").glob("*.yaml")).read_text(encoding="utf-8")
 
-        # Identical artefacts modulo the timestamp line: the grid leaves no trace.
+        # Identical artefacts modulo what two honest runs cannot share: the
+        # timestamp line and the measured latency block (real wall-clock
+        # values — on a slow runner one sample's 0ms is another's 1ms). The
+        # grid leaves no trace in everything that remains.
         def strip(text: str) -> list[str]:
-            return [line for line in text.splitlines() if not line.startswith("generatedAt")]
+            lines: list[str] = []
+            latency_indent: int | None = None
+            for line in text.splitlines():
+                indent = len(line) - len(line.lstrip())
+                if latency_indent is not None:
+                    if line.strip() and indent > latency_indent:
+                        continue
+                    latency_indent = None
+                if line.startswith("generatedAt"):
+                    continue
+                if line.strip() == "latency:":
+                    latency_indent = indent
+                    continue
+                lines.append(line)
+            return lines
 
         assert strip(text_a) == strip(text_b)
         assert result_a.plan.samples == result_b.plan.samples
