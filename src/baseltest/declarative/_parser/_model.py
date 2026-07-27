@@ -34,6 +34,7 @@ class Form(StrEnum):
     NOT_EQUALS = "not-equals"
     EQUALS_CI = "equals-ci"
     IS_NULL = "is-null"
+    IS = "is"
     EQUALS_SET = "equals-set"
     CONTAINS_SET = "contains-set"
     COUNT_EQUALS = "count-equals"

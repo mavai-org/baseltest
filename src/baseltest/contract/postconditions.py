@@ -299,6 +299,23 @@ def is_null(view: str = "raw") -> Postcondition:
     return Postcondition(name="is-null", check=check, view=view)
 
 
+def is_(operand: bool, view: str = "raw") -> Postcondition:
+    """The subject is JSON ``true``/``false`` **by identity** — never the
+    strings ``"true"``/``"false"`` or the numbers 1/0."""
+
+    def check(subject: Any) -> PostconditionResult:
+        if isinstance(subject, bool):
+            if subject == operand:
+                return PostconditionResult.ok()
+            return PostconditionResult.failed(f"value is {subject}, not {operand}")
+        return PostconditionResult.failed(
+            f"is: subject {subject!r} ({type(subject).__name__}) is not a boolean — "
+            "the form judges JSON true/false by identity"
+        )
+
+    return Postcondition(name=f"is {operand}", check=check, view=view)
+
+
 def _element_key(value: Any) -> tuple[str, Any]:
     """A selected or operand element under strict JSON-value equality.
 

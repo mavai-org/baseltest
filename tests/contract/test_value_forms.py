@@ -10,6 +10,7 @@ from baseltest.contract import (
     equals_set,
     ge,
     gt,
+    is_,
     is_null,
     le,
     lt,
@@ -102,6 +103,22 @@ class TestIsNull:
     def test_other_values_do_not(self) -> None:
         assert not is_null().evaluate(0).passed
         assert not is_null().evaluate("").passed
+
+
+class TestIs:
+    def test_boolean_identity(self) -> None:
+        assert is_(True).evaluate(True).passed
+        assert is_(False).evaluate(False).passed
+        assert not is_(True).evaluate(False).passed
+
+    def test_never_the_string_or_numeric_projection(self) -> None:
+        for subject in ("true", "false", 1, 0, None):
+            result = is_(True).evaluate(subject)
+            assert not result.passed
+            assert result.reason is not None
+        # The projections are type failures, not mere mismatches.
+        assert "not a boolean" in str(is_(True).evaluate("true").reason)
+        assert "not a boolean" in str(is_(False).evaluate(0).reason)
 
 
 class TestEqualsSet:

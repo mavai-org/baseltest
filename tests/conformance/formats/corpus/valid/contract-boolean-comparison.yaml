@@ -1,0 +1,30 @@
+# The boolean comparison form (Part I, boolean comparison, 2026-07-27):
+# `is:` judges boolean identity — the subject must be JSON true/false
+# itself, never the strings "true"/"false" or the numbers 1/0. Universal
+# over a multi-valued selection like the other scalar value forms, and
+# legal per input.
+format: mavai-contract/1
+contract: annotator-flags-coverage
+service: buildings-annotator
+transforms:
+  doc: json
+criteria:
+  - name: coverage-flags-match-the-document
+    threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.buildings[0].isIncluded"
+        is: true
+      - in: doc
+        path: "$.buildings[1].isIncluded"
+        is: false
+      - in: doc
+        path: "$.buildings[*].isInsured"
+        is: true
+inputs:
+  - "annotate the sample lease"
+  - input: "annotate the vacant-unit lease"
+    expected:
+      - in: doc
+        path: "$.buildings[0].isOccupied"
+        is: false
