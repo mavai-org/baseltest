@@ -60,6 +60,7 @@ def test_form_values() -> None:
         "not-equals",
         "equals-ci",
         "is-null",
+        "is",
         "equals-set",
         "contains-set",
         "count-equals",

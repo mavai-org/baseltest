@@ -27,6 +27,7 @@ from baseltest.contract import (
     equals_set,
     ge,
     gt,
+    is_,
     is_null,
     le,
     lt,
@@ -70,6 +71,8 @@ def _form_source(declaration: FormDeclaration) -> str:
         base = f"equals_ci({str(argument)!r})"
     elif declaration.form is Form.IS_NULL:
         base = "is_null()"
+    elif declaration.form is Form.IS:
+        base = f"is_({bool(declaration.argument)!r})"
     elif declaration.form is Form.EQUALS_SET:
         base = f"equals_set({list(argument)!r})"
     elif declaration.form is Form.CONTAINS_SET:

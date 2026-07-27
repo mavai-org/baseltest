@@ -41,6 +41,7 @@ _CRITERION_KEYS = {
     "not-equals",
     "equals-ci",
     "is-null",
+    "is",
 }
 
 

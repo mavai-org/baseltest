@@ -1,0 +1,15 @@
+# REFUSED: `is:` takes a boolean operand and nothing else — a quoted
+# "true" is the string forms' business, and no projection footgun can
+# arise (Part I, boolean comparison, 2026-07-27).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.isIncluded"
+        is: "true"
+inputs: ["Alice"]

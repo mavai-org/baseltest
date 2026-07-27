@@ -27,6 +27,7 @@ from baseltest.contract import (
     equals_set,
     ge,
     gt,
+    is_,
     is_null,
     le,
     lt,
@@ -68,6 +69,7 @@ _SCALAR_VALUE_FORMS: dict[str, Callable[..., Postcondition]] = {
     "not-equals": lambda arg, view: not_equals(str(arg), view=view),
     "equals-ci": lambda arg, view: equals_ci(str(arg), view=view),
     "is-null": lambda arg, view: is_null(view=view),
+    "is": lambda arg, view: is_(bool(arg), view=view),
 }
 
 # Collective set forms: the whole selection at once. The parser guarantees

@@ -90,8 +90,31 @@ class TestParsingRefusals:
         message = self.refusal('criteria:\n  - threshold: 0.9\n    equals-set: ["a"]')
         assert "unknown key" in message
 
+    def test_is_takes_a_boolean_only(self) -> None:
+        for operand in ('"true"', "1", "null"):
+            message = self.refusal(
+                "criteria:\n  - threshold: 0.9\n    postconditions:\n"
+                f'      - {{in: doc, path: "$.flag", is: {operand}}}'
+            )
+            assert "`is:` takes a boolean" in message
+
+    def test_bare_equals_true_refusal_names_is(self) -> None:
+        message = self.refusal(
+            "criteria:\n  - threshold: 0.9\n    postconditions:\n"
+            '      - {in: doc, path: "$.flag", equals: true}'
+        )
+        assert "`is: true` / `is: false`" in message
+
+    def test_bare_equals_null_refusal_names_is_null(self) -> None:
+        message = self.refusal(
+            "criteria:\n  - threshold: 0.9\n    postconditions:\n"
+            '      - {in: doc, path: "$.flag", equals: null}'
+        )
+        assert "`is-null: true`" in message
+
 
 DOCUMENT = {
+    "isIncluded": True,
     "premium": 2637.8,
     "holder": "Frau Beispiel",
     "status": "accepted",
@@ -175,9 +198,20 @@ class TestLiteralExpectedValues:
             'criteria:\n  - threshold: 0.5\n    not-equals: "ERROR"\n    postconditions:\n'
             '      - {in: doc, path: "$.premium", eq: 2637.80}\n'
             '      - {in: doc, path: "$.holder", equals-ci: "frau  BEISPIEL"}\n'
-            '      - {in: doc, path: "$.status", not-equals: "declined"}',
+            '      - {in: doc, path: "$.status", not-equals: "declined"}\n'
+            '      - {in: doc, path: "$.isIncluded", is: true}',
         )
         assert held is Verdict.PASS
+
+    def test_is_judges_identity_not_projection(self, tmp_path: Path) -> None:
+        # The status field holds the string "accepted", not a boolean: is
+        # fails it with a type reason rather than coercing anything.
+        failed = run_verdict(
+            tmp_path,
+            "criteria:\n  - threshold: 0.5\n    postconditions:\n"
+            '      - {in: doc, path: "$.status", is: true}',
+        )
+        assert failed is Verdict.FAIL
 
     def test_per_input_expected_takes_the_value_forms(self, tmp_path: Path) -> None:
         contract = """
@@ -203,7 +237,7 @@ class TestMaterialisation:
         declaration = parse_contract(
             contract_with(
                 'criteria:\n  - threshold: 0.5\n    not-equals: "ERROR"\n'
-                "    eq: 42\n    is-null: true\n    postconditions:\n"
+                "    eq: 42\n    is-null: true\n    is: true\n    postconditions:\n"
                 '      - {in: doc, path: "$.rents[*].amount", equals-set: [1200, 950.50]}'
             )
         )
@@ -211,5 +245,6 @@ class TestMaterialisation:
         assert "not_equals('ERROR')" in source
         assert "eq(42)" in source
         assert "is_null()" in source
+        assert "is_(True)" in source
         assert "equals_set([1200, 950.5])" in source
         compile(source, "materialised.py", "exec")

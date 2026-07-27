@@ -20,7 +20,7 @@ _STRING_FORMS = ("equals", "one-of", "contains", "matches")
 _NUMERIC_FORMS = ("eq", "ne", "lt", "le", "gt", "ge")
 # Scalar value forms: universal over a multi-valued selection, like the
 # string forms; path-capable under a declared view.
-_SCALAR_VALUE_FORMS = (*_NUMERIC_FORMS, "not-equals", "equals-ci", "is-null")
+_SCALAR_VALUE_FORMS = (*_NUMERIC_FORMS, "not-equals", "equals-ci", "is-null", "is")
 # Set forms: collective over the selection — they REQUIRE `in:` + `path:`.
 _SET_FORMS = ("equals-set", "contains-set", "count-equals")
 _PATH_FORMS = (*_STRING_FORMS, *_SCALAR_VALUE_FORMS, *_SET_FORMS)
@@ -85,6 +85,18 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
             raise _fail(f"{where}: `one-of:` takes a non-empty list of strings")
     elif form in ("equals", "contains", "matches"):
         if not isinstance(argument, str):
+            # The guiding refusal (boolean amendment, 2026-07-27): the
+            # intuitive-but-refused spellings name the form that expresses
+            # the intent, instead of stranding the author at the type rule.
+            if form == "equals" and isinstance(argument, bool):
+                raise _fail(
+                    f"{where}: `equals:` takes a string — a boolean field is "
+                    "judged with `is: true` / `is: false`"
+                )
+            if form == "equals" and argument is None:
+                raise _fail(
+                    f"{where}: `equals:` takes a string — a null expectation is `is-null: true`"
+                )
             raise _fail(f"{where}: `{form}:` takes a string")
     elif form == "satisfies" and (not isinstance(argument, str) or not argument):
         raise _fail(f"{where}: `satisfies:` names a check registered in code")
@@ -97,6 +109,13 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
     elif form in ("not-equals", "equals-ci"):
         if not isinstance(argument, str):
             raise _fail(f"{where}: `{form}:` takes a string")
+    elif form == "is":
+        if not isinstance(argument, bool):
+            raise _fail(
+                f"{where}: `is:` takes a boolean — it judges JSON true/false by "
+                f"identity, and the string projections belong to `equals:`; got "
+                f"{argument!r}"
+            )
     elif form == "is-null":
         if argument is not True:
             raise _fail(

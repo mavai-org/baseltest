@@ -115,6 +115,7 @@ _CATEGORY_MESSAGES = {
     "value-operand-malformed": "takes a number or a numeric string",
     "is-null-operand": "takes the literal `true`",
     "set-operand-empty": "non-empty list of scalar values",
+    "is-operand-not-boolean": "`is:` takes a boolean",
     # mavai-services/1
     "services-format-identifier": "`format:` must be",
     "services-block-missing": "`services:` must be a non-empty mapping",
