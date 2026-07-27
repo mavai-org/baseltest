@@ -162,10 +162,15 @@ class TestRunDesignRecording:
         parsed = parse_verdict_record(text)
         assert parsed.design == RISK_DRIVEN_DESIGN
 
-    def test_no_design_emits_no_baseline_or_environment(self) -> None:
+    def test_no_design_emits_no_baseline_and_no_sizing_entries(self) -> None:
         root = ElementTree.fromstring(render_verdict_record(run_result()))
         assert root.find(f"{NS}baseline") is None
-        assert root.find(f"{NS}environment") is None
+        # The standings ride the environment entries, so the element exists
+        # even without a recorded design — but nothing sizing-related does.
+        environment = root.find(f"{NS}environment")
+        assert environment is not None
+        keys = {e.get("key") or "" for e in environment.findall(f"{NS}entry")}
+        assert not any(key.startswith("sizing") for key in keys)
         assert parse_verdict_record(render_verdict_record(run_result())).design is None
 
     def test_designed_record_still_validates_against_the_family_xsd(self, tmp_path: Path) -> None:

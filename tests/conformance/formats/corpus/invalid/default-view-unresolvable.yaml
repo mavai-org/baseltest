@@ -1,0 +1,17 @@
+# REFUSED: a path-bearing check omits in: but no default view is
+# resolvable — the criterion declares no parses: form and the contract
+# declares several transforms, so the omission cannot anchor; add in:,
+# or declare parses: on the criterion (Part I, subject rule, 2026-07-27;
+# SII.10 load-time validation). The reader never guesses among views.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  parsed: json
+  receipt: xml
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - path: "$.items[*].name"
+        matches: '\w'
+inputs: ["Alice"]

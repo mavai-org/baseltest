@@ -15,7 +15,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from baseltest.contract import CriterionTally, ServiceContract
+from baseltest.contract import CriterionTally, Outcome, PostconditionStanding, ServiceContract
 from baseltest.statistics.verdict import Verdict
 
 from ..latency import evaluate_latency
@@ -49,27 +49,60 @@ def _run_samples(
 
 def _reduce_samples(
     contract: ServiceContract[Any], outcomes: list[_SampleOutcome]
-) -> tuple[dict[str, CriterionTally], int, tuple[SampleRecord, ...], list[int]]:
-    """Fold sample outcomes into the run's tallies and ordered records.
+) -> tuple[
+    dict[str, CriterionTally],
+    dict[str, tuple[PostconditionStanding, ...]],
+    int,
+    tuple[SampleRecord, ...],
+    list[int],
+]:
+    """Fold sample outcomes into the run's tallies, standings, and records.
 
     Order-independent by construction: outcomes are folded in ascending
-    ordinal, so tallies, per-sample records, and passing durations are
-    identical whatever order the outcomes arrive in — serial today, and a
-    future reordered or parallel execution produce byte-identical artefacts.
+    ordinal, so tallies, standings, per-sample records, and passing
+    durations are identical whatever order the outcomes arrive in — serial
+    today, and a future reordered or parallel execution produce
+    byte-identical artefacts.
+
+    The standings are the per-postcondition aggregation of the evaluations'
+    ``outcomes`` — data every trial already computes — keyed per criterion
+    by ``(input index, check name)``, rows ordered by input then first
+    evaluation. Descriptive only: counts, never inference.
     """
     tallies = {criterion.name: CriterionTally() for criterion in contract.criteria}
+    counts: dict[str, dict[tuple[int, str], list[int]]] = {
+        criterion.name: {} for criterion in contract.criteria
+    }
     overall_successes = 0
     sample_records: list[SampleRecord] = []
     passing_durations_ms: list[int] = []
+    tick = {Outcome.PASSED: 0, Outcome.FAILED: 1, Outcome.SKIPPED: 2}
     for outcome in sorted(outcomes, key=lambda o: o.ordinal):
         for name, evaluation in outcome.evaluations:
             tallies[name].record(evaluation)
+            per_check = counts[name]
+            for check, status in evaluation.outcomes:
+                row = per_check.setdefault((outcome.input_index, check), [0, 0, 0])
+                row[tick[status]] += 1
         overall_successes += int(outcome.trial_passed)
         if outcome.trial_passed:
             passing_durations_ms.append(outcome.duration_ms)
         if outcome.record is not None:
             sample_records.append(outcome.record)
-    return tallies, overall_successes, tuple(sample_records), passing_durations_ms
+    standings = {
+        name: tuple(
+            PostconditionStanding(
+                input_index=input_index,
+                postcondition=check,
+                passed=row[0],
+                failed=row[1],
+                skipped=row[2],
+            )
+            for (input_index, check), row in sorted(per_check.items(), key=lambda item: item[0][0])
+        )
+        for name, per_check in counts.items()
+    }
+    return tallies, standings, overall_successes, tuple(sample_records), passing_durations_ms
 
 
 def execute(
@@ -94,7 +127,7 @@ def execute(
     started_at = datetime.now(tz=UTC)
     outcomes = _run_samples(contract, plan, on_sample, record_samples)
     finished_at = datetime.now(tz=UTC)
-    tallies, overall_successes, sample_records, passing_durations_ms = _reduce_samples(
+    tallies, standings, overall_successes, sample_records, passing_durations_ms = _reduce_samples(
         contract, outcomes
     )
 
@@ -103,7 +136,13 @@ def execute(
         tally = tallies[criterion.name]
         bound, verdict = _judge(criterion, tally)
         results.append(
-            CriterionResult(criterion=criterion, tally=tally, lower_bound=bound, verdict=verdict)
+            CriterionResult(
+                criterion=criterion,
+                tally=tally,
+                lower_bound=bound,
+                verdict=verdict,
+                standings=standings[criterion.name],
+            )
         )
     latency_evaluation = None
     if contract.latency is not None:

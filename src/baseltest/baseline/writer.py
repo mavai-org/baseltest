@@ -81,6 +81,26 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
                 f"      confidence: {c.judgement.confidence}",
             ]
         )
+    if c.standings:
+        # Descriptive triage only — counts and the observed fraction; the
+        # block never carries an interval, threshold, or per-check verdict.
+        # Nested mappings (input index, then check), never a mapping list —
+        # the reader's line parser takes list items as scalars only.
+        lines.append("    postconditionStandings:")
+        current_input: int | None = None
+        for row in c.standings:
+            if row.input_index != current_input:
+                lines.append(f"      {quote(str(row.input_index))}:")
+                current_input = row.input_index
+            lines.extend(
+                [
+                    f"        {quote(bounded_key(row.postcondition))}:",
+                    f"          passed: {row.passed}",
+                    f"          failed: {row.failed}",
+                    f"          skipped: {row.skipped}",
+                    f"          observedFraction: {row.observed_fraction:.6f}",
+                ]
+            )
     return lines
 
 

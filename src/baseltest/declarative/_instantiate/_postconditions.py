@@ -11,10 +11,13 @@ engine judges.
 """
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
+from decimal import Decimal
 from typing import Any
 
 from baseltest.contract import (
     Criterion,
+    OptionalSlack,
     Postcondition,
     PostconditionResult,
     ThresholdProvenance,
@@ -118,6 +121,15 @@ def _compiled_path(
 def _build_form(
     declaration: FormDeclaration, transforms: dict[str, str], where: str, registry: Registry
 ) -> Postcondition:
+    built = _build_form_check(declaration, transforms, where, registry)
+    # The optional mark travels on the built check; the parser has already
+    # refused it on `parses:` (where the transform-failure rule makes it inert).
+    return replace(built, required=False) if declaration.optional else built
+
+
+def _build_form_check(
+    declaration: FormDeclaration, transforms: dict[str, str], where: str, registry: Registry
+) -> Postcondition:
     # The parser resolves the path-conditional default before a declaration
     # reaches instantiation — an unresolved subject cannot arrive here.
     view = declaration.view
@@ -219,6 +231,7 @@ def _dispatch_on_input(input_index: int, inner: Postcondition) -> Postcondition:
         check=check,
         view=inner.view,
         applies_to_input=input_index,
+        required=inner.required,
     )
 
 
@@ -236,6 +249,11 @@ def _build_criterion(
         origin=declaration.threshold_origin or "unspecified",
         contract_ref=declaration.contract_ref,
     )
+    slack = None
+    if isinstance(declaration.optional_slack, int):
+        slack = OptionalSlack(count=declaration.optional_slack)
+    elif isinstance(declaration.optional_slack, Decimal):
+        slack = OptionalSlack(percent=declaration.optional_slack)
     return Criterion(
         name=declaration.name,
         postconditions=tuple(postconditions),
@@ -243,4 +261,5 @@ def _build_criterion(
         # A criterion-level `confidence:` overrides the contract-level one.
         confidence=declaration.confidence if declaration.confidence is not None else confidence,
         provenance=provenance,
+        optional_slack=slack,
     )

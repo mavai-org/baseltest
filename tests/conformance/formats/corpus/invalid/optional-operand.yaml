@@ -1,0 +1,12 @@
+# REFUSED: optional:'s only spelling is the literal true — required is
+# the default, not a spelling, so optional: false is refused (Part I,
+# partial credit, 2026-07-27; the operand discipline mirrors is-null:).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - contains: "ok"
+        optional: false
+inputs: ["Alice"]

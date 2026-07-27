@@ -1,0 +1,15 @@
+# REFUSED: optional-slack admits a non-negative integer count or an
+# explicit percentage with the % suffix — a bare fraction is refused,
+# never guessed at (Part I, partial credit, 2026-07-27; the % suffix is
+# the count/fraction disambiguator).
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    optional-slack: 0.2
+    postconditions:
+      - contains: "ok"
+      - matches: '\w'
+        optional: true
+inputs: ["Alice"]

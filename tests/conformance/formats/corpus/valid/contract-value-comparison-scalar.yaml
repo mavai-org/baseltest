@@ -24,16 +24,16 @@ criteria:
         path: "$.excess"
         eq: "500.00"
       - in: quote
-        path: "$.instalment-fee"
+        path: "$['instalment-fee']"
         ne: 0
       - in: quote
         path: "$.items[*].price"
         ge: 0
       - in: quote
-        path: "$.tax-rate"
+        path: "$['tax-rate']"
         lt: "0.2"
       - in: quote
-        path: "$.term-months"
+        path: "$['term-months']"
         gt: 0
       - in: quote
         path: "$.instalments"
@@ -45,7 +45,7 @@ criteria:
         path: "$.status"
         not-equals: "declined"
       - in: quote
-        path: "$.cancellation-date"
+        path: "$['cancellation-date']"
         is-null: true
 inputs:
   - "quote the sample policy"

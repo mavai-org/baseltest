@@ -63,12 +63,18 @@ class Postcondition:
             reaches ``evaluate`` only on the samples it applies to; it is
             never asked to judge a sample it does not belong to. ``None``
             (the default) means the check applies to every input.
+        required: Whether the check is non-negotiable (the default). An
+            optional check's failure counts against its criterion's
+            optional-slack budget instead of failing the trial outright —
+            partial credit is a double opt-in: marking a check optional
+            weakens nothing until the criterion also declares a budget.
     """
 
     name: str
     check: Callable[[Any], PostconditionResult]
     view: str = "raw"
     applies_to_input: int | None = None
+    required: bool = True
 
     def evaluate(self, subject: Any) -> PostconditionResult:
         """Apply the check to the resolved subject.

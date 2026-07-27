@@ -5,6 +5,8 @@ Key allowlist (with the misplaced-``transform``/``in`` refusals), the
 ``postconditions:`` forms, and the derived default name.
 """
 
+import re
+from decimal import Decimal
 from typing import Any
 
 from ._forms import _FORM_KEYS, _parse_form_entry
@@ -25,6 +27,7 @@ _CRITERION_KEYS = {
     "contract-ref",
     "tolerate",
     "confidence",
+    "optional-slack",
     "postconditions",
     "equals",
     "one-of",
@@ -94,6 +97,8 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
             raise _fail(f"{where}: `confidence:` must be a number in (0, 1)")
         criterion_confidence = float(criterion_confidence)
 
+    optional_slack = _parse_optional_slack(data.get("optional-slack"), where)
+
     origin = data.get("threshold-origin")
     if origin is not None and origin not in THRESHOLD_ORIGINS:
         raise _fail(
@@ -127,4 +132,31 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
         contract_ref=data.get("contract-ref"),
         tolerate=tolerate,
         confidence=criterion_confidence,
+        optional_slack=optional_slack,
+    )
+
+
+_PERCENT_SLACK = re.compile(r"^([0-9]+(?:\.[0-9]+)?)%$")
+
+
+def _parse_optional_slack(value: Any, where: str) -> int | Decimal | None:
+    """The optional-check failure budget: a count, or an explicit percentage.
+
+    The ``%`` suffix is the disambiguator — ``2`` is always a count, ``"2%"``
+    always a fraction of the applicable optional checks (resolved by floor at
+    evaluation time). A bare fraction, a negative value, or a non-integer
+    count is refused, never guessed at.
+    """
+    if value is None:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if isinstance(value, str):
+        match = _PERCENT_SLACK.match(value.strip())
+        if match:
+            return Decimal(match.group(1))
+    raise _fail(
+        f"{where}: `optional-slack:` takes a non-negative whole count of optional "
+        f"checks that may fail, or an explicit percentage like `20%` — got {value!r} "
+        "(a bare fraction is never guessed at)"
     )

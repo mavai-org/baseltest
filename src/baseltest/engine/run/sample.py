@@ -40,14 +40,21 @@ class _SampleOutcome:
     """
 
     ordinal: int
+    input_index: int
     evaluations: tuple[tuple[str, TrialEvaluation], ...]
     trial_passed: bool
     duration_ms: int
     record: SampleRecord | None
 
 
-def _skipped_outcomes(criterion: Criterion) -> tuple[tuple[str, Outcome], ...]:
-    return tuple((p.name, Outcome.SKIPPED) for p in criterion.postconditions)
+def _skipped_outcomes(criterion: Criterion, input_index: int) -> tuple[tuple[str, Outcome], ...]:
+    """Every check applicable to this input, recorded skipped.
+
+    Applicable checks only: another input's per-input expectation is not
+    part of this trial at all, so an undelivered response skips exactly the
+    checks a delivered one would have been judged against.
+    """
+    return tuple((p.name, Outcome.SKIPPED) for p in criterion.postconditions_for(input_index))
 
 
 def _failed_delivery_record(
@@ -56,7 +63,7 @@ def _failed_delivery_record(
     """The per-sample record of an undelivered response: no content, all skipped."""
     outcomes: list[tuple[str, Outcome]] = []
     for criterion in contract.criteria:
-        outcomes.extend(_skipped_outcomes(criterion))
+        outcomes.extend(_skipped_outcomes(criterion, input_index))
     return SampleRecord(
         input_index=input_index,
         postconditions=tuple(outcomes),
@@ -79,13 +86,16 @@ def _failed_delivery_outcome(
     evaluations = tuple(
         (
             criterion.name,
-            TrialEvaluation(passed=False, reason=reason, outcomes=_skipped_outcomes(criterion)),
+            TrialEvaluation(
+                passed=False, reason=reason, outcomes=_skipped_outcomes(criterion, input_index)
+            ),
         )
         for criterion in contract.criteria
     )
     record = _failed_delivery_record(contract, input_index, duration_ms) if record_samples else None
     return _SampleOutcome(
         ordinal=ordinal,
+        input_index=input_index,
         evaluations=evaluations,
         trial_passed=False,
         duration_ms=duration_ms,
@@ -164,6 +174,7 @@ def _run_one_sample(
     )
     return _SampleOutcome(
         ordinal=ordinal,
+        input_index=context.index,
         evaluations=tuple(evaluations),
         trial_passed=trial_passed,
         duration_ms=duration_ms,

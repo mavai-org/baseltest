@@ -1,4 +1,5 @@
-# REFUSED: only a string form may carry path: (Part I, subject rule).
+# REFUSED: only a string or value-comparison form may carry path: (Part I,
+# subject rule) — satisfies: receives its subject whole.
 format: mavai-contract/1
 contract: c
 service: s

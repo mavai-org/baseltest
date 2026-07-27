@@ -42,7 +42,9 @@ categories:
   threshold-origin-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (provenance, 2026-07-25)", refusal: structural }
   criterion-without-form: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria, 2026-07-25)", refusal: structural }
   postcondition-form-cardinality: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
-  path-without-in: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule)", refusal: structural }
+  optional-slack-malformed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)", refusal: structural }
+  optional-operand: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)", refusal: structural }
+  optional-on-parses: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)", refusal: structural }
   path-on-non-string-form: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule)", refusal: structural }
   parses-with-in: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-25)", refusal: structural }
   parses-in-expected: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions, 2026-07-25)", refusal: structural }
@@ -64,6 +66,7 @@ categories:
   set-operand-empty: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)", refusal: structural }
   is-operand-not-boolean: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (boolean comparison, 2026-07-27)", refusal: structural }
   view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
+  default-view-unresolvable: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27); §II.10 (load-time validation)", refusal: semantic }
   parses-view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
   expected-requires-single-criterion: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions)", refusal: semantic }
   selection-expression-invalid: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
@@ -110,6 +113,9 @@ corpus:
   - { file: contract-value-comparison-scalar.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)" }
   - { file: contract-value-comparison-set.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)" }
   - { file: contract-boolean-comparison.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (boolean comparison, 2026-07-27)" }
+  - { file: contract-partial-credit.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)" }
+  - { file: contract-default-view.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
+  - { file: contract-default-view-sole-transform.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
   - { file: services-minimal.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I" }
   - { file: services-language-model-full.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.3" }
   - { file: services-explorations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6" }
@@ -129,7 +135,11 @@ corpus:
   - { file: threshold-origin-vocabulary.yaml, format: mavai-contract/1, outcome: refused, category: threshold-origin-vocabulary }
   - { file: criterion-without-form.yaml, format: mavai-contract/1, outcome: refused, category: criterion-without-form }
   - { file: postcondition-form-cardinality.yaml, format: mavai-contract/1, outcome: refused, category: postcondition-form-cardinality }
-  - { file: path-without-in.yaml, format: mavai-contract/1, outcome: refused, category: path-without-in }
+  - { file: optional-slack-malformed.yaml, format: mavai-contract/1, outcome: refused, category: optional-slack-malformed }
+  - { file: optional-operand.yaml, format: mavai-contract/1, outcome: refused, category: optional-operand }
+  - { file: optional-on-parses.yaml, format: mavai-contract/1, outcome: refused, category: optional-on-parses }
+  - { file: default-view-unresolvable.yaml, format: mavai-contract/1, outcome: refused, category: default-view-unresolvable }
+  - { file: default-view-no-views.yaml, format: mavai-contract/1, outcome: refused, category: default-view-unresolvable }
   - { file: path-on-non-string-form.yaml, format: mavai-contract/1, outcome: refused, category: path-on-non-string-form }
   - { file: parses-with-in.yaml, format: mavai-contract/1, outcome: refused, category: parses-with-in }
   - { file: parses-in-expected.yaml, format: mavai-contract/1, outcome: refused, category: parses-in-expected }

@@ -151,6 +151,30 @@ Each postcondition entry declares exactly one form, optionally qualified by `in:
 
 The value-comparison forms judge a structured response against expected values **written exactly as they appear in the source document** — no normalising transform in between. A number's argument may be a plain YAML number or a quoted numeric string (`eq: "500.00"` preserves the exact decimal spelling); comparison is decimal either way, so no pre-canonicalising (`"273.5"` for a premium of `273.50`) and no float artefacts. Set elements compare by strict JSON value: numbers numerically, strings exactly, booleans and `null` by identity — a JSON `1200` never equals the string `"1200"`. A subject the form cannot interpret — text under `eq`, a number under `equals-ci`, anything non-boolean under `is` — fails that trial with a type reason, like any other per-trial failure. Booleans get the dedicated form: write `is: true`, not the string-projection idiom `equals: "true"` (which remains valid); the bare `equals: true` is refused pointing at `is:`.
 
+#### Partial credit — optional checks and the slack budget
+
+Every check is **required by default**: it must pass, or the trial fails — the whole-document conjunction. A check opts out with `optional: true`, and the criterion declares how many of its optional checks may fail per trial with `optional-slack:` — an absolute count (`2`), or an explicit percentage (`"20%"`, resolved by floor of the trial's applicable optional checks). Both declarations are needed — `optional: true` alone weakens nothing (no slack means a budget of zero), and `optional-slack:` without marked checks is inert — so leniency is always two deliberate lines, never an accident:
+
+```yaml
+criteria:
+  - name: extraction-matches-reviewed-values
+    threshold: 0.9
+    optional-slack: 2          # at most 2 optional checks may fail per trial
+    parses: parsed
+inputs:
+  - input: [ ... ]
+    expected:
+      - path: "$.offerId"
+        equals-ci: "T802739355"   # (unmarked) → required
+      - path: "$.applicableTerms[*]"
+        equals-set: ["basic", "extended"]
+        optional: true            # relaxable, within the slack
+```
+
+A trial then passes iff every required check holds and no more optional checks fail than the budget allows. The trial is still **one pass/fail outcome per sample** — thresholds, confidence, sizing, and verdicts are computed exactly as before; only the predicate deciding each trial changed. An unparseable response still fails the trial outright regardless of budget (and `optional:` on `parses:` is refused as meaningless), a skipped optional check counts against the budget, and `optional: false` is refused — required is the default, not a spelling.
+
+Every run also prints (and persists, in the verdict record and the baseline) the **postcondition standings**: per input and check, how many trials passed, failed, or were skipped, with the observed fraction. The standings are triage — *which* fields the service misses, and how often — not statistics: they carry no confidence interval and no per-check verdict, because the run is sized to support the criterion's claim, not one claim per check. The strict whole-document rate remains the headline number; partial credit is a lens you opt into check by check.
+
 Before these forms, a field-by-field extraction contract needed a registered transform whose only job was normalisation, and every expected value had to be written pre-folded:
 
 ```yaml

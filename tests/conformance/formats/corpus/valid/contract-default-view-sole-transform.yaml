@@ -1,0 +1,20 @@
+# The default view's second tier (Part I, subject rule, 2026-07-27):
+# with no parses: form on the criterion and exactly one declared
+# transform, a path-bearing check omitting in: resolves to that sole
+# transform. A second transform would turn this into a load refusal —
+# loud, never a silent re-resolution.
+format: mavai-contract/1
+contract: sole-transform-anchors-the-default
+service: quote-extractor
+transforms:
+  parsed: json
+criteria:
+  - name: fields-are-extracted
+    threshold: 0.9
+    postconditions:
+      - path: "$.offerId"           # no in:, no parses: — the sole transform
+        equals-ci: "T802739355"
+      - path: "$.items[*].name"
+        matches: '\w'
+inputs:
+  - "quote for the standard bundle"

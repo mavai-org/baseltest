@@ -10,8 +10,14 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.9.5** — adds the boolean form `is:` and its
-refusal category `is-operand-not-boolean`. Earlier pins: v0.9.4 (the
+Pinned at `mavai-R` **v0.10.0** — the partial-credit and default-view
+amendments: `optional:`/`optional-slack:` with the structural categories
+`optional-slack-malformed`/`optional-operand`/`optional-on-parses`, and the
+path-conditional default subject view, which retires the structural
+`path-without-in` category in favour of the semantic
+`default-view-unresolvable` (its old case reworked as
+`default-view-no-views.yaml`). Earlier pins: v0.9.5 (the boolean form `is:`
+and its refusal category `is-operand-not-boolean`); v0.9.4 (the
 value-comparison forms — the numeric sextet `eq`/`ne`/`lt`/`le`/`gt`/`ge`,
 `not-equals`, `equals-ci`, `is-null`, and the collective
 `equals-set`/`contains-set`/`count-equals`; v0.9.4 isolates v0.9.3's
