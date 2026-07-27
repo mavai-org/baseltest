@@ -1,0 +1,56 @@
+# The scalar value-comparison forms (Part I, value comparison, 2026-07-27):
+# the numeric comparison sextet eq/ne/lt/le/gt/ge (decimal semantics;
+# number or numeric-string operands), normalised text equality, exact
+# inequality, and the null/absence check — universal over a multi-valued
+# selection like the string forms, and legal as direct raw-judging
+# criterion forms.
+format: mavai-contract/1
+contract: quote-service-extracts-exact-values
+service: quote-service
+transforms:
+  quote: json
+criteria:
+  # One criterion only: the per-input expected: entry below requires it.
+  # The direct (raw-judging) form sits beside the postconditions list —
+  # together they are the criterion's forms.
+  - name: extracted-values-match-the-document
+    threshold: 0.95
+    not-equals: "ERROR"
+    postconditions:
+      - in: quote
+        path: "$.premium"
+        eq: 2637.80
+      - in: quote
+        path: "$.excess"
+        eq: "500.00"
+      - in: quote
+        path: "$.instalment-fee"
+        ne: 0
+      - in: quote
+        path: "$.items[*].price"
+        ge: 0
+      - in: quote
+        path: "$.tax-rate"
+        lt: "0.2"
+      - in: quote
+        path: "$.term-months"
+        gt: 0
+      - in: quote
+        path: "$.instalments"
+        le: 12
+      - in: quote
+        path: "$.holder"
+        equals-ci: "Frau  Beispiel"
+      - in: quote
+        path: "$.status"
+        not-equals: "declined"
+      - in: quote
+        path: "$.cancellation-date"
+        is-null: true
+inputs:
+  - "quote the sample policy"
+  - input: "quote the premium-only policy"
+    expected:
+      - in: quote
+        path: "$.premium"
+        eq: "1049.10"

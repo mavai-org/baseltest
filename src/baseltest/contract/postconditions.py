@@ -14,8 +14,10 @@ an error.
 """
 
 import re
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 
@@ -157,3 +159,223 @@ def satisfies(name: str, predicate: Callable[[Any], bool], view: str = "raw") ->
         return PostconditionResult.failed(f"check {name!r} not satisfied")
 
     return Postcondition(name=name, check=check, view=view)
+
+
+# ── The value-comparison forms ─────────────────────────────────────────
+#
+# These judge typed values, not text: a number by decimal comparison, a
+# selection by strict JSON-value equality. The scalar forms judge one
+# subject (fanned across a multi-valued selection by the caller, like the
+# string forms); the collective forms judge a whole selection at once, so
+# their subject is the sequence of selected values.
+
+_NUMERIC_PATTERN = re.compile(r"^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$")
+
+
+def _decimal(value: Any) -> Decimal | None:
+    """The subject or operand as an exact decimal; None when uninterpretable.
+
+    A number (never a boolean) or a numeric string qualifies; comparison is
+    decimal, not binary float, so formatting differences (``2637.80`` vs
+    ``2.6378e3``) and float artefacts never decide a verdict.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, str) and _NUMERIC_PATTERN.match(value.strip()):
+        return Decimal(value.strip())
+    return None
+
+
+def _numeric_type_failure(form: str, subject: Any) -> PostconditionResult:
+    return PostconditionResult.failed(
+        f"{form}: subject {subject!r} ({type(subject).__name__}) is not a number — "
+        "a numeric form judges a number or a numeric string"
+    )
+
+
+def _numeric_form(
+    form: str, operand: Any, holds: Callable[[Decimal, Decimal], bool], view: str
+) -> Postcondition:
+    expected = _decimal(operand)
+    if expected is None:
+        raise ValueError(f"{form}: operand {operand!r} is not a number or numeric string")
+
+    def check(subject: Any) -> PostconditionResult:
+        actual = _decimal(subject)
+        if actual is None:
+            return _numeric_type_failure(form, subject)
+        if holds(actual, expected):
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(f"value {subject!r} is not {form} {operand!r}")
+
+    return Postcondition(name=f"{form} {operand!r}", check=check, view=view)
+
+
+def eq(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject equals the operand numerically — formatting-insensitive, decimal."""
+    return _numeric_form("eq", operand, lambda a, e: a == e, view)
+
+
+def ne(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject does not equal the operand numerically."""
+    return _numeric_form("ne", operand, lambda a, e: a != e, view)
+
+
+def lt(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject is strictly less than the operand."""
+    return _numeric_form("lt", operand, lambda a, e: a < e, view)
+
+
+def le(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject is at most the operand."""
+    return _numeric_form("le", operand, lambda a, e: a <= e, view)
+
+
+def gt(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject is strictly greater than the operand."""
+    return _numeric_form("gt", operand, lambda a, e: a > e, view)
+
+
+def ge(operand: Any, view: str = "raw") -> Postcondition:
+    """The subject is at least the operand."""
+    return _numeric_form("ge", operand, lambda a, e: a >= e, view)
+
+
+def not_equals(expected: str, view: str = "raw") -> Postcondition:
+    """The subject does not equal the string exactly."""
+
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("not-equals", subject)
+        if text != expected:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(f"response equals the excluded {expected!r}")
+
+    return Postcondition(name=f"not-equals {expected!r}", check=check, view=view)
+
+
+def _folded(text: str) -> str:
+    """The equals-ci normalisation, exactly: Unicode case-fold, trim, and
+    internal-whitespace-run collapse to a single space — nothing more."""
+    return " ".join(text.casefold().split())
+
+
+def equals_ci(expected: str, view: str = "raw") -> Postcondition:
+    """The subject equals the string after case-fold and whitespace normalisation."""
+    folded_expected = _folded(expected)
+
+    def check(subject: Any) -> PostconditionResult:
+        text = _text(subject)
+        if text is None:
+            return _type_failure("equals-ci", subject)
+        if _folded(text) == folded_expected:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(
+            f"response does not equal {expected!r} (case/whitespace-insensitively)"
+        )
+
+    return Postcondition(name=f"equals-ci {expected!r}", check=check, view=view)
+
+
+def is_null(view: str = "raw") -> Postcondition:
+    """The subject is JSON ``null`` — distinct from the string ``"null"``.
+
+    The absent half of null-or-absent (a path that selected nothing) is the
+    selection machinery's to decide; this form judges the value it is given.
+    """
+
+    def check(subject: Any) -> PostconditionResult:
+        if subject is None:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(
+            f"value {subject!r} ({type(subject).__name__}) is not null"
+        )
+
+    return Postcondition(name="is-null", check=check, view=view)
+
+
+def _element_key(value: Any) -> tuple[str, Any]:
+    """A selected or operand element under strict JSON-value equality.
+
+    Numbers compare numerically (decimal), strings exactly, booleans and
+    null by identity; a number never equals its string spelling.
+    """
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, int | float):
+        return ("num", _decimal(value))
+    if value is None:
+        return ("null", None)
+    return ("str", value)
+
+
+def _selection(subject: Any) -> list[Any] | None:
+    """The selection a collective form judges, or None (type failure)."""
+    if isinstance(subject, Sequence) and not isinstance(subject, str | bytes):
+        return list(subject)
+    return None
+
+
+def _collective_type_failure(form: str, subject: Any) -> PostconditionResult:
+    return PostconditionResult.failed(
+        f"{form}: subject is {type(subject).__name__}, not a selection — a set "
+        "form judges the values a path selects, collectively"
+    )
+
+
+def equals_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
+    """The selection equals the operand as a multiset — order-independent,
+    duplicates significant."""
+    expected_counts = Counter(_element_key(item) for item in expected)
+    operand = list(expected)
+
+    def check(subject: Any) -> PostconditionResult:
+        selected = _selection(subject)
+        if selected is None:
+            return _collective_type_failure("equals-set", subject)
+        if Counter(_element_key(item) for item in selected) == expected_counts:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(
+            f"selected values {selected!r} do not equal {operand!r} as a multiset"
+        )
+
+    return Postcondition(name=f"equals-set {operand!r}", check=check, view=view)
+
+
+def contains_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
+    """Every operand element appears among the selection (all-of, with
+    multiplicity)."""
+    expected_counts = Counter(_element_key(item) for item in expected)
+    operand = list(expected)
+
+    def check(subject: Any) -> PostconditionResult:
+        selected = _selection(subject)
+        if selected is None:
+            return _collective_type_failure("contains-set", subject)
+        missing = expected_counts - Counter(_element_key(item) for item in selected)
+        if not missing:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(
+            f"selected values {selected!r} do not contain all of {operand!r}"
+        )
+
+    return Postcondition(name=f"contains-set {operand!r}", check=check, view=view)
+
+
+def count_equals(expected: int, view: str = "raw") -> Postcondition:
+    """The selection holds exactly the expected number of values."""
+
+    def check(subject: Any) -> PostconditionResult:
+        selected = _selection(subject)
+        if selected is None:
+            return _collective_type_failure("count-equals", subject)
+        if len(selected) == expected:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed(f"path selected {len(selected)} value(s), not {expected}")
+
+    return Postcondition(name=f"count-equals {expected}", check=check, view=view)

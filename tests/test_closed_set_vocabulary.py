@@ -50,6 +50,19 @@ def test_form_values() -> None:
         "matches",
         "parses",
         "satisfies",
+        # The value-comparison forms (format amendment 2026-07-27).
+        "eq",
+        "ne",
+        "lt",
+        "le",
+        "gt",
+        "ge",
+        "not-equals",
+        "equals-ci",
+        "is-null",
+        "equals-set",
+        "contains-set",
+        "count-equals",
     }
 
 

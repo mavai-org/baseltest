@@ -1,0 +1,15 @@
+# REFUSED: a numeric form's operand is a number or a numeric string
+# (sign/decimal/exponent) — anything else is malformed (Part I, value
+# comparison, 2026-07-27).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.premium"
+        eq: "twelve"
+inputs: ["Alice"]

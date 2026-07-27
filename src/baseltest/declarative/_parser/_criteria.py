@@ -15,6 +15,9 @@ from ._shape import _SEAM_POINTER, _fail, _require_mapping
 # refused, never silently admitted as a new category.
 THRESHOLD_ORIGINS = ("sla", "slo", "policy")
 
+# Direct criterion-level forms judge raw, so the collective set forms —
+# which require `in:` + `path:` — are absent here by design: at criterion
+# level they fail the ordinary unknown-key check, as in the format schema.
 _CRITERION_KEYS = {
     "name",
     "threshold",
@@ -29,6 +32,15 @@ _CRITERION_KEYS = {
     "matches",
     "parses",
     "satisfies",
+    "eq",
+    "ne",
+    "lt",
+    "le",
+    "gt",
+    "ge",
+    "not-equals",
+    "equals-ci",
+    "is-null",
 }
 
 

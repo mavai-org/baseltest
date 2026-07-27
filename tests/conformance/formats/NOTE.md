@@ -10,9 +10,15 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.9.2**. (This adoption surfaced that v0.9.1's two
-`optimization-max-iterations-*` cases refused before reaching their
-category — a corpus defect; v0.9.2 isolates each case to its one defect.)
+Pinned at `mavai-R` **v0.9.4** (the value-comparison forms: the numeric
+sextet `eq`/`ne`/`lt`/`le`/`gt`/`ge`, `not-equals`, `equals-ci`, `is-null`,
+and the collective `equals-set`/`contains-set`/`count-equals`; v0.9.4
+isolates v0.9.3's scalar case to a single criterion after this adoption
+surfaced its two-criteria-plus-per-input-`expected:` contradiction — a
+corpus defect, the triage discipline's second live exercise). Earlier
+pins: v0.9.2 (the max-iterations cases isolated to their category after
+this adoption surfaced that v0.9.1's two `optimization-max-iterations-*`
+cases refused before reaching their category — a corpus defect).
 The copy is vendored, not fetched, so the build passes offline; bump it by
 replacing `manifest.yaml` and `corpus/` with the contents of the new
 release's `formats-vX.Y.Z.zip` and updating this pin note.

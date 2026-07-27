@@ -1,0 +1,14 @@
+# REFUSED: a set form's operand lists at least one element (Part I, value
+# comparison, 2026-07-27) — an empty-selection assertion is count-equals: 0.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.tenants[*]"
+        contains-set: []
+inputs: ["Alice"]

@@ -1,0 +1,30 @@
+# The set value-comparison forms (Part I, value comparison, 2026-07-27):
+# collective judgement of a multi-valued selection — multiset equality
+# (order-independent, duplicates significant), all-of containment, and
+# selection cardinality — each requiring a declared view and a path:,
+# with strict JSON-value element comparison; legal per input too.
+format: mavai-contract/1
+contract: annotator-returns-the-gold-set
+service: buildings-annotator
+transforms:
+  doc: json
+criteria:
+  - name: extracted-sets-match-the-document
+    threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.buildings[*].name"
+        equals-set: ["Hauptgebäude", "Nebengebäude", "Nebengebäude"]
+      - in: doc
+        path: "$.rents[*].amount"
+        contains-set: [1200, 950.50]
+      - in: doc
+        path: "$.rents[*].amount"
+        count-equals: 2
+inputs:
+  - "annotate the sample lease"
+  - input: "annotate the two-tenant lease"
+    expected:
+      - in: doc
+        path: "$.tenants[*].name"
+        contains-set: ["Muster AG"]

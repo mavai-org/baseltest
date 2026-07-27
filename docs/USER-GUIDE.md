@@ -135,8 +135,42 @@ Each postcondition entry declares exactly one form, optionally qualified by `in:
 | `matches`   | string (regex)  | The regular expression matches somewhere in the subject (`re.search` semantics).                                                                                     |
 | `parses`    | view name       | Computing the named view *is* the check: the transformation succeeding is a pass, a `TransformError` is a failed trial. Takes no `in:` — it names its view directly. |
 | `satisfies` | check name      | The named `@check` predicate (registered in `mavai-bindings.py`) holds for the subject value.                                                                        |
+| `eq` / `ne` | number          | The subject equals / does not equal the number — formatting-insensitive, compared as a **decimal** (`2637.80` ≡ `2637.8` ≡ `2.6378e3`).                              |
+| `lt` / `le` / `gt` / `ge` | number | The subject is strictly less than / at most / strictly greater than / at least the number.                                                                    |
+| `not-equals`| string          | The subject does not equal the string exactly.                                                                                                                       |
+| `equals-ci` | string          | The subject equals the string after Unicode case-folding, trimming, and collapsing whitespace runs — and nothing more.                                               |
+| `is-null`   | the literal `true` | The subject is JSON `null`, or the path selected nothing — distinct from the string `"null"`.                                                                     |
+| `equals-set`| list of scalars | The selected values equal the list as a **multiset** — order-independent, duplicates significant.                                                                    |
+| `contains-set` | list of scalars | Every listed element appears among the selected values (all-of).                                                                                                  |
+| `count-equals` | integer      | The path selected exactly that many values (`count-equals: 0` asserts an empty selection).                                                                           |
 
-`in:` names the view whose value the check judges; without it, the check judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). `path:` qualifies the string forms only (`equals`, `one-of`, `contains`, `matches`) and requires `in:` naming a declared view — the raw response is unstructured text.
+`in:` names the view whose value the check judges; without it, the check judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). `path:` qualifies the string and value-comparison forms and requires `in:` naming a declared view — the raw response is unstructured text. The **set forms** (`equals-set`, `contains-set`, `count-equals`) go further: they judge the selected values *collectively* — the only way to state a cross-element condition — so they require `in:` **and** `path:`; there is no collection over raw text or a scalar.
+
+#### Value comparison — literal expected values
+
+The value-comparison forms judge a structured response against expected values **written exactly as they appear in the source document** — no normalising transform in between. A number's argument may be a plain YAML number or a quoted numeric string (`eq: "500.00"` preserves the exact decimal spelling); comparison is decimal either way, so no pre-canonicalising (`"273.5"` for a premium of `273.50`) and no float artefacts. Set elements compare by strict JSON value: numbers numerically, strings exactly, booleans and `null` by identity — a JSON `1200` never equals the string `"1200"`. A subject the form cannot interpret — text under `eq`, a number under `equals-ci` — fails that trial with a type reason, like any other per-trial failure.
+
+Before these forms, a field-by-field extraction contract needed a registered transform whose only job was normalisation, and every expected value had to be written pre-folded:
+
+```yaml
+# before: a `canonical` @transform in mavai-bindings.py, values pre-folded
+- in: canonical
+  path: "$.premium"
+  equals: "2637.8"
+# after: no bindings file, the document's own spelling
+- in: doc
+  path: "$.premium"
+  eq: 2637.80
+- in: doc
+  path: "$.holder"
+  equals-ci: "Frau Beispiel"
+- in: doc
+  path: "$.rents[*].amount"
+  equals-set: [1200, 950.50]
+- in: doc
+  path: "$.cancellation-date"
+  is-null: true
+```
 
 #### `path:` — structural selection
 
@@ -149,14 +183,15 @@ Which language applies:
 
 Selection semantics, uniform across languages:
 
-- An **empty selection fails the trial** with its own reason — which means a filter selector (`$.items[?@.name == 'egg'].quantity`) asserts the item's presence for free.
-- A non-empty selection requires **every** selected value to satisfy the form: one bad quantity among five items fails that trial.
-- Scalars compare by content (strings) or by their JSON text (numbers, booleans, null) — so `equals: "true"` matches a JSON `true`, and `equals: "12"` matches the number 12.
+- An **empty selection fails the trial** with its own reason — which means a filter selector (`$.items[?@.name == 'egg'].quantity`) asserts the item's presence for free. Two carve-outs: `is-null` **holds** on an empty selection (null-or-absent is the one condition), and the set forms judge the empty selection as the empty collection (`count-equals: 0` holds; a set form with a non-empty argument fails).
+- A non-empty selection requires **every** selected value to satisfy the form — the string forms and the scalar value forms alike: one bad quantity among five items fails that trial. The set forms instead receive the selection **as one collection**.
+- Under a string form, scalars compare by content (strings) or by their JSON text (numbers, booleans, null) — so `equals: "true"` matches a JSON `true`, and `equals: "12"` matches the number 12. The value forms judge the selected value itself: `eq` compares decimals, `is-null` matches JSON `null` but never the string `"null"`.
 - Selecting a JSON object or array under a string form is a per-trial type failure — structure is selected *through*, not compared as text.
+- Under an **XPath** selection, values arrive as XPath 1.0 string projections — XML carries no types — so the numeric forms interpret the text, and set-form arguments should be written as strings.
 
 #### The view taxonomy in one rule
 
-A view holding **text** takes the string forms. A view holding **structure** takes `path:` (whose selected scalars are judged by the string form it qualifies) and `satisfies:`. A string form applied directly to a structured value is a per-trial type failure, never a silent stringification. `parses: <view>` makes computing the view itself the check.
+A view holding **text** takes the string forms and the scalar value forms (`eq` over a numeric response text is fine). A view holding **structure** takes `path:` (whose selected values are judged by the form it qualifies — string forms over string projections, value forms over the values themselves, set forms over the whole selection) and `satisfies:`. A string form applied directly to a structured value is a per-trial type failure, never a silent stringification. `parses: <view>` makes computing the view itself the check.
 
 ### Transforms and views
 

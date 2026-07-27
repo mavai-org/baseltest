@@ -1,10 +1,13 @@
 """Postconditions and criteria: a declaration's checks made runnable.
 
-The declarative ``expected:``/``forms:`` vocabulary (``equals``,
-``contains``, ``matches``, ``one-of``, ``satisfies``, ``parses``) is
-built into :class:`Postcondition` objects here, scoped per input where
-the declaration is per input, and assembled into the :class:`Criterion`
-the engine judges.
+The declarative ``expected:``/``forms:`` vocabulary — the string forms
+(``equals``, ``contains``, ``matches``, ``one-of``), ``satisfies``,
+``parses``, and the value-comparison forms (``eq``/``ne``/``lt``/``le``/
+``gt``/``ge``, ``not-equals``, ``equals-ci``, ``is-null``, and the
+collective ``equals-set``/``contains-set``/``count-equals``) — is built
+into :class:`Postcondition` objects here, scoped per input where the
+declaration is per input, and assembled into the :class:`Criterion` the
+engine judges.
 """
 
 from collections.abc import Callable, Sequence
@@ -16,8 +19,20 @@ from baseltest.contract import (
     PostconditionResult,
     ThresholdProvenance,
     contains,
+    contains_set,
+    count_equals,
+    eq,
     equals,
+    equals_ci,
+    equals_set,
+    ge,
+    gt,
+    is_null,
+    le,
+    lt,
     matches,
+    ne,
+    not_equals,
     one_of,
     satisfies,
 )
@@ -25,13 +40,42 @@ from baseltest.engine.naming import bounded_excerpt, per_input_name
 
 from .._parser import RAW_VIEW, CriterionDeclaration, Form, FormDeclaration
 from .._registry import Registry
-from .._structured import compile_jsonpath, compile_xpath, path_qualified
+from .._structured import (
+    compile_jsonpath,
+    compile_xpath,
+    path_collective,
+    path_each_value,
+    path_qualified,
+)
 
 _STRING_FORMS: dict[str, Callable[..., Postcondition]] = {
     "equals": lambda arg, view: equals(str(arg), view=view),
     "contains": lambda arg, view: contains(str(arg), view=view),
     "matches": lambda arg, view: matches(str(arg), view=view),
     "one-of": lambda arg, view: one_of([str(item) for item in arg], view=view),
+}
+
+# Scalar value-comparison forms: universal over a selection, judging the
+# selected value itself (never a text projection — `is-null` distinguishes
+# JSON null from the string "null", the numeric forms compare decimals).
+_SCALAR_VALUE_FORMS: dict[str, Callable[..., Postcondition]] = {
+    "eq": lambda arg, view: eq(arg, view=view),
+    "ne": lambda arg, view: ne(arg, view=view),
+    "lt": lambda arg, view: lt(arg, view=view),
+    "le": lambda arg, view: le(arg, view=view),
+    "gt": lambda arg, view: gt(arg, view=view),
+    "ge": lambda arg, view: ge(arg, view=view),
+    "not-equals": lambda arg, view: not_equals(str(arg), view=view),
+    "equals-ci": lambda arg, view: equals_ci(str(arg), view=view),
+    "is-null": lambda arg, view: is_null(view=view),
+}
+
+# Collective set forms: the whole selection at once. The parser guarantees
+# a declared view and a path.
+_SET_FORMS: dict[str, Callable[..., Postcondition]] = {
+    "equals-set": lambda arg, view: equals_set(list(arg), view=view),
+    "contains-set": lambda arg, view: contains_set(list(arg), view=view),
+    "count-equals": lambda arg, view: count_equals(int(arg), view=view),
 }
 
 
@@ -44,6 +88,31 @@ def _parses_postcondition(view: str) -> Postcondition:
     )
 
 
+def _compiled_path(
+    path: str, view: str, transforms: dict[str, str], where: str
+) -> tuple[str, str, Any, bool]:
+    """The path's language, display expression, compiled form, and whether the
+    view's value type must be verified per trial.
+
+    A stock transformation pins the language (``json``/``yaml`` → JSONPath,
+    ``xml`` → XPath 1.0). A custom transformation names no path language, so
+    the expression's syntax decides: RFC 9535 mandates ``$``-rooted JSONPath,
+    and a ``$``-initial XPath is a variable reference no contract can bind —
+    everything else validates as XPath 1.0. The custom view's value type is
+    then checked per trial; load time cannot know what the transform returns.
+    """
+    transformation = transforms.get(view)
+    if transformation in ("json", "yaml"):
+        return "jsonpath", path, compile_jsonpath(path, where), False
+    if transformation == "xml":
+        expression = compile_xpath(path, where)
+        return "xpath", expression, expression, False
+    if path.startswith("$"):
+        return "jsonpath", path, compile_jsonpath(path, where), True
+    expression = compile_xpath(path, where)
+    return "xpath", expression, expression, True
+
+
 def _build_form(
     declaration: FormDeclaration, transforms: dict[str, str], where: str, registry: Registry
 ) -> Postcondition:
@@ -52,35 +121,55 @@ def _build_form(
         return satisfies(name, registry.resolve_check(name), view=declaration.view)
     if declaration.form is Form.PARSES:
         return _parses_postcondition(str(declaration.argument))
+    form_key = declaration.form.value
+    if form_key in _SET_FORMS:
+        # The parser guarantees a declared view and a path — a collection
+        # only exists as a selection.
+        assert declaration.path is not None
+        inner = _SET_FORMS[form_key](declaration.argument, RAW_VIEW)
+        language, expression, compiled, check_value_type = _compiled_path(
+            declaration.path, declaration.view, transforms, where
+        )
+        return path_collective(
+            language,
+            expression,
+            compiled,
+            inner,
+            view=declaration.view,
+            check_value_type=check_value_type,
+        )
+    if form_key in _SCALAR_VALUE_FORMS:
+        builder = _SCALAR_VALUE_FORMS[form_key]
+        if declaration.path is None:
+            return builder(declaration.argument, declaration.view)
+        inner = builder(declaration.argument, RAW_VIEW)
+        language, expression, compiled, check_value_type = _compiled_path(
+            declaration.path, declaration.view, transforms, where
+        )
+        return path_each_value(
+            language,
+            expression,
+            compiled,
+            inner,
+            view=declaration.view,
+            check_value_type=check_value_type,
+            # is-null is null-or-absent: a path that selects nothing holds.
+            empty_selection_holds=declaration.form is Form.IS_NULL,
+        )
     builder = _STRING_FORMS[declaration.form]
     if declaration.path is None:
         return builder(declaration.argument, declaration.view)
     inner = builder(declaration.argument, RAW_VIEW)
-    transformation = transforms.get(declaration.view)
-    if transformation in ("json", "yaml"):
-        compiled = compile_jsonpath(declaration.path, where)
-        return path_qualified("jsonpath", declaration.path, compiled, inner, view=declaration.view)
-    if transformation == "xml":
-        expression = compile_xpath(declaration.path, where)
-        return path_qualified("xpath", expression, expression, inner, view=declaration.view)
-    # A custom transformation names no path language, so the expression's
-    # syntax decides: RFC 9535 mandates `$`-rooted JSONPath, and a
-    # `$`-initial XPath is a variable reference no contract can bind —
-    # everything else validates as XPath 1.0. The value's type is then
-    # checked per trial; load time cannot know what the transform returns.
-    if declaration.path.startswith("$"):
-        compiled = compile_jsonpath(declaration.path, where)
-        return path_qualified(
-            "jsonpath",
-            declaration.path,
-            compiled,
-            inner,
-            view=declaration.view,
-            check_value_type=True,
-        )
-    expression = compile_xpath(declaration.path, where)
+    language, expression, compiled, check_value_type = _compiled_path(
+        declaration.path, declaration.view, transforms, where
+    )
     return path_qualified(
-        "xpath", expression, expression, inner, view=declaration.view, check_value_type=True
+        language,
+        expression,
+        compiled,
+        inner,
+        view=declaration.view,
+        check_value_type=check_value_type,
     )
 
 
