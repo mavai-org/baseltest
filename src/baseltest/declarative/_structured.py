@@ -217,3 +217,85 @@ def path_qualified(
         return PostconditionResult.ok()
 
     return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)
+
+
+def _selected_values(language: str, expression: str, compiled: Any, value: Any) -> list[Any]:
+    """The values a path selects, typed for the value-comparison forms.
+
+    A JSONPath selection yields the JSON-model values themselves (so a JSON
+    ``null`` stays ``None``, distinct from the string ``"null"``, and a
+    number stays a number); an XPath 1.0 selection yields string
+    projections — XML carries no types, so numeric forms interpret the text
+    and set operands match against strings.
+    """
+    if language == "jsonpath":
+        return [node.value for node in compiled.find(value)]
+    return list(_xpath_values(value, expression))
+
+
+def path_each_value(
+    language: str,
+    expression: str,
+    compiled: Any,
+    inner: Postcondition,
+    view: str = "raw",
+    check_value_type: bool = False,
+    empty_selection_holds: bool = False,
+) -> Postcondition:
+    """Fan a scalar value-comparison form across the values a path selects.
+
+    Universal like the string forms — every selected value must satisfy —
+    but the inner check receives the selected *value*, never its text
+    projection. ``empty_selection_holds`` is ``is-null``'s carve-out: null
+    or absent is the one condition, so a path that selects nothing holds;
+    every other scalar form fails an empty selection with its own reason.
+    """
+
+    def check(value: Any) -> PostconditionResult:
+        if check_value_type:
+            mismatch = _value_type_mismatch(language, expression, value)
+            if mismatch is not None:
+                return mismatch
+        selected = _selected_values(language, expression, compiled, value)
+        if not selected:
+            if empty_selection_holds:
+                return PostconditionResult.ok()
+            return PostconditionResult.failed(f"path {expression} selected nothing")
+        for item in selected:
+            result = inner.check(item)
+            if not result.passed:
+                return PostconditionResult.failed(f"path {expression}: {result.reason}")
+        return PostconditionResult.ok()
+
+    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)
+
+
+def path_collective(
+    language: str,
+    expression: str,
+    compiled: Any,
+    inner: Postcondition,
+    view: str = "raw",
+    check_value_type: bool = False,
+) -> Postcondition:
+    """Hand a set form the whole selection at once.
+
+    The collective forms judge the selected values as one collection — the
+    only way to state a cross-element condition — so the inner check
+    receives the list itself. An empty selection is the empty collection
+    (``count-equals: 0`` holds; a set form with a non-empty operand fails
+    with its own reason), not a selection failure.
+    """
+
+    def check(value: Any) -> PostconditionResult:
+        if check_value_type:
+            mismatch = _value_type_mismatch(language, expression, value)
+            if mismatch is not None:
+                return mismatch
+        selected = _selected_values(language, expression, compiled, value)
+        result = inner.check(selected)
+        if result.passed:
+            return result
+        return PostconditionResult.failed(f"path {expression}: {result.reason}")
+
+    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)

@@ -1,0 +1,14 @@
+# REFUSED: is-null takes the literal true as its only operand — the
+# negation is not offered (Part I, value comparison, 2026-07-27).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.cancellation-date"
+        is-null: false
+inputs: ["Alice"]

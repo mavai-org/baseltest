@@ -58,6 +58,10 @@ categories:
   latency-without-bounds: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
   latency-ceiling-not-positive: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
   latency-percentile-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)", refusal: structural }
+  set-form-without-path: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)", refusal: structural }
+  value-operand-malformed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)", refusal: structural }
+  is-null-operand: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)", refusal: structural }
+  set-operand-empty: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)", refusal: structural }
   view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
   parses-view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
   expected-requires-single-criterion: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (input-specific postconditions)", refusal: semantic }
@@ -102,6 +106,8 @@ corpus:
   - { file: contract-latency-explicit.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)" }
   - { file: contract-latency-empirical.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part III (latency)" }
   - { file: contract-file-inputs.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (input values, 2026-07-25)" }
+  - { file: contract-value-comparison-scalar.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)" }
+  - { file: contract-value-comparison-set.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (value comparison, 2026-07-27)" }
   - { file: services-minimal.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I" }
   - { file: services-language-model-full.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.3" }
   - { file: services-explorations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6" }
@@ -143,6 +149,10 @@ corpus:
   - { file: selection-expression-invalid.yaml, format: mavai-contract/1, outcome: refused, category: selection-expression-invalid }
   - { file: latency-ceilings-decreasing.yaml, format: mavai-contract/1, outcome: refused, category: latency-ceilings-decreasing }
   - { file: input-file-unreadable.yaml, format: mavai-contract/1, outcome: refused, category: input-file-unreadable }
+  - { file: set-form-without-path.yaml, format: mavai-contract/1, outcome: refused, category: set-form-without-path }
+  - { file: value-operand-malformed.yaml, format: mavai-contract/1, outcome: refused, category: value-operand-malformed }
+  - { file: is-null-operand.yaml, format: mavai-contract/1, outcome: refused, category: is-null-operand }
+  - { file: set-operand-empty.yaml, format: mavai-contract/1, outcome: refused, category: set-operand-empty }
   # ── invalid/ — mavai-services/1 ───────────────────────────────────
   - { file: services-format-identifier.yaml, format: mavai-services/1, outcome: refused, category: services-format-identifier }
   - { file: services-block-missing.yaml, format: mavai-services/1, outcome: refused, category: services-block-missing }

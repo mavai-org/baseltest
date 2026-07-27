@@ -25,6 +25,18 @@ class Form(StrEnum):
     MATCHES = "matches"
     PARSES = "parses"
     SATISFIES = "satisfies"
+    EQ = "eq"
+    NE = "ne"
+    LT = "lt"
+    LE = "le"
+    GT = "gt"
+    GE = "ge"
+    NOT_EQUALS = "not-equals"
+    EQUALS_CI = "equals-ci"
+    IS_NULL = "is-null"
+    EQUALS_SET = "equals-set"
+    CONTAINS_SET = "contains-set"
+    COUNT_EQUALS = "count-equals"
 
 
 @dataclass(frozen=True, slots=True)

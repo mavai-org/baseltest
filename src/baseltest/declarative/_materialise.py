@@ -19,14 +19,37 @@ from baseltest.contract import (
     ServiceContract,
     ThresholdProvenance,
     contains,
+    contains_set,
+    count_equals,
+    eq,
     equals,
+    equals_ci,
+    equals_set,
+    ge,
+    gt,
+    is_null,
+    le,
+    lt,
     matches,
+    ne,
+    not_equals,
     one_of,
     satisfies,
 )
 from baseltest.engine import Intent, RunKind, RunPlan, execute
 from baseltest.reporting import render_run
 '''
+
+
+# The numeric comparison sextet, all emitted as factory(operand).
+_NUMERIC_FACTORIES = {
+    Form.EQ: "eq",
+    Form.NE: "ne",
+    Form.LT: "lt",
+    Form.LE: "le",
+    Form.GT: "gt",
+    Form.GE: "ge",
+}
 
 
 def _form_source(declaration: FormDeclaration) -> str:
@@ -39,6 +62,20 @@ def _form_source(declaration: FormDeclaration) -> str:
         base = f"matches({str(argument)!r})"
     elif declaration.form is Form.ONE_OF:
         base = f"one_of({[str(a) for a in argument]!r})"
+    elif declaration.form in _NUMERIC_FACTORIES:
+        base = f"{_NUMERIC_FACTORIES[declaration.form]}({argument!r})"
+    elif declaration.form is Form.NOT_EQUALS:
+        base = f"not_equals({str(argument)!r})"
+    elif declaration.form is Form.EQUALS_CI:
+        base = f"equals_ci({str(argument)!r})"
+    elif declaration.form is Form.IS_NULL:
+        base = "is_null()"
+    elif declaration.form is Form.EQUALS_SET:
+        base = f"equals_set({list(argument)!r})"
+    elif declaration.form is Form.CONTAINS_SET:
+        base = f"contains_set({list(argument)!r})"
+    elif declaration.form is Form.COUNT_EQUALS:
+        base = f"count_equals({int(argument)})"
     elif declaration.form is Form.SATISFIES:
         base = (
             f"satisfies({str(argument)!r}, {_identifier(str(argument))})"
@@ -57,7 +94,8 @@ def _form_source(declaration: FormDeclaration) -> str:
             f"        {base}"
         )
     if declaration.view != "raw" and declaration.form is not Form.PARSES:
-        return base[:-1] + f", view={declaration.view!r})"
+        separator = "" if base.endswith("()") else ", "
+        return base[:-1] + f"{separator}view={declaration.view!r})"
     return base
 
 

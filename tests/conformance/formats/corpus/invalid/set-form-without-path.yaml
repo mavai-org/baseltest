@@ -1,0 +1,14 @@
+# REFUSED: a set form judges the selected values collectively and requires
+# an in: naming a declared view AND a path: — there is no collection over
+# the raw text or a scalar (Part I, value comparison, 2026-07-27).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        equals-set: ["a", "b"]
+inputs: ["Alice"]
