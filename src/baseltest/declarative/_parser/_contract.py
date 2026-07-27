@@ -6,6 +6,7 @@ criterion, every criterion carries a form); ``load_contract`` reads the
 file from disk. Everything here happens at load time, before any invocation.
 """
 
+from dataclasses import replace
 from pathlib import Path
 
 from baseltest.engine import Intent
@@ -14,9 +15,39 @@ from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
 from ._criteria import _parse_criterion
 from ._inputs import _parse_inputs
 from ._latency import _parse_latency
-from ._model import ContractDeclaration
+from ._model import ContractDeclaration, CriterionDeclaration, Form, FormDeclaration
 from ._shape import _fail, _load_yaml, _require_mapping, _require_string
 from ._structure import _check_top_level_keys, _parse_transforms
+
+
+def _default_anchor(criterion: CriterionDeclaration, views: dict[str, str]) -> str | None:
+    """The criterion's default subject view, or None when nothing anchors it.
+
+    The path-conditional default (subject rule, 2026-07-27): the view named
+    by the criterion's single ``parses:`` form wins — an explicit statement
+    of the canonical view; several ``parses:`` forms name no single anchor
+    and fall through. Failing that, a contract with exactly one declared
+    transform has only one structured view a ``path:`` could mean. A second
+    transform makes the omission a refusal, loud — never a silent guess.
+    """
+    parse_views = [str(form.argument) for form in criterion.forms if form.form is Form.PARSES]
+    if len(parse_views) == 1:
+        return parse_views[0]
+    if len(views) == 1:
+        return next(iter(views))
+    return None
+
+
+def _resolve_form(form: FormDeclaration, anchor: str | None, where: str) -> FormDeclaration:
+    if form.view is not None:
+        return form
+    if anchor is None:
+        raise _fail(
+            f"{where}: `{form.form}:` carries `path:` but omits `in:` and no default "
+            "view is resolvable — add `in:` naming a declared view, or declare "
+            "`parses:` on the criterion"
+        )
+    return replace(form, view=anchor)
 
 
 def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclaration:
@@ -60,6 +91,38 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
                 "every criterion declares at least one form of its own; per-input "
                 "`expected:` entries supplement a criterion's forms, never replace them"
             )
+
+    # Resolve the path-conditional default subject: every form that omitted
+    # `in:` beside `path:` inherits its owning criterion's anchor. Per-input
+    # expectations belong to the single criterion (enforced above), so they
+    # share its anchor. After this pass no declaration carries an
+    # unresolved subject — instantiation and view validation see a resolved
+    # view exactly as if `in:` had been spelled.
+    criteria = tuple(
+        replace(
+            criterion,
+            forms=tuple(
+                _resolve_form(
+                    form, _default_anchor(criterion, views), f"criterion {criterion.name}"
+                )
+                for form in criterion.forms
+            ),
+        )
+        for criterion in criteria
+    )
+    if expected_pairs:
+        anchor = _default_anchor(criteria[0], views)
+        expected_pairs = tuple(
+            (
+                input_index,
+                input_value,
+                tuple(
+                    _resolve_form(form, anchor, f"expected for input {input_index}")
+                    for form in declarations
+                ),
+            )
+            for input_index, input_value, declarations in expected_pairs
+        )
 
     confidence = data.get("confidence", DEFAULT_CONFIDENCE_LEVEL)
     if not isinstance(confidence, int | float) or not 0 < float(confidence) < 1:

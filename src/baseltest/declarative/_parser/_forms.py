@@ -50,7 +50,8 @@ def _is_numeric_operand(value: Any) -> bool:
 
 def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) -> FormDeclaration:
     keys = set(entry)
-    view = RAW_VIEW
+    view: str | None = RAW_VIEW
+    explicit_in = "in" in keys
     path = None
     if "in" in keys:
         view_value = entry["in"]
@@ -139,15 +140,21 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
     if path is not None:
         if form not in _PATH_FORMS:
             raise _fail(f"{where}: `path:` qualifies the string and value-comparison forms only")
-        if view == RAW_VIEW:
+        if explicit_in and view == RAW_VIEW:
             raise _fail(
-                f"{where}: `path:` requires `in:` naming a declared view — "
-                "the raw response is unstructured text"
+                f"{where}: `path:` cannot target `raw` — the raw response is "
+                "unstructured text; name a declared view with `in:`"
             )
-    if form in _SET_FORMS and (path is None or view == RAW_VIEW):
+        if not explicit_in:
+            # The path-conditional default (subject rule, 2026-07-27): a
+            # path-bearing form omitting `in:` unambiguously wants a
+            # structured view — the parser resolves it against the owning
+            # criterion once all its forms are known.
+            view = None
+    if form in _SET_FORMS and (path is None or (explicit_in and view == RAW_VIEW)):
         raise _fail(
             f"{where}: `{form}:` judges the values a path selects, collectively — "
-            "it requires `in:` naming a declared view and a `path:` (there is no "
+            "it requires a `path:` under a declared view (there is no "
             "collection over the raw text or a scalar)"
         )
     if form == "parses":

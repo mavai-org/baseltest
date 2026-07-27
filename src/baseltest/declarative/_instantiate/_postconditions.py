@@ -118,9 +118,13 @@ def _compiled_path(
 def _build_form(
     declaration: FormDeclaration, transforms: dict[str, str], where: str, registry: Registry
 ) -> Postcondition:
+    # The parser resolves the path-conditional default before a declaration
+    # reaches instantiation — an unresolved subject cannot arrive here.
+    view = declaration.view
+    assert view is not None
     if declaration.form is Form.SATISFIES:
         name = str(declaration.argument)
-        return satisfies(name, registry.resolve_check(name), view=declaration.view)
+        return satisfies(name, registry.resolve_check(name), view=view)
     if declaration.form is Form.PARSES:
         return _parses_postcondition(str(declaration.argument))
     form_key = declaration.form.value
@@ -130,47 +134,47 @@ def _build_form(
         assert declaration.path is not None
         inner = _SET_FORMS[form_key](declaration.argument, RAW_VIEW)
         language, expression, compiled, check_value_type = _compiled_path(
-            declaration.path, declaration.view, transforms, where
+            declaration.path, view, transforms, where
         )
         return path_collective(
             language,
             expression,
             compiled,
             inner,
-            view=declaration.view,
+            view=view,
             check_value_type=check_value_type,
         )
     if form_key in _SCALAR_VALUE_FORMS:
         builder = _SCALAR_VALUE_FORMS[form_key]
         if declaration.path is None:
-            return builder(declaration.argument, declaration.view)
+            return builder(declaration.argument, view)
         inner = builder(declaration.argument, RAW_VIEW)
         language, expression, compiled, check_value_type = _compiled_path(
-            declaration.path, declaration.view, transforms, where
+            declaration.path, view, transforms, where
         )
         return path_each_value(
             language,
             expression,
             compiled,
             inner,
-            view=declaration.view,
+            view=view,
             check_value_type=check_value_type,
             # is-null is null-or-absent: a path that selects nothing holds.
             empty_selection_holds=declaration.form is Form.IS_NULL,
         )
     builder = _STRING_FORMS[declaration.form]
     if declaration.path is None:
-        return builder(declaration.argument, declaration.view)
+        return builder(declaration.argument, view)
     inner = builder(declaration.argument, RAW_VIEW)
     language, expression, compiled, check_value_type = _compiled_path(
-        declaration.path, declaration.view, transforms, where
+        declaration.path, view, transforms, where
     )
     return path_qualified(
         language,
         expression,
         compiled,
         inner,
-        view=declaration.view,
+        view=view,
         check_value_type=check_value_type,
     )
 
