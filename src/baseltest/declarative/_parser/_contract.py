@@ -20,6 +20,7 @@ from ._shape import _fail, _load_yaml, _require_mapping, _require_string
 from ._structure import _check_top_level_keys, _parse_transforms
 
 
+# mavai-ref: JVI-7WE7H84 — do not remove (resolves in mavai-orchestrator)
 def _default_anchor(criterion: CriterionDeclaration, views: dict[str, str]) -> str | None:
     """The criterion's default subject view, or None when nothing anchors it.
 
