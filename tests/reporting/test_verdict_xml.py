@@ -60,7 +60,7 @@ class TestVerdictRecord:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.2"
+        assert root.get("version") == "1.3"
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
         identity = root.find(f"{NS}identity")
@@ -128,10 +128,7 @@ class TestVerdictRecord:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = (
-            Path(__file__).resolve().parents[1]
-            / "conformance/interchange/verdict-1.2.xsd"
-        )
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.3.xsd"
         assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
         if xmllint is None:
             pytest.skip("xmllint not available on this machine")
@@ -165,12 +162,9 @@ class TestRunDesignRecording:
     def test_no_design_emits_no_baseline_and_no_sizing_entries(self) -> None:
         root = ElementTree.fromstring(render_verdict_record(run_result()))
         assert root.find(f"{NS}baseline") is None
-        # The standings ride the environment entries, so the element exists
-        # even without a recorded design — but nothing sizing-related does.
-        environment = root.find(f"{NS}environment")
-        assert environment is not None
-        keys = {e.get("key") or "" for e in environment.findall(f"{NS}entry")}
-        assert not any(key.startswith("sizing") for key in keys)
+        # Since 1.3 the standings travel in their own element, so without a
+        # recorded design there is no environment element at all.
+        assert root.find(f"{NS}environment") is None
         assert parse_verdict_record(render_verdict_record(run_result())).design is None
 
     def test_designed_record_still_validates_against_the_family_xsd(self, tmp_path: Path) -> None:
@@ -180,12 +174,10 @@ class TestRunDesignRecording:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = (
-            Path(__file__).resolve().parents[3]
-            / "punit/punit-report/src/main/resources/org/mavai/punit/report/verdict-1.2.xsd"
-        )
-        if xmllint is None or not xsd.is_file():
-            pytest.skip("xmllint or the family XSD not available on this machine")
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.3.xsd"
+        assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
+        if xmllint is None:
+            pytest.skip("xmllint not available on this machine")
         record = tmp_path / "record.xml"
         record.write_text(render_verdict_record(run_result(), RISK_DRIVEN_DESIGN), encoding="utf-8")
         completed = subprocess.run(

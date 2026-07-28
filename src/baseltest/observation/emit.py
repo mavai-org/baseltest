@@ -50,6 +50,26 @@ def observation_lines(record: RunObservation, indent: str = "") -> list[str]:
                 f"{indent}      inconclusive: 0",
             ]
         )
+        if statistics.standings:
+            # The binding standings block (amendment 2026-07-28): counts
+            # and the observed fraction only, the optional flag stated on
+            # every row, the declared slack verbatim and only when declared.
+            lines.append(f"{indent}      standings:")
+            if statistics.optional_slack is not None:
+                lines.append(f"{indent}        optionalSlack: {quote(statistics.optional_slack)}")
+            lines.append(f"{indent}        rows:")
+            for row in statistics.standings:
+                lines.extend(
+                    [
+                        f"{indent}          - inputIndex: {row.input_index}",
+                        f"{indent}            check: {quote(bounded_key(row.postcondition))}",
+                        f"{indent}            optional: {'true' if row.optional else 'false'}",
+                        f"{indent}            passed: {row.passed}",
+                        f"{indent}            failed: {row.failed}",
+                        f"{indent}            skipped: {row.skipped}",
+                        f"{indent}            observedFraction: {row.observed_fraction:.6f}",
+                    ]
+                )
     average = (
         round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
     )

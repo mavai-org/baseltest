@@ -81,11 +81,16 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
                 f"      confidence: {c.judgement.confidence}",
             ]
         )
+    if c.optional_slack is not None:
+        # The declared optional-check failure budget, verbatim as authored;
+        # absent when undeclared — never "0". Additive in schema 2.
+        lines.append(f"    optionalSlack: {quote(c.optional_slack)}")
     if c.standings:
         # Descriptive triage only — counts and the observed fraction; the
         # block never carries an interval, threshold, or per-check verdict.
         # Nested mappings (input index, then check), never a mapping list —
-        # the reader's line parser takes list items as scalars only.
+        # the reader's line parser takes list items as scalars only. Each
+        # check states its optional flag beside the tallies (additive).
         lines.append("    postconditionStandings:")
         current_input: int | None = None
         for row in c.standings:
@@ -95,6 +100,7 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
             lines.extend(
                 [
                     f"        {quote(bounded_key(row.postcondition))}:",
+                    f"          optional: {'true' if row.optional else 'false'}",
                     f"          passed: {row.passed}",
                     f"          failed: {row.failed}",
                     f"          skipped: {row.skipped}",

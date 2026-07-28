@@ -44,12 +44,21 @@
       <xs:element name="environment"  type="tns:EnvironmentType"  minOccurs="0"/>
       <xs:element name="postcondition-failures" type="tns:PostconditionFailuresType" minOccurs="0"/>
       <xs:element name="per-criterion" type="tns:PerCriterionType" minOccurs="0"/>
+      <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0" or "1.2". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", or "1.3". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
-         remain correctly informed. -->
+         remain correctly informed. 1.3 emitters set version="1.3":
+         the <postcondition-standings> element is available (emitted
+         whenever the run produced standings). -->
+    <!-- 1.3 addition: the <postcondition-standings> element — the
+         descriptive per-(input, check) tally of per-trial check
+         outcomes, first-class. It supersedes the transitional
+         environment-entry carriage (postcondition-standings:* keys)
+         some 1.2 emitters used; 1.3 emitters do not write those
+         entries. -->
     <!-- 1.2 withdrawal: the <legacy-aggregate> child of <per-criterion>,
          present in 1.1 as a one-release audit-trail element, is gone.
          Producers emitting 1.2-shaped content do not write the
@@ -469,5 +478,80 @@
   <xs:complexType name="CompositeType">
     <xs:attribute name="value" type="tns:VerdictEnum" use="required"/>
   </xs:complexType>
+
+  <!-- ===================================================================
+       Postcondition standings (1.3 addition)
+
+       The descriptive per-(input, check) tally of the per-trial check
+       outcomes the run's evaluator computed: passed / failed / skipped
+       counts and the observed pass fraction, exactly as stated by the
+       emitter. One <criterion> per criterion carrying standings, rows in
+       the emitter's stated order (the schema does not constrain it).
+
+       Descriptive only, by construction: the element carries counts and
+       the observed fraction and offers no place for a confidence
+       interval, a threshold, or a per-check verdict — the criterion
+       remains the family's only judged unit.
+
+       Partial-credit facts travel with the tallies so consumers can
+       flag partial credit without reading the contract: every row
+       states whether its check is optional, and a criterion that
+       declares an optional-check failure budget states it verbatim as
+       authored ("2" is a count, "20%" a percentage; the attribute is
+       absent iff no budget is declared — absence is distinguishable
+       from "0", which is the explicit budget of zero).
+       =================================================================== -->
+
+  <xs:complexType name="PostconditionStandingsType">
+    <xs:sequence>
+      <xs:element name="criterion" type="tns:StandingsCriterionType"
+                  minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="StandingsCriterionType">
+    <xs:sequence>
+      <xs:element name="row" type="tns:StandingsRowType"
+                  minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="name"           type="xs:string"              use="required"/>
+    <xs:attribute name="optional-slack" type="tns:OptionalSlackType"  use="optional"/>
+  </xs:complexType>
+
+  <!-- The declared budget, verbatim as authored: digits for a count,
+       digits + % for a percentage. -->
+  <xs:simpleType name="OptionalSlackType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]+%?"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="StandingsRowType">
+    <!-- check: the check's bounded identity, as the contract declares
+         it — never embedding input or response content; the input
+         travels structurally in input-index (the interchange area's
+         key discipline). -->
+    <xs:attribute name="input-index"       type="xs:int"                    use="required"/>
+    <xs:attribute name="check"             type="tns:BoundedIdentityType"   use="required"/>
+    <xs:attribute name="optional"          type="xs:boolean"                use="required"/>
+    <xs:attribute name="passed"            type="xs:int"                    use="required"/>
+    <xs:attribute name="failed"            type="xs:int"                    use="required"/>
+    <xs:attribute name="skipped"           type="xs:int"                    use="required"/>
+    <xs:attribute name="observed-fraction" type="tns:ObservedFractionType"  use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="BoundedIdentityType">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="256"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ObservedFractionType">
+    <xs:restriction base="xs:double">
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
 
 </xs:schema>

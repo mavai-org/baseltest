@@ -6,15 +6,17 @@ input and check. They are triage, never inference: no confidence interval,
 no threshold, no per-check verdict, anywhere they surface.
 """
 
-import json
 import re
+from dataclasses import replace
+from decimal import Decimal
 from xml.etree import ElementTree
 
 from baseltest.baseline import BaselineRecord, render_baseline
-from baseltest.contract import Criterion, ServiceContract, contains
+from baseltest.contract import Criterion, OptionalSlack, ServiceContract, contains
 from baseltest.engine import RunKind, RunPlan, execute
+from baseltest.observation import RunObservation, observation_lines
 from baseltest.reporting.console import render_run
-from baseltest.reporting.verdict_xml import STANDINGS_PREFIX, render_verdict_record
+from baseltest.reporting.verdict_xml import render_verdict_record
 
 
 def contract() -> ServiceContract[str]:
@@ -79,26 +81,38 @@ class TestConsoleBlock:
 
 
 class TestPersistence:
-    def test_the_verdict_record_carries_standings_entries(self) -> None:
+    def test_the_verdict_record_carries_the_standings_element(self) -> None:
         text = render_verdict_record(run(kind=RunKind.TEST))
         root = ElementTree.fromstring(text)
         namespace = "{http://mavai.org/verdict/1.0}"
-        entries = {
-            e.get("key"): e.get("value")
-            for e in root.findall(f"{namespace}environment/{namespace}entry")
+        blocks = root.findall(f"{namespace}postcondition-standings/{namespace}criterion")
+        assert [b.get("name") for b in blocks] == ["c"]
+        rows = {
+            (int(r.get("input-index", "-1")), r.get("check")): r
+            for r in blocks[0].findall(f"{namespace}row")
         }
-        value = entries[f"{STANDINGS_PREFIX}c"]
-        assert value is not None
-        rows = json.loads(value)
-        assert {
-            "input": 0,
-            "check": 'contains "a"',
-            "passed": 2,
-            "failed": 0,
-            "skipped": 0,
-            "observedFraction": 1.0,
-        } in rows
-        assert not any("verdict" in row or "interval" in row for row in rows)
+        row = rows[(0, 'contains "a"')]
+        assert (row.get("passed"), row.get("failed"), row.get("skipped")) == ("2", "0", "0")
+        assert row.get("observed-fraction") == "1.0"
+        # Required is the default: an unmarked check states optional="false".
+        assert all(r.get("optional") == "false" for r in rows.values())
+        # No slack declared -> no attribute; absence is not "0".
+        assert blocks[0].get("optional-slack") is None
+        # A row carries counts only — never inference attributes.
+        assert not any(
+            "verdict" in key or "interval" in key or "threshold" in key for key in row.attrib
+        )
+
+    def test_the_transitional_environment_carriage_is_gone(self) -> None:
+        # 1.3 states standings once, in the element; the environment no
+        # longer carries postcondition-standings:* entries.
+        text = render_verdict_record(run(kind=RunKind.TEST))
+        root = ElementTree.fromstring(text)
+        namespace = "{http://mavai.org/verdict/1.0}"
+        keys = [
+            e.get("key") or "" for e in root.findall(f"{namespace}environment/{namespace}entry")
+        ]
+        assert not any(key.startswith("postcondition-standings:") for key in keys)
 
     def test_the_baseline_artefact_carries_the_standings_block(self) -> None:
         artefact = render_baseline(BaselineRecord.from_run_result(run()))
@@ -112,3 +126,74 @@ class TestPersistence:
         path = write_baseline(BaselineRecord.from_run_result(run()), tmp_path)
         stored = read_baseline(path)
         assert stored.criteria["c"].trials == 4
+
+
+class TestPartialCreditFacts:
+    """The partial-credit facts travel with the tallies in every persisted
+    shape — the flag stated per row, the declared budget verbatim."""
+
+    def _contract(self, slack: OptionalSlack) -> ServiceContract[str]:
+        return ServiceContract(
+            contract_id="svc",
+            invoke=lambda text: str(text),
+            criteria=(
+                Criterion(
+                    name="c",
+                    postconditions=(contains("a"), replace(contains("x"), required=False)),
+                    threshold=0.5,
+                    optional_slack=slack,
+                ),
+            ),
+        )
+
+    def _run(self, slack: OptionalSlack):  # type: ignore[no-untyped-def]
+        return execute(
+            self._contract(slack),
+            RunPlan(samples=4, inputs=("a", "b"), kind=RunKind.TEST),
+        )
+
+    def test_the_flag_and_slack_state_verbatim_in_every_shape(self) -> None:
+        result = self._run(OptionalSlack(percent=Decimal("20")))
+        namespace = "{http://mavai.org/verdict/1.0}"
+
+        root = ElementTree.fromstring(render_verdict_record(result))
+        block = root.find(f"{namespace}postcondition-standings/{namespace}criterion")
+        assert block is not None
+        assert block.get("optional-slack") == "20%"
+        flags = {
+            (row.get("check"), row.get("optional")) for row in block.findall(f"{namespace}row")
+        }
+        assert ('contains "x"', "true") in flags
+        assert ('contains "a"', "false") in flags
+
+        artefact = render_baseline(BaselineRecord.from_run_result(result))
+        assert 'optionalSlack: "20%"' in artefact
+        assert "optional: true" in artefact
+        assert "optional: false" in artefact
+
+        observation = "\n".join(observation_lines(RunObservation.from_run_result(result)))
+        assert 'optionalSlack: "20%"' in observation
+        assert "optional: true" in observation
+        assert "optional: false" in observation
+
+    def test_a_count_budget_spells_its_digits(self) -> None:
+        result = self._run(OptionalSlack(count=2))
+        namespace = "{http://mavai.org/verdict/1.0}"
+        root = ElementTree.fromstring(render_verdict_record(result))
+        block = root.find(f"{namespace}postcondition-standings/{namespace}criterion")
+        assert block is not None
+        assert block.get("optional-slack") == "2"
+
+    def test_an_undeclared_budget_states_nothing(self) -> None:
+        # Absence is distinguishable from "0": no slack declared means no
+        # optionalSlack key and no optional-slack attribute anywhere.
+        result = run(kind=RunKind.TEST)
+        namespace = "{http://mavai.org/verdict/1.0}"
+        root = ElementTree.fromstring(render_verdict_record(result))
+        block = root.find(f"{namespace}postcondition-standings/{namespace}criterion")
+        assert block is not None
+        assert block.get("optional-slack") is None
+        assert "optionalSlack" not in render_baseline(BaselineRecord.from_run_result(result))
+        assert "optionalSlack" not in "\n".join(
+            observation_lines(RunObservation.from_run_result(result))
+        )
