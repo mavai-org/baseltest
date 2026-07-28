@@ -145,7 +145,7 @@ Each postcondition entry declares exactly one form, optionally qualified by `in:
 | `contains-set` | list of scalars | Every listed element appears among the selected values (all-of).                                                                                                  |
 | `count-equals` | integer      | The path selected exactly that many values (`count-equals: 0` asserts an empty selection).                                                                           |
 
-`in:` names the view whose value the check judges; without it, the check judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). `path:` qualifies the string and value-comparison forms and requires `in:` naming a declared view — the raw response is unstructured text. The **set forms** (`equals-set`, `contains-set`, `count-equals`) go further: they judge the selected values *collectively* — the only way to state a cross-element condition — so they require `in:` **and** `path:`; there is no collection over raw text or a scalar.
+`in:` names the view whose value the check judges. A check without `in:` and without `path:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). A check with `path:` but no `in:` cannot mean raw text — a path needs structure — so its subject defaults to the view your criterion declares with `parses:`, or, failing that, the contract's only transform; with several transforms and no `parses:`, the omission is refused at load naming both fixes. An explicit `in:` always wins, and `path:`'s subject must be a declared view either way — `in: raw` beside a `path:` is refused. The **set forms** (`equals-set`, `contains-set`, `count-equals`) go further: they judge the selected values *collectively* — the only way to state a cross-element condition — so they always require a `path:`; there is no collection over raw text or a scalar.
 
 #### Value comparison — literal expected values
 
@@ -158,18 +158,15 @@ Before these forms, a field-by-field extraction contract needed a registered tra
 - in: canonical
   path: "$.premium"
   equals: "2637.8"
-# after: no bindings file, the document's own spelling
-- in: doc
-  path: "$.premium"
+# after: no bindings file, the document's own spelling — and with `doc` the
+# contract's only transform, `in: doc` is inferred on every path check
+- path: "$.premium"
   eq: 2637.80
-- in: doc
-  path: "$.holder"
+- path: "$.holder"
   equals-ci: "Frau Beispiel"
-- in: doc
-  path: "$.rents[*].amount"
+- path: "$.rents[*].amount"
   equals-set: [1200, 950.50]
-- in: doc
-  path: "$.cancellation-date"
+- path: "$.cancellation-date"
   is-null: true
 ```
 

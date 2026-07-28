@@ -62,7 +62,7 @@ class TestParsingRefusals:
             "criteria:\n  - threshold: 0.9\n    postconditions:\n"
             '      - {in: doc, equals-set: ["a", "b"]}'
         )
-        assert "requires `in:` naming a declared view and a `path:`" in message
+        assert "requires a `path:` under a declared view" in message
 
     def test_a_set_operand_lists_at_least_one_element(self) -> None:
         message = self.refusal(

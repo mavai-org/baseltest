@@ -42,11 +42,18 @@ class Form(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FormDeclaration:
-    """One postcondition form as declared: form key, argument, subject view, path."""
+    """One postcondition form as declared: form key, argument, subject view, path.
+
+    ``view`` is ``None`` for a ``path:``-bearing form that omitted ``in:`` —
+    the subject awaits the path-conditional default resolution against its
+    owning criterion (single ``parses:`` view, else the sole declared
+    transform, else a load refusal). The parser resolves every subject
+    before the declaration leaves it; instantiation never sees ``None``.
+    """
 
     form: Form
     argument: Any
-    view: str = RAW_VIEW
+    view: str | None = RAW_VIEW
     path: str | None = None
 
 
