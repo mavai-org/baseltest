@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
+from baseltest.contract import PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, latency_block
 
 
@@ -51,12 +52,17 @@ class CriterionCharacterisation:
             every trial passed.
         judgement: The measurement-time judgement, when the criterion
             declared a threshold; ``None`` otherwise.
+        standings: The criterion's descriptive per-postcondition tally —
+            per ``(input, check)``, passed/failed/skipped counts and the
+            observed fraction. Triage data, additive in the artefact
+            schema; never an interval or a per-check verdict.
     """
 
     successes: int
     trials: int
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
     judgement: NormativeJudgement | None = None
+    standings: tuple[PostconditionStanding, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -139,6 +145,7 @@ class BaselineRecord:
                 trials=tally.trials,
                 failure_distribution=dict(tally.failure_reasons),
                 judgement=judgement,
+                standings=criterion_result.standings,
             )
         return BaselineRecord(
             contract_id=result.contract_id,

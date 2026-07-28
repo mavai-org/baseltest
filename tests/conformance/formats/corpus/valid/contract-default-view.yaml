@@ -1,0 +1,31 @@
+# The path-conditional default view (Part I, subject rule, 2026-07-27):
+# a path-less check omitting in: judges raw, exactly as always; a
+# path-bearing check omitting in: resolves to the owning criterion's
+# single parses: view. Explicit in: still wins on deviation. Per-input
+# expected entries resolve identically, and may carry optional:.
+format: mavai-contract/1
+contract: extraction-defaults-to-the-parse-view
+service: quote-extractor
+transforms:
+  parsed: json
+  envelope: xml
+criteria:
+  - name: extraction-matches-reviewed-values
+    threshold: 0.9
+    postconditions:
+      - parses: parsed              # the criterion's default-view anchor
+      - matches: '^\s*\{'           # path-less: judges raw
+      - path: "$.offerId"           # no in:, resolves to parsed
+        equals-ci: "T802739355"
+      - in: envelope                # explicit only on deviation
+        path: "/envelope/status"
+        equals: "ok"
+inputs:
+  - input: "quote for the standard bundle"
+    expected:
+      - path: "$.premium"           # no in:, resolves to parsed
+        eq: 2637.8
+      - path: "$.applicableTerms[*]"
+        equals-set: ["basic", "extended"]
+        optional: true
+  - "quote for the extended bundle"

@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import Criterion, CriterionTally, Outcome
+from baseltest.contract import Criterion, CriterionTally, Outcome, PostconditionStanding
 from baseltest.statistics.verdict import Verdict
 
 if TYPE_CHECKING:
@@ -73,12 +73,17 @@ class CriterionResult:
     A thresholded criterion carries a verdict and its Wilson lower bound;
     an unthresholded criterion is characterised only -- its ``verdict`` and
     ``lower_bound`` are ``None`` and its rate is reported without judgement.
+
+    ``standings`` is the criterion's descriptive per-postcondition tally —
+    per ``(input, check)``, the passed/failed/skipped counts over the run —
+    triage data carrying no interval, threshold, or verdict of its own.
     """
 
     criterion: Criterion
     tally: CriterionTally
     lower_bound: float | None
     verdict: Verdict | None
+    standings: tuple[PostconditionStanding, ...] = ()
 
     @property
     def name(self) -> str:

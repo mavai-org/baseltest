@@ -6,6 +6,8 @@ criteria, thresholds, views, and run plan — expressed directly against
 after materialising, the source is the developer's; nothing round-trips.
 """
 
+from decimal import Decimal
+
 from ._parser import ContractDeclaration, CriterionDeclaration, Form, FormDeclaration
 
 _HEADER = '''"""Materialised from {contract_file}: the contract the contract file was running.
@@ -14,8 +16,12 @@ This is now your code. The contract file instantiated exactly this contract;
 edit it freely -- the declarative surface is no longer involved.
 """
 
+from dataclasses import replace
+from decimal import Decimal
+
 from baseltest.contract import (
     Criterion,
+    OptionalSlack,
     ServiceContract,
     ThresholdProvenance,
     contains,
@@ -89,6 +95,17 @@ def _form_source(declaration: FormDeclaration) -> str:
             f"satisfies('parses as {argument}', lambda value: True, "
             f"view={str(argument)!r})  # forcing the view is the check"
         )
+    if (
+        declaration.view != "raw"
+        and declaration.form is not Form.PARSES
+        and declaration.path is None
+    ):
+        separator = "" if base.endswith("()") else ", "
+        base = base[:-1] + f"{separator}view={declaration.view!r})"
+    if declaration.optional:
+        # The optional mark survives graduation: the emitted check is the
+        # one the reader instantiated, relaxable within the criterion's slack.
+        base = f"replace({base}, required=False)"
     if declaration.path is not None:
         return (
             f"# TODO: path-qualified check (`path: {declaration.path}` in view "
@@ -96,9 +113,6 @@ def _form_source(declaration: FormDeclaration) -> str:
             "choice inside a satisfies() predicate\n"
             f"        {base}"
         )
-    if declaration.view != "raw" and declaration.form is not Form.PARSES:
-        separator = "" if base.endswith("()") else ", "
-        return base[:-1] + f"{separator}view={declaration.view!r})"
     return base
 
 
@@ -116,6 +130,13 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
     lines.append("        ),")
     if declaration.threshold is not None:
         lines.append(f"        threshold={declaration.threshold},")
+    if isinstance(declaration.optional_slack, int):
+        lines.append(f"        optional_slack=OptionalSlack(count={declaration.optional_slack}),")
+    elif isinstance(declaration.optional_slack, Decimal):
+        lines.append(
+            "        optional_slack=OptionalSlack("
+            f"percent=Decimal({str(declaration.optional_slack)!r})),"
+        )
     if declaration.threshold_origin or declaration.contract_ref:
         lines.append(
             "        provenance=ThresholdProvenance("

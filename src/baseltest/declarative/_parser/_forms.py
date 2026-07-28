@@ -71,6 +71,15 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
             raise _fail(f"{where}: `path:` must be a non-empty string")
         path = path_value
         keys.discard("path")
+    optional = False
+    if "optional" in keys:
+        if entry["optional"] is not True:
+            raise _fail(
+                f"{where}: `optional:` takes the literal `true` and nothing else — "
+                "required is the default, not a spelling"
+            )
+        optional = True
+        keys.discard("optional")
     if len(keys) != 1:
         raise _fail(f"{where}: each postcondition declares exactly one form")
     form = keys.pop()
@@ -161,7 +170,15 @@ def _parse_form_entry(entry: dict[str, Any], where: str, views: dict[str, str]) 
         target = entry[form]
         if view != RAW_VIEW:
             raise _fail(f"{where}: `parses:` takes no `in:` — it names its view directly")
+        if optional:
+            raise _fail(
+                f"{where}: `optional:` on `parses:` is refused — a transform failure "
+                "hard-fails the trial regardless of any optional-slack budget, so "
+                "the mark would be inert"
+            )
         if not isinstance(target, str) or target not in views:
             declared = ", ".join(sorted(views)) or "none declared"
             raise _fail(f"{where}: `parses:` references a declared view (declared: {declared})")
-    return FormDeclaration(form=Form(form), argument=entry[form], view=view, path=path)
+    return FormDeclaration(
+        form=Form(form), argument=entry[form], view=view, path=path, optional=optional
+    )

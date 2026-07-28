@@ -155,17 +155,21 @@ def evaluate_trial(
     trial.
     """
     outcomes: list[tuple[str, Outcome]] = []
-    first_reason: str | None = None
+    first_required_reason: str | None = None
+    first_optional_reason: str | None = None
+    failed_optional = 0
     postconditions = list(criterion.postconditions_for(context.index))
     for index, postcondition in enumerate(postconditions):
         try:
             subject = views.get(postcondition.view)
         except TransformError as failure:
+            # An unparseable response is not "within slack": a transform
+            # failure hard-fails the trial regardless of any optional budget.
             reason = f"{_TRANSFORM_REASON_PREFIX} ({postcondition.view}): {failure}"
             outcomes.append((postcondition.name, Outcome.FAILED))
             outcomes.extend((later.name, Outcome.SKIPPED) for later in postconditions[index + 1 :])
             return TrialEvaluation(
-                passed=False, reason=first_reason or reason, outcomes=tuple(outcomes)
+                passed=False, reason=first_required_reason or reason, outcomes=tuple(outcomes)
             )
         except Exception as defect:
             raise TrialDefectError(
@@ -186,13 +190,27 @@ def evaluate_trial(
         if result.passed:
             outcomes.append((postcondition.name, Outcome.PASSED))
         else:
+            # Outcomes record what actually happened — a tolerated optional
+            # failure is still FAILED here, so standings see reality, never
+            # the softened verdict.
             outcomes.append((postcondition.name, Outcome.FAILED))
-            if first_reason is None:
-                first_reason = (
-                    result.reason or f"postcondition {postcondition.name!r} not satisfied"
-                )
+            reason = result.reason or f"postcondition {postcondition.name!r} not satisfied"
+            if postcondition.required:
+                if first_required_reason is None:
+                    first_required_reason = reason
+            else:
+                failed_optional += 1
+                if first_optional_reason is None:
+                    first_optional_reason = reason
+    optional_count = sum(1 for p in postconditions if not p.required)
+    over_budget = failed_optional > criterion.optional_allowance(optional_count)
+    trial_reason: str | None = None
+    if first_required_reason is not None:
+        trial_reason = first_required_reason
+    elif over_budget:
+        trial_reason = first_optional_reason
     return TrialEvaluation(
-        passed=first_reason is None, reason=first_reason, outcomes=tuple(outcomes)
+        passed=trial_reason is None, reason=trial_reason, outcomes=tuple(outcomes)
     )
 
 
@@ -234,3 +252,38 @@ class CriterionTally:
     def standard_error(self) -> float:
         """Standard error of the observed pass rate. Zero for an empty tally."""
         return proportion_standard_error(self.successes, self.trials)
+
+
+@dataclass(frozen=True, slots=True)
+class PostconditionStanding:
+    """One check's descriptive tally over a run, for one input.
+
+    Triage, not inference: counts and an observed fraction only. The run is
+    sized for its criterion's claim, not for bounding each check, so a
+    standing deliberately carries no confidence interval, no threshold, and
+    no verdict — the criterion remains the only measured unit.
+
+    Attributes:
+        input_index: Position of the driving input in the plan's input list.
+        postcondition: The check's name, as declared.
+        passed: Trials on which the check held.
+        failed: Trials on which it did not.
+        skipped: Trials on which it went unevaluated (an earlier transform
+            failure, or an undelivered response).
+    """
+
+    input_index: int
+    postcondition: str
+    passed: int
+    failed: int
+    skipped: int
+
+    @property
+    def trials(self) -> int:
+        """Trials this check was applicable to."""
+        return self.passed + self.failed + self.skipped
+
+    @property
+    def observed_fraction(self) -> float:
+        """The observed pass fraction over the check's applicable trials."""
+        return self.passed / self.trials

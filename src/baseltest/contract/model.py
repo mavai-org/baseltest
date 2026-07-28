@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -138,13 +139,45 @@ class ThresholdProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class OptionalSlack:
+    """A criterion's optional-check failure budget: a count, or a percentage.
+
+    Exactly one of the two shapes is set. A percentage resolves by **floor**
+    of the trial's applicable optional-check count — the conservative
+    reading — computed in decimal so the resolved allowance never turns on a
+    binary-float artefact. A budget larger than the optional set simply
+    means all may fail; the shape cannot express an impossible state.
+    """
+
+    count: int | None = None
+    percent: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if (self.count is None) == (self.percent is None):
+            raise ValueError("optional slack is a count or a percentage, exactly one")
+        if self.count is not None and self.count < 0:
+            raise ValueError(f"optional slack count must be non-negative, got {self.count}")
+        if self.percent is not None and self.percent < 0:
+            raise ValueError(f"optional slack percentage must be non-negative, got {self.percent}")
+
+    def allowance(self, optional_count: int) -> int:
+        """How many of ``optional_count`` applicable optional checks may fail."""
+        if self.count is not None:
+            return self.count
+        assert self.percent is not None
+        return int(self.percent * optional_count / 100)
+
+
+@dataclass(frozen=True, slots=True)
 class Criterion:
     """One criterion: a single Bernoulli stream with its own bar.
 
-    A response passes the criterion iff every postcondition holds (a
-    conjunction). Each postcondition names the view it judges; the views
-    themselves are declared on the contract and computed at most once per
-    response, shared across criteria.
+    A response passes the criterion iff every required postcondition holds
+    and no more optional postconditions fail than the declared
+    ``optional_slack`` allows (with no slack declared, none may — exactly
+    the historical whole-conjunction). Each postcondition names the view it
+    judges; the views themselves are declared on the contract and computed
+    at most once per response, shared across criteria.
 
     Attributes:
         name: The criterion's stable identifier within its contract.
@@ -160,6 +193,9 @@ class Criterion:
             threshold is a declared bar and the verdict is the test
             sample's own confidence bound clearing it (compliance posture).
         provenance: Where the threshold comes from, when one is declared.
+        optional_slack: The optional-check failure budget. ``None`` (the
+            default) is a budget of zero: an optional check must still pass
+            — leniency is a second, deliberate declaration.
     """
 
     name: str
@@ -168,6 +204,7 @@ class Criterion:
     confidence: float = DEFAULT_CONFIDENCE_LEVEL
     cutoff: int | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
+    optional_slack: OptionalSlack | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -215,6 +252,16 @@ class Criterion:
             if postcondition.applies_to_input is None
             or postcondition.applies_to_input == input_index
         )
+
+    def optional_allowance(self, optional_count: int) -> int:
+        """How many of a trial's applicable optional checks may fail.
+
+        Zero without a declared ``optional_slack`` — marking a check
+        optional alone weakens nothing (the double opt-in).
+        """
+        if self.optional_slack is None:
+            return 0
+        return self.optional_slack.allowance(optional_count)
 
 
 # The supported percentile levels, in tail order. The latency dimension's

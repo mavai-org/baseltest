@@ -6,6 +6,7 @@ postcondition ``Form`` enum, and the format identifier and reserved
 """
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,10 @@ class FormDeclaration:
     argument: Any
     view: str | None = RAW_VIEW
     path: str | None = None
+    # Partial credit: `optional: true` opts the check out of
+    # non-negotiability, relaxable within the criterion's optional-slack
+    # budget. Required is the default, not a spelling.
+    optional: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +71,10 @@ class CriterionDeclaration:
     feeds risk-driven run sizing at test time and is meaningless alongside
     a declared ``threshold`` (a stipulated bar carries no baseline claim).
     ``confidence`` overrides the contract-level confidence for this
-    criterion's derivation and judgement.
+    criterion's derivation and judgement. ``optional_slack`` is the
+    partial-credit failure budget for the criterion's optional checks: a
+    non-negative count, or a percentage carried as its exact decimal (the
+    ``%`` spelling), resolved by floor at evaluation time.
     """
 
     name: str
@@ -76,6 +84,7 @@ class CriterionDeclaration:
     contract_ref: str | None
     tolerate: float | None = None
     confidence: float | None = None
+    optional_slack: int | Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)

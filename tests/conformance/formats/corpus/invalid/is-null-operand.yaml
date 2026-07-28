@@ -9,6 +9,6 @@ criteria:
   - threshold: 0.9
     postconditions:
       - in: doc
-        path: "$.cancellation-date"
+        path: "$['cancellation-date']"
         is-null: false
 inputs: ["Alice"]

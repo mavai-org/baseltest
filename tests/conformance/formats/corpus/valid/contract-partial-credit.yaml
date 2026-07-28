@@ -1,0 +1,37 @@
+# Partial credit (Part I, 2026-07-27): required-by-default checks with
+# optional: true opt-outs, and the criterion's optional-slack budget in
+# both spellings — an absolute count and an explicit percentage (floor).
+# Absent slack, budget 0: optional alone weakens nothing (double opt-in).
+format: mavai-contract/1
+contract: extraction-with-partial-credit
+service: quote-extractor
+transforms:
+  parsed: json
+criteria:
+  - name: non-negotiables-hold-with-counted-slack
+    threshold: 0.9
+    optional-slack: 2
+    postconditions:
+      - in: parsed
+        path: "$.offerId"
+        equals-ci: "T802739355"
+      - in: parsed
+        path: "$.premium"
+        eq: 2637.8
+        optional: true
+      - in: parsed
+        path: "$.applicableTerms[*]"
+        equals-set: ["basic", "extended"]
+        optional: true
+  - name: percent-slack-spelling
+    threshold: 0.9
+    optional-slack: "20%"
+    postconditions:
+      - matches: '^\s*\{'
+      - in: parsed
+        path: "$.currency"
+        one-of: ["CHF", "EUR"]
+        optional: true
+inputs:
+  - "quote for the standard bundle"
+  - "quote for the extended bundle"

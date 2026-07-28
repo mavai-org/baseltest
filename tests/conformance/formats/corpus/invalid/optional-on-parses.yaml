@@ -1,0 +1,15 @@
+# REFUSED: optional: on a parses: form — transform failure hard-fails
+# the trial regardless of any optional-slack budget, so the mark would
+# be inert; the refusal states so (Part I, partial credit, 2026-07-27).
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - parses: doc
+        optional: true
+      - contains: "ok"
+inputs: ["Alice"]

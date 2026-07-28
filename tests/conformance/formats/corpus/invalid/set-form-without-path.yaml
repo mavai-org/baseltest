@@ -1,6 +1,7 @@
 # REFUSED: a set form judges the selected values collectively and requires
-# an in: naming a declared view AND a path: — there is no collection over
-# the raw text or a scalar (Part I, value comparison, 2026-07-27).
+# a path: with a declared-view subject (explicit in:, or the resolved
+# default) — there is no collection over the raw text or a scalar
+# (Part I, value comparison, 2026-07-27; default-view amendment ditto).
 format: mavai-contract/1
 contract: c
 service: s

@@ -25,6 +25,11 @@ _FORMAT_VERSION = "1.2"
 SIZING_APPROACH_KEY = "sizing-approach"
 SIZING_GOVERNING_KEY = "sizing-governing"
 SIZING_CLAIM_PREFIX = "sizing-claim:"
+# The descriptive postcondition standings ride the same free-form entries —
+# one JSON row list per criterion, counts and observed fraction only, never
+# an interval or a per-check verdict — until the family verdict schema
+# gains a first-class standings element.
+STANDINGS_PREFIX = "postcondition-standings:"
 
 
 def _generator() -> str:
@@ -133,7 +138,8 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     termination = child(root, "termination")
     termination.set("reason", "COMPLETED")
 
-    if design is not None:
+    with_standings = [r for r in judged if r.standings]
+    if design is not None or with_standings:
         environment = child(root, "environment")
 
         def entry(key: str, value: str) -> None:
@@ -141,20 +147,38 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             element.set("key", key)
             element.set("value", value)
 
-        entry(SIZING_APPROACH_KEY, design.approach)
-        if design.governing is not None:
-            entry(SIZING_GOVERNING_KEY, design.governing)
-        for claim in design.claims:
+        if design is not None:
+            entry(SIZING_APPROACH_KEY, design.approach)
+            if design.governing is not None:
+                entry(SIZING_GOVERNING_KEY, design.governing)
+            for claim in design.claims:
+                entry(
+                    f"{SIZING_CLAIM_PREFIX}{claim.criterion}",
+                    json.dumps(
+                        {
+                            "baselineRate": claim.baseline_rate,
+                            "toleratedRate": claim.tolerated_rate,
+                            "confidence": claim.confidence,
+                            "targetPower": claim.target_power,
+                            "requiredN": claim.required_n,
+                        }
+                    ),
+                )
+        for criterion_result in with_standings:
             entry(
-                f"{SIZING_CLAIM_PREFIX}{claim.criterion}",
+                f"{STANDINGS_PREFIX}{criterion_result.name}",
                 json.dumps(
-                    {
-                        "baselineRate": claim.baseline_rate,
-                        "toleratedRate": claim.tolerated_rate,
-                        "confidence": claim.confidence,
-                        "targetPower": claim.target_power,
-                        "requiredN": claim.required_n,
-                    }
+                    [
+                        {
+                            "input": row.input_index,
+                            "check": row.postcondition,
+                            "passed": row.passed,
+                            "failed": row.failed,
+                            "skipped": row.skipped,
+                            "observedFraction": row.observed_fraction,
+                        }
+                        for row in criterion_result.standings
+                    ]
                 ),
             )
 

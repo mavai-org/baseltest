@@ -89,6 +89,31 @@ def _failure_reason_lines(result: CriterionResult, limit: int = 3) -> list[str]:
     return lines
 
 
+def _standings_lines(result: CriterionResult, named: bool = False) -> list[str]:
+    """The criterion's per-check standings: descriptive triage.
+
+    Counts and an observed fraction per ``(input, check)`` — which checks
+    fail, on which inputs, how often. Deliberately no interval, no
+    threshold, and no verdict vocabulary: the run is sized for the
+    criterion's claim, not for bounding each check.
+    """
+    if not result.standings:
+        return []
+    subject = f" for criterion {result.name}" if named else ""
+    lines = [f"    standings{subject} (descriptive — counts, not verdicts):"]
+    for row in result.standings:
+        detail = f"{row.passed}/{row.trials} passed ({row.observed_fraction:.2f})"
+        extras = [
+            f"{count} {label}"
+            for count, label in ((row.failed, "failed"), (row.skipped, "skipped"))
+            if count
+        ]
+        if extras:
+            detail += " — " + ", ".join(extras)
+        lines.append(f"      input {row.input_index} · {row.postcondition}: {detail}")
+    return lines
+
+
 def _characterised_lines(
     result: CriterionResult, label: str = "no threshold declared"
 ) -> list[str]:
@@ -191,6 +216,7 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
                 lines.extend(_recorded_bar_lines(criterion_result))
             else:
                 lines.extend(_characterised_lines(criterion_result))
+            lines.extend(_standings_lines(criterion_result))
     elif result.composite is not None:
         lines.append(f"contract {result.contract_id} — verdict: {result.composite.value.upper()}")
         judged = [r for r in result.criterion_results if r.verdict is not None]
@@ -200,6 +226,10 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
         for criterion_result in result.criterion_results:
             if criterion_result.verdict is None:
                 lines.extend(_characterised_lines(criterion_result))
+        for criterion_result in result.criterion_results:
+            lines.extend(
+                _standings_lines(criterion_result, named=len(result.criterion_results) > 1)
+            )
         if result.latency is not None:
             lines.extend(_latency_lines(result.latency))
     else:
@@ -209,6 +239,7 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
         )
         for criterion_result in result.criterion_results:
             lines.extend(_characterised_lines(criterion_result))
+            lines.extend(_standings_lines(criterion_result))
     if baseline_path is not None:
         lines.append(f"  baseline written: {baseline_path}")
     return "\n".join(lines)
@@ -281,6 +312,13 @@ def render_explorations(
         if reasons:
             reason, count = reasons.most_common(1)[0]
             lines.append(f"    most common failure: {count}× {reason}")
+        for criterion_result in result.criterion_results:
+            lines.extend(
+                "  " + line
+                for line in _standings_lines(
+                    criterion_result, named=len(result.criterion_results) > 1
+                )
+            )
         lines.append(f"    artefact: {path}")
     lines.append("  compare configurations by diffing their artefacts")
     return "\n".join(lines)

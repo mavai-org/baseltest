@@ -1,0 +1,17 @@
+# REFUSED: a path-bearing check omits in: and the contract declares no
+# views at all — no parses: form, no transforms — so no default view is
+# resolvable, and path: cannot target the raw response (unstructured
+# text). Add in: with a declared view, or declare parses: (Part I,
+# subject rule, 2026-07-27; SII.10 load-time validation). Before the
+# default-view amendment this file was the structural path-without-in
+# case; the shape is now structurally admitted and the refusal is the
+# loader's semantic obligation.
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - path: "$.items[*].name"
+        matches: '\w'
+inputs: ["Alice"]
