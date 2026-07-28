@@ -133,6 +133,7 @@ class EvaluationContext:
     input: Any
 
 
+# mavai-ref: JVI-2GV36P= — do not remove (resolves in mavai-orchestrator)
 def evaluate_trial(
     criterion: Criterion, views: TrialViews, context: EvaluationContext
 ) -> TrialEvaluation:
@@ -254,6 +255,7 @@ class CriterionTally:
         return proportion_standard_error(self.successes, self.trials)
 
 
+# mavai-ref: JVI-N9ZEY24 — do not remove (resolves in mavai-orchestrator)
 @dataclass(frozen=True, slots=True)
 class PostconditionStanding:
     """One check's descriptive tally over a run, for one input.
