@@ -167,6 +167,19 @@ class OptionalSlack:
         assert self.percent is not None
         return int(self.percent * optional_count / 100)
 
+    @property
+    def declared(self) -> str:
+        """The budget's canonical spelling, as authored.
+
+        Digits for a count (``"2"``), digits plus ``%`` for a percentage
+        (``"20%"``) — one spelling per declaration, identical across every
+        artefact that states it.
+        """
+        if self.count is not None:
+            return str(self.count)
+        assert self.percent is not None
+        return f"{self.percent}%"
+
 
 @dataclass(frozen=True, slots=True)
 class Criterion:

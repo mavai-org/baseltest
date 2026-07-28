@@ -272,6 +272,9 @@ class PostconditionStanding:
         failed: Trials on which it did not.
         skipped: Trials on which it went unevaluated (an earlier transform
             failure, or an undelivered response).
+        optional: Whether the contract marks the check ``optional`` — stated
+            with the tallies so every persisted standings shape can flag
+            partial credit without consulting the contract.
     """
 
     input_index: int
@@ -279,6 +282,7 @@ class PostconditionStanding:
     passed: int
     failed: int
     skipped: int
+    optional: bool = False
 
     @property
     def trials(self) -> int:
