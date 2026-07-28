@@ -96,6 +96,31 @@ class TrialViews:
         return self._cache[name]
 
 
+_SUBJECT_EXCERPT_LIMIT = 256
+
+
+def _subject_excerpt(value: Any) -> str:
+    """A bounded excerpt of a projected subject — the area's excerpt rule."""
+    text = str(value)
+    if len(text) <= _SUBJECT_EXCERPT_LIMIT:
+        return text
+    return f"{text[: _SUBJECT_EXCERPT_LIMIT - 1]}\u2026"
+
+
+@dataclass(frozen=True, slots=True)
+class ObservedValue:
+    """One obtained-value exemplar of a standings row.
+
+    A bounded excerpt of what the service returned under the check's view,
+    how many trials returned it, and whether the check held for them —
+    stated facts, never a judgement beyond ``held``.
+    """
+
+    excerpt: str
+    count: int
+    held: bool
+
+
 @dataclass(frozen=True, slots=True)
 class TrialEvaluation:
     """One criterion's judgement of one response.
@@ -108,11 +133,15 @@ class TrialEvaluation:
         outcomes: Per-postcondition ``(name, status)`` pairs in
             declaration order, with the family's three-valued
             :class:`Outcome` status.
+        subjects: Per evaluated postcondition, ``(name, excerpt)`` — a
+            bounded excerpt of the projected subject the check judged.
+            Skipped checks (an earlier transform failed) have no entry.
     """
 
     passed: bool
     reason: str | None = None
     outcomes: tuple[tuple[str, Outcome], ...] = ()
+    subjects: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +185,7 @@ def evaluate_trial(
     trial.
     """
     outcomes: list[tuple[str, Outcome]] = []
+    subjects: list[tuple[str, str]] = []
     first_required_reason: str | None = None
     first_optional_reason: str | None = None
     failed_optional = 0
@@ -170,7 +200,10 @@ def evaluate_trial(
             outcomes.append((postcondition.name, Outcome.FAILED))
             outcomes.extend((later.name, Outcome.SKIPPED) for later in postconditions[index + 1 :])
             return TrialEvaluation(
-                passed=False, reason=first_required_reason or reason, outcomes=tuple(outcomes)
+                passed=False,
+                reason=first_required_reason or reason,
+                outcomes=tuple(outcomes),
+                subjects=tuple(subjects),
             )
         except Exception as defect:
             raise TrialDefectError(
@@ -179,6 +212,7 @@ def evaluate_trial(
                 postcondition=postcondition.name,
                 original=defect,
             ) from defect
+        subjects.append((postcondition.name, _subject_excerpt(subject)))
         try:
             result = postcondition.evaluate(subject)
         except Exception as defect:
@@ -211,7 +245,10 @@ def evaluate_trial(
     elif over_budget:
         trial_reason = first_optional_reason
     return TrialEvaluation(
-        passed=trial_reason is None, reason=trial_reason, outcomes=tuple(outcomes)
+        passed=trial_reason is None,
+        reason=trial_reason,
+        outcomes=tuple(outcomes),
+        subjects=tuple(subjects),
     )
 
 
@@ -275,6 +312,13 @@ class PostconditionStanding:
         optional: Whether the contract marks the check ``optional`` — stated
             with the tallies so every persisted standings shape can flag
             partial credit without consulting the contract.
+        path: The structural address the check judges, when path-addressed —
+            the by-path grouping key, stated, never derived from the name.
+        form: The comparison form's domain name, when known.
+        expected: A bounded excerpt of the declared operand, for display.
+        observed: Obtained-value exemplars, failing exemplars first, distinct
+            excerpts capped; ``elided`` counts the trials whose values were
+            not exemplified.
     """
 
     input_index: int
@@ -283,6 +327,11 @@ class PostconditionStanding:
     failed: int
     skipped: int
     optional: bool = False
+    path: str | None = None
+    form: str | None = None
+    expected: str | None = None
+    observed: tuple[ObservedValue, ...] = ()
+    elided: int = 0
 
     @property
     def trials(self) -> int:

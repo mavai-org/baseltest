@@ -51,10 +51,11 @@ percentiles, is what a later test consumes to derive a latency bound at
 its own confidence — nothing derived is persisted here.
 """
 
+import json
 from pathlib import Path
 
 from baseltest.engine.artefact import latency_lines, quote
-from baseltest.engine.naming import bounded_key
+from baseltest.engine.naming import bounded_excerpt, bounded_key
 
 from .record import BaselineRecord, CriterionCharacterisation
 
@@ -107,6 +108,31 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
                     f"          observedFraction: {row.observed_fraction:.6f}",
                 ]
             )
+            # Structured-row amendment: the check's stated structure and
+            # obtained-value exemplars, additive in schema 2.
+            if row.path is not None:
+                lines.append(f"          path: {quote(bounded_excerpt(row.path))}")
+            if row.form is not None:
+                lines.append(f"          form: {quote(bounded_excerpt(row.form))}")
+            if row.expected is not None:
+                lines.append(f"          expected: {quote(bounded_excerpt(row.expected))}")
+            if row.observed:
+                # List items are scalars in this artefact's grammar (the
+                # reader json-loads each line): one JSON object per exemplar.
+                lines.append("          observed:")
+                for exemplar in row.observed:
+                    lines.append(
+                        "            - "
+                        + json.dumps(
+                            {
+                                "excerpt": exemplar.excerpt,
+                                "count": exemplar.count,
+                                "held": exemplar.held,
+                            }
+                        )
+                    )
+            if row.elided:
+                lines.append(f"          elided: {row.elided}")
     return lines
 
 

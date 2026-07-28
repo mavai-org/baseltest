@@ -15,7 +15,14 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from baseltest.contract import CriterionTally, Outcome, PostconditionStanding, ServiceContract
+from baseltest.contract import (
+    CriterionTally,
+    ObservedValue,
+    Outcome,
+    Postcondition,
+    PostconditionStanding,
+    ServiceContract,
+)
 from baseltest.statistics.verdict import Verdict
 
 from ..latency import evaluate_latency
@@ -73,9 +80,12 @@ def _reduce_samples(
     counts: dict[str, dict[tuple[int, str], list[int]]] = {
         criterion.name: {} for criterion in contract.criteria
     }
-    optional_checks = {
-        criterion.name: {pc.name for pc in criterion.postconditions if not pc.required}
+    descriptors = {
+        criterion.name: {pc.name: pc for pc in criterion.postconditions}
         for criterion in contract.criteria
+    }
+    values: dict[str, dict[tuple[int, str], dict[tuple[str, bool], int]]] = {
+        criterion.name: {} for criterion in contract.criteria
     }
     overall_successes = 0
     sample_records: list[SampleRecord] = []
@@ -85,9 +95,15 @@ def _reduce_samples(
         for name, evaluation in outcome.evaluations:
             tallies[name].record(evaluation)
             per_check = counts[name]
+            excerpts = dict(evaluation.subjects)
             for check, status in evaluation.outcomes:
                 row = per_check.setdefault((outcome.input_index, check), [0, 0, 0])
                 row[tick[status]] += 1
+                excerpt = excerpts.get(check)
+                if excerpt is not None and status is not Outcome.SKIPPED:
+                    value_tally = values[name].setdefault((outcome.input_index, check), {})
+                    key = (excerpt, status is Outcome.PASSED)
+                    value_tally[key] = value_tally.get(key, 0) + 1
         overall_successes += int(outcome.trial_passed)
         if outcome.trial_passed:
             passing_durations_ms.append(outcome.duration_ms)
@@ -95,19 +111,55 @@ def _reduce_samples(
             sample_records.append(outcome.record)
     standings = {
         name: tuple(
-            PostconditionStanding(
-                input_index=input_index,
-                postcondition=check,
-                passed=row[0],
-                failed=row[1],
-                skipped=row[2],
-                optional=check in optional_checks[name],
+            _standing(
+                input_index,
+                check,
+                row,
+                descriptors[name].get(check),
+                values[name].get((input_index, check), {}),
             )
             for (input_index, check), row in sorted(per_check.items(), key=lambda item: item[0][0])
         )
         for name, per_check in counts.items()
     }
     return tallies, standings, overall_successes, tuple(sample_records), passing_durations_ms
+
+
+# Distinct obtained-value exemplars stated per standings row; the remainder
+# is elided with its count — bounded documents, deterministic fold.
+_EXEMPLAR_CAP = 4
+
+
+def _standing(
+    input_index: int,
+    check: str,
+    row: list[int],
+    descriptor: Postcondition | None,
+    value_tally: dict[tuple[str, bool], int],
+) -> PostconditionStanding:
+    """One standings row: counts, the check's stated structure, and capped
+    obtained-value exemplars — failing exemplars first, then descending
+    count, then lexical, so a reordered or parallel fold emits
+    byte-identical artefacts."""
+    ordered = sorted(value_tally.items(), key=lambda item: (item[0][1], -item[1], item[0][0]))
+    exemplars = tuple(
+        ObservedValue(excerpt=excerpt, count=count, held=held)
+        for (excerpt, held), count in ordered[:_EXEMPLAR_CAP]
+    )
+    elided = sum(count for _, count in ordered[_EXEMPLAR_CAP:])
+    return PostconditionStanding(
+        input_index=input_index,
+        postcondition=check,
+        passed=row[0],
+        failed=row[1],
+        skipped=row[2],
+        optional=descriptor is not None and not descriptor.required,
+        path=descriptor.path if descriptor is not None else None,
+        form=descriptor.form if descriptor is not None else None,
+        expected=descriptor.expected if descriptor is not None else None,
+        observed=exemplars,
+        elided=elided,
+    )
 
 
 def execute(

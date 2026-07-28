@@ -216,7 +216,14 @@ def path_qualified(
                 return PostconditionResult.failed(f"path {expression}: {result.reason}")
         return PostconditionResult.ok()
 
-    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)
+    return Postcondition(
+        name=f"{inner.name} at {expression}",
+        check=check,
+        view=view,
+        path=expression,
+        form=inner.form,
+        expected=inner.expected,
+    )
 
 
 def _selected_values(language: str, expression: str, compiled: Any, value: Any) -> list[Any]:
@@ -267,7 +274,14 @@ def path_each_value(
                 return PostconditionResult.failed(f"path {expression}: {result.reason}")
         return PostconditionResult.ok()
 
-    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)
+    return Postcondition(
+        name=f"{inner.name} at {expression}",
+        check=check,
+        view=view,
+        path=expression,
+        form=inner.form,
+        expected=inner.expected,
+    )
 
 
 def path_collective(
@@ -298,4 +312,11 @@ def path_collective(
             return result
         return PostconditionResult.failed(f"path {expression}: {result.reason}")
 
-    return Postcondition(name=f"{inner.name} at {expression}", check=check, view=view)
+    return Postcondition(
+        name=f"{inner.name} at {expression}",
+        check=check,
+        view=view,
+        path=expression,
+        form=inner.form,
+        expected=inner.expected,
+    )

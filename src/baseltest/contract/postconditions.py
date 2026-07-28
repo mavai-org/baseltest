@@ -75,6 +75,9 @@ class Postcondition:
     view: str = "raw"
     applies_to_input: int | None = None
     required: bool = True
+    path: str | None = None
+    form: str | None = None
+    expected: str | None = None
 
     def evaluate(self, subject: Any) -> PostconditionResult:
         """Apply the check to the resolved subject.
@@ -109,7 +112,9 @@ def equals(expected: str, view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not equal {expected!r}")
 
-    return Postcondition(name=f"equals {expected!r}", check=check, view=view)
+    return Postcondition(
+        name=f"equals {expected!r}", check=check, view=view, form="equals", expected=str(expected)
+    )
 
 
 def one_of(expected: Sequence[str], view: str = "raw") -> Postcondition:
@@ -124,7 +129,13 @@ def one_of(expected: Sequence[str], view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response is not one of {list(allowed)!r}")
 
-    return Postcondition(name=f"one-of {list(allowed)!r}", check=check, view=view)
+    return Postcondition(
+        name=f"one-of {list(allowed)!r}",
+        check=check,
+        view=view,
+        form="one-of",
+        expected=str(list(allowed)),
+    )
 
 
 def contains(substring: str, view: str = "raw") -> Postcondition:
@@ -138,7 +149,9 @@ def contains(substring: str, view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not contain {substring!r}")
 
-    return Postcondition(name=f'contains "{substring}"', check=check, view=view)
+    return Postcondition(
+        name=f'contains "{substring}"', check=check, view=view, form="contains", expected=substring
+    )
 
 
 def matches(pattern: str, view: str = "raw") -> Postcondition:
@@ -153,7 +166,9 @@ def matches(pattern: str, view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response does not match /{pattern}/")
 
-    return Postcondition(name=f"matches /{pattern}/", check=check, view=view)
+    return Postcondition(
+        name=f"matches /{pattern}/", check=check, view=view, form="matches", expected=pattern
+    )
 
 
 def satisfies(name: str, predicate: Callable[[Any], bool], view: str = "raw") -> Postcondition:
@@ -218,7 +233,9 @@ def _numeric_form(
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"value {subject!r} is not {form} {operand!r}")
 
-    return Postcondition(name=f"{form} {operand!r}", check=check, view=view)
+    return Postcondition(
+        name=f"{form} {operand!r}", check=check, view=view, form=form, expected=str(operand)
+    )
 
 
 def eq(operand: Any, view: str = "raw") -> Postcondition:
@@ -262,7 +279,13 @@ def not_equals(expected: str, view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"response equals the excluded {expected!r}")
 
-    return Postcondition(name=f"not-equals {expected!r}", check=check, view=view)
+    return Postcondition(
+        name=f"not-equals {expected!r}",
+        check=check,
+        view=view,
+        form="not-equals",
+        expected=expected,
+    )
 
 
 def _folded(text: str) -> str:
@@ -285,7 +308,9 @@ def equals_ci(expected: str, view: str = "raw") -> Postcondition:
             f"response does not equal {expected!r} (case/whitespace-insensitively)"
         )
 
-    return Postcondition(name=f"equals-ci {expected!r}", check=check, view=view)
+    return Postcondition(
+        name=f"equals-ci {expected!r}", check=check, view=view, form="equals-ci", expected=expected
+    )
 
 
 def is_null(view: str = "raw") -> Postcondition:
@@ -302,7 +327,7 @@ def is_null(view: str = "raw") -> Postcondition:
             f"value {subject!r} ({type(subject).__name__}) is not null"
         )
 
-    return Postcondition(name="is-null", check=check, view=view)
+    return Postcondition(name="is-null", check=check, view=view, form="is-null")
 
 
 def is_(operand: bool, view: str = "raw") -> Postcondition:
@@ -319,7 +344,9 @@ def is_(operand: bool, view: str = "raw") -> Postcondition:
             "the form judges JSON true/false by identity"
         )
 
-    return Postcondition(name=f"is {operand}", check=check, view=view)
+    return Postcondition(
+        name=f"is {operand}", check=check, view=view, form="is", expected=str(operand).lower()
+    )
 
 
 def _element_key(value: Any) -> tuple[str, Any]:
@@ -367,7 +394,13 @@ def equals_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
             f"selected values {selected!r} do not equal {operand!r} as a multiset"
         )
 
-    return Postcondition(name=f"equals-set {operand!r}", check=check, view=view)
+    return Postcondition(
+        name=f"equals-set {operand!r}",
+        check=check,
+        view=view,
+        form="equals-set",
+        expected=str(operand),
+    )
 
 
 def contains_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
@@ -387,7 +420,13 @@ def contains_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
             f"selected values {selected!r} do not contain all of {operand!r}"
         )
 
-    return Postcondition(name=f"contains-set {operand!r}", check=check, view=view)
+    return Postcondition(
+        name=f"contains-set {operand!r}",
+        check=check,
+        view=view,
+        form="contains-set",
+        expected=str(operand),
+    )
 
 
 def count_equals(expected: int, view: str = "raw") -> Postcondition:
@@ -401,4 +440,10 @@ def count_equals(expected: int, view: str = "raw") -> Postcondition:
             return PostconditionResult.ok()
         return PostconditionResult.failed(f"path selected {len(selected)} value(s), not {expected}")
 
-    return Postcondition(name=f"count-equals {expected}", check=check, view=view)
+    return Postcondition(
+        name=f"count-equals {expected}",
+        check=check,
+        view=view,
+        form="count-equals",
+        expected=str(expected),
+    )

@@ -10,7 +10,7 @@ each embed it in their own schema.
 import hashlib
 
 from baseltest.engine.artefact import latency_lines, quote
-from baseltest.engine.naming import bounded_key
+from baseltest.engine.naming import bounded_excerpt, bounded_key
 
 from .record import RunObservation
 
@@ -70,6 +70,29 @@ def observation_lines(record: RunObservation, indent: str = "") -> list[str]:
                         f"{indent}            observedFraction: {row.observed_fraction:.6f}",
                     ]
                 )
+                # The check's stated structure and obtained-value exemplars
+                # (structured-row amendment): content in values only.
+                if row.path is not None:
+                    lines.append(f"{indent}            path: {quote(bounded_excerpt(row.path))}")
+                if row.form is not None:
+                    lines.append(f"{indent}            form: {quote(bounded_excerpt(row.form))}")
+                if row.expected is not None:
+                    lines.append(
+                        f"{indent}            expected: {quote(bounded_excerpt(row.expected))}"
+                    )
+                if row.observed:
+                    lines.append(f"{indent}            observed:")
+                    for exemplar in row.observed:
+                        lines.extend(
+                            [
+                                f"{indent}              - excerpt: {quote(exemplar.excerpt)}",
+                                f"{indent}                count: {exemplar.count}",
+                                f"{indent}                held: "
+                                + ("true" if exemplar.held else "false"),
+                            ]
+                        )
+                if row.elided:
+                    lines.append(f"{indent}            elided: {row.elided}")
     average = (
         round(record.total_time_ms / record.samples_executed) if record.samples_executed else 0
     )

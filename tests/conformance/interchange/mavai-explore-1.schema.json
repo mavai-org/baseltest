@@ -154,6 +154,43 @@
                 "minimum": 0,
                 "maximum": 1,
                 "description": "passed / (passed + failed + skipped), as stated by the emitter."
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "The structural address the check judges, as declared (amendment 2026-07-28, structured rows). Present iff path-addressed; the by-path grouping key — never derived from check."
+              },
+              "form": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "The comparison form's domain name, as the contract format spells it."
+              },
+              "expected": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "Bounded excerpt of the declared operand, for display — never an identity."
+              },
+              "observed": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Obtained-value exemplars, failing exemplars first; distinct excerpts capped by the emitter, counts summing to at most the row's trials.",
+                "items": {
+                  "type": "object",
+                  "required": ["excerpt", "count", "held"],
+                  "additionalProperties": true,
+                  "properties": {
+                    "excerpt": { "type": "string", "maxLength": 256 },
+                    "count": { "type": "integer", "minimum": 1 },
+                    "held": { "type": "boolean" }
+                  }
+                }
+              },
+              "elided": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Trials whose obtained values were not exemplified."
               }
             }
           }
