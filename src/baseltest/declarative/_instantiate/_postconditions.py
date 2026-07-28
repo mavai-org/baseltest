@@ -90,6 +90,8 @@ def _parses_postcondition(view: str) -> Postcondition:
         name=f"parses as {view}",
         check=lambda _subject: PostconditionResult.ok(),
         view=view,
+        form="parses",
+        expected=view,
     )
 
 
@@ -232,6 +234,9 @@ def _dispatch_on_input(input_index: int, inner: Postcondition) -> Postcondition:
         view=inner.view,
         applies_to_input=input_index,
         required=inner.required,
+        path=inner.path,
+        form=inner.form,
+        expected=inner.expected,
     )
 
 

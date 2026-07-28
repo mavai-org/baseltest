@@ -23,6 +23,7 @@ from .errors import BaseltestError, ContractValidationError, PreconditionError
 from .evaluation import (
     CriterionTally,
     EvaluationContext,
+    ObservedValue,
     Outcome,
     PostconditionStanding,
     TrialDefectError,
@@ -83,6 +84,7 @@ __all__ = [
     "PreconditionError",
     "Postcondition",
     "PostconditionResult",
+    "ObservedValue",
     "PostconditionStanding",
     "ServiceContract",
     "ServiceDeliveryError",

@@ -197,3 +197,73 @@ class TestPartialCreditFacts:
         assert "optionalSlack" not in "\n".join(
             observation_lines(RunObservation.from_run_result(result))
         )
+
+
+class TestStructuredRows:
+    """The structured-row amendment: stated structure and obtained-value
+    exemplars travel with the tallies in every shape."""
+
+    def test_rows_state_structure_and_exemplars(self) -> None:
+        result = run(kind=RunKind.TEST)
+        by_key = {
+            (row.input_index, row.postcondition): row
+            for row in result.criterion_results[0].standings
+        }
+        row = by_key[(1, 'contains "a"')]
+        # The API constructor stated the form and operand; the echo service
+        # returned input "b" on input 1, where contains "a" fails.
+        assert row.form == "contains"
+        assert row.expected == "a"
+        assert row.path is None
+        assert [(o.excerpt, o.count, o.held) for o in row.observed] == [("b", 2, False)]
+        assert row.elided == 0
+
+    def test_failing_exemplars_come_first_and_the_cap_elides(self) -> None:
+        calls = iter(range(100))
+
+        def invoke(text: str) -> str:
+            n = next(calls)
+            return f"a-{n % 8}" if n % 2 else "a"  # four distinct passing values + "a"
+
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=invoke,
+            criteria=(Criterion(name="c", postconditions=(contains("a-"),), threshold=0.5),),
+        )
+        result = execute(contract, RunPlan(samples=12, inputs=("x",), kind=RunKind.TEST))
+        row = result.criterion_results[0].standings[0]
+        # Failing exemplars ("a", 6 trials) precede passing ones; distinct
+        # excerpts beyond the cap are elided with their count.
+        assert row.observed[0].held is False
+        assert row.observed[0].excerpt == "a"
+        assert len(row.observed) == 4
+        assert row.elided == 12 - sum(o.count for o in row.observed)
+        assert row.elided > 0
+
+    def test_the_verdict_element_states_the_structure(self) -> None:
+        result = run(kind=RunKind.TEST)
+        namespace = "{http://mavai.org/verdict/1.0}"
+        root = ElementTree.fromstring(render_verdict_record(result))
+        rows = root.findall(
+            f"{namespace}postcondition-standings/{namespace}criterion/{namespace}row"
+        )
+        structured = [r for r in rows if r.get("form") == "contains"]
+        assert structured
+        exemplars = structured[0].findall(f"{namespace}observed")
+        assert exemplars and exemplars[0].get("count") is not None
+        assert exemplars[0].get("held") in ("true", "false")
+
+    def test_the_observation_and_baseline_state_the_structure(self) -> None:
+        result = run()
+        observation = "\n".join(observation_lines(RunObservation.from_run_result(result)))
+        assert 'form: "contains"' in observation
+        assert "observed:" in observation
+        artefact = render_baseline(BaselineRecord.from_run_result(result))
+        assert 'form: "contains"' in artefact
+        assert '"held": false' in artefact
+
+    def test_the_baseline_reader_tolerates_structured_rows(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        from baseltest.baseline import read_baseline, write_baseline
+
+        path = write_baseline(BaselineRecord.from_run_result(run()), tmp_path)
+        assert read_baseline(path).criteria["c"].trials == 4

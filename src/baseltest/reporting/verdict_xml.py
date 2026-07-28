@@ -1,10 +1,10 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
 Test runs emit their results in the mavai family's verdict XML
-(``verdict-1.3.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+(``verdict-1.4.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
 every framework's results are readable by the same tooling. baseltest
 emits the subset it has data for; every emitted element conforms.
-``version="1.3"``: the per-criterion decomposition is always populated,
+``version="1.4"``: the per-criterion decomposition is always populated,
 and the descriptive postcondition standings travel in the first-class
 ``postcondition-standings`` element — counts, the observed fraction, the
 per-row optional flag, and the declared slack verbatim; never an interval
@@ -18,12 +18,12 @@ from xml.etree import ElementTree
 
 from baseltest._version import __version__
 from baseltest.engine import CriterionResult, RunResult
-from baseltest.engine.naming import bounded_key
+from baseltest.engine.naming import bounded_excerpt, bounded_key
 
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.3"
+_FORMAT_VERSION = "1.4"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -212,6 +212,21 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
                 row.set("failed", str(standing.failed))
                 row.set("skipped", str(standing.skipped))
                 row.set("observed-fraction", str(standing.observed_fraction))
+                # The check's stated structure and obtained-value exemplars
+                # (structured-row amendment): content in values only.
+                if standing.path is not None:
+                    row.set("path", bounded_excerpt(standing.path))
+                if standing.form is not None:
+                    row.set("form", bounded_excerpt(standing.form))
+                if standing.expected is not None:
+                    row.set("expected", bounded_excerpt(standing.expected))
+                if standing.elided:
+                    row.set("elided", str(standing.elided))
+                for exemplar in standing.observed:
+                    observed = child(row, "observed")
+                    observed.set("excerpt", exemplar.excerpt)
+                    observed.set("count", str(exemplar.count))
+                    observed.set("held", "true" if exemplar.held else "false")
 
     verdict = child(root, "verdict")
     verdict.set("value", result.composite.value.upper())
