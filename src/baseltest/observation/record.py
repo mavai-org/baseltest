@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from baseltest.contract import PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, SampleRecord, latency_block
 from baseltest.engine.naming import bounded_excerpt, bounded_key, per_input_index
 
@@ -46,10 +47,17 @@ class FailureEntry:
 
 @dataclass(frozen=True, slots=True)
 class CriterionStatistics:
-    """One criterion's descriptive counts over a configuration's samples."""
+    """One criterion's descriptive counts over a configuration's samples.
+
+    ``standings`` is the criterion's descriptive per-(input, check) tally,
+    stated in the artefact's binding ``standings:`` block; ``optional_slack``
+    the criterion's declared optional-check failure budget, verbatim as
+    authored (``None`` when undeclared — never ``"0"``)."""
 
     passes: int
     fails: int
+    standings: tuple[PostconditionStanding, ...] = ()
+    optional_slack: str | None = None
 
     @property
     def observed_rate(self) -> float:
@@ -115,8 +123,12 @@ class RunObservation:
         criteria: dict[str, CriterionStatistics] = {}
         for criterion_result in result.criterion_results:
             tally = criterion_result.tally
+            slack = criterion_result.criterion.optional_slack
             criteria[criterion_result.name] = CriterionStatistics(
-                passes=tally.successes, fails=tally.trials - tally.successes
+                passes=tally.successes,
+                fails=tally.trials - tally.successes,
+                standings=criterion_result.standings,
+                optional_slack=slack.declared if slack is not None else None,
             )
         elapsed = (result.finished_at - result.started_at).total_seconds()
         return RunObservation(

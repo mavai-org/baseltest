@@ -54,8 +54,12 @@ class CriterionCharacterisation:
             declared a threshold; ``None`` otherwise.
         standings: The criterion's descriptive per-postcondition tally —
             per ``(input, check)``, passed/failed/skipped counts and the
-            observed fraction. Triage data, additive in the artefact
-            schema; never an interval or a per-check verdict.
+            observed fraction, each row carrying its check's optional
+            flag. Triage data, additive in the artefact schema; never an
+            interval or a per-check verdict.
+        optional_slack: The criterion's declared optional-check failure
+            budget, verbatim as authored (``None`` when undeclared —
+            never ``"0"``). Additive in the artefact schema.
     """
 
     successes: int
@@ -63,6 +67,7 @@ class CriterionCharacterisation:
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
     judgement: NormativeJudgement | None = None
     standings: tuple[PostconditionStanding, ...] = ()
+    optional_slack: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -140,12 +145,14 @@ class BaselineRecord:
                     confidence=criterion.confidence,
                 )
             tally = criterion_result.tally
+            slack = criterion_result.criterion.optional_slack
             criteria[criterion_result.name] = CriterionCharacterisation(
                 successes=tally.successes,
                 trials=tally.trials,
                 failure_distribution=dict(tally.failure_reasons),
                 judgement=judgement,
                 standings=criterion_result.standings,
+                optional_slack=slack.declared if slack is not None else None,
             )
         return BaselineRecord(
             contract_id=result.contract_id,

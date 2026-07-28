@@ -1,11 +1,15 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
-Test runs emit their results in the mavai family's verdict XML — the
-schema punit defines (``verdict-1.2.xsd``, namespace
-``http://mavai.org/verdict/1.0``) — so every framework's results are
-readable by the same tooling. baseltest emits the subset it has data for;
-every emitted element conforms. ``version="1.2"``: the per-criterion
-decomposition is always populated.
+Test runs emit their results in the mavai family's verdict XML
+(``verdict-1.3.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+every framework's results are readable by the same tooling. baseltest
+emits the subset it has data for; every emitted element conforms.
+``version="1.3"``: the per-criterion decomposition is always populated,
+and the descriptive postcondition standings travel in the first-class
+``postcondition-standings`` element — counts, the observed fraction, the
+per-row optional flag, and the declared slack verbatim; never an interval
+or a per-check verdict. The transitional environment-entry carriage some
+1.2 emissions used is gone: a 1.3 record states standings once.
 """
 
 import json
@@ -14,22 +18,18 @@ from xml.etree import ElementTree
 
 from baseltest._version import __version__
 from baseltest.engine import CriterionResult, RunResult
+from baseltest.engine.naming import bounded_key
 
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.2"
+_FORMAT_VERSION = "1.3"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
 SIZING_APPROACH_KEY = "sizing-approach"
 SIZING_GOVERNING_KEY = "sizing-governing"
 SIZING_CLAIM_PREFIX = "sizing-claim:"
-# The descriptive postcondition standings ride the same free-form entries —
-# one JSON row list per criterion, counts and observed fraction only, never
-# an interval or a per-check verdict — until the family verdict schema
-# gains a first-class standings element.
-STANDINGS_PREFIX = "postcondition-standings:"
 
 
 def _generator() -> str:
@@ -138,8 +138,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     termination = child(root, "termination")
     termination.set("reason", "COMPLETED")
 
-    with_standings = [r for r in judged if r.standings]
-    if design is not None or with_standings:
+    if design is not None:
         environment = child(root, "environment")
 
         def entry(key: str, value: str) -> None:
@@ -147,38 +146,20 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             element.set("key", key)
             element.set("value", value)
 
-        if design is not None:
-            entry(SIZING_APPROACH_KEY, design.approach)
-            if design.governing is not None:
-                entry(SIZING_GOVERNING_KEY, design.governing)
-            for claim in design.claims:
-                entry(
-                    f"{SIZING_CLAIM_PREFIX}{claim.criterion}",
-                    json.dumps(
-                        {
-                            "baselineRate": claim.baseline_rate,
-                            "toleratedRate": claim.tolerated_rate,
-                            "confidence": claim.confidence,
-                            "targetPower": claim.target_power,
-                            "requiredN": claim.required_n,
-                        }
-                    ),
-                )
-        for criterion_result in with_standings:
+        entry(SIZING_APPROACH_KEY, design.approach)
+        if design.governing is not None:
+            entry(SIZING_GOVERNING_KEY, design.governing)
+        for claim in design.claims:
             entry(
-                f"{STANDINGS_PREFIX}{criterion_result.name}",
+                f"{SIZING_CLAIM_PREFIX}{claim.criterion}",
                 json.dumps(
-                    [
-                        {
-                            "input": row.input_index,
-                            "check": row.postcondition,
-                            "passed": row.passed,
-                            "failed": row.failed,
-                            "skipped": row.skipped,
-                            "observedFraction": row.observed_fraction,
-                        }
-                        for row in criterion_result.standings
-                    ]
+                    {
+                        "baselineRate": claim.baseline_rate,
+                        "toleratedRate": claim.tolerated_rate,
+                        "confidence": claim.confidence,
+                        "targetPower": claim.target_power,
+                        "requiredN": claim.required_n,
+                    }
                 ),
             )
 
@@ -209,6 +190,28 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     composite = child(per_criterion, "composite")
     assert result.composite is not None
     composite.set("value", result.composite.value.upper())
+
+    # The first-class standings element (1.3): descriptive tallies only,
+    # the optional flag on every row, the declared slack verbatim and only
+    # when declared — absence is distinguishable from "0".
+    with_standings = [r for r in judged if r.standings]
+    if with_standings:
+        standings_element = child(root, "postcondition-standings")
+        for criterion_result in with_standings:
+            block = child(standings_element, "criterion")
+            block.set("name", criterion_result.name)
+            slack = criterion_result.criterion.optional_slack
+            if slack is not None:
+                block.set("optional-slack", slack.declared)
+            for standing in criterion_result.standings:
+                row = child(block, "row")
+                row.set("input-index", str(standing.input_index))
+                row.set("check", bounded_key(standing.postcondition))
+                row.set("optional", "true" if standing.optional else "false")
+                row.set("passed", str(standing.passed))
+                row.set("failed", str(standing.failed))
+                row.set("skipped", str(standing.skipped))
+                row.set("observed-fraction", str(standing.observed_fraction))
 
     verdict = child(root, "verdict")
     verdict.set("value", result.composite.value.upper())

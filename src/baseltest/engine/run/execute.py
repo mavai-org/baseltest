@@ -73,6 +73,10 @@ def _reduce_samples(
     counts: dict[str, dict[tuple[int, str], list[int]]] = {
         criterion.name: {} for criterion in contract.criteria
     }
+    optional_checks = {
+        criterion.name: {pc.name for pc in criterion.postconditions if not pc.required}
+        for criterion in contract.criteria
+    }
     overall_successes = 0
     sample_records: list[SampleRecord] = []
     passing_durations_ms: list[int] = []
@@ -97,6 +101,7 @@ def _reduce_samples(
                 passed=row[0],
                 failed=row[1],
                 skipped=row[2],
+                optional=check in optional_checks[name],
             )
             for (input_index, check), row in sorted(per_check.items(), key=lambda item: item[0][0])
         )

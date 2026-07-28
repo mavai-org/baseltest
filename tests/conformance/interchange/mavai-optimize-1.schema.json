@@ -125,7 +125,61 @@
         "observedPassRate": { "type": "number", "minimum": 0, "maximum": 1 },
         "pass": { "type": "integer", "minimum": 0 },
         "fail": { "type": "integer", "minimum": 0 },
-        "failureDistribution": { "$ref": "#/$defs/failureDistribution" }
+        "failureDistribution": { "$ref": "#/$defs/failureDistribution" },
+        "standings": { "$ref": "#/$defs/standings" }
+      }
+    },
+    "standings": {
+      "type": "object",
+      "description": "The criterion's descriptive postcondition standings for this iteration (amendment 2026-07-28) — the identical shape and classification as the exploration schema's standings block, per the identical-statistics-shape rule. Binding when present, additive; counts and the observed fraction only — never a confidence interval, a threshold, or per-check verdict vocabulary.",
+      "required": ["rows"],
+      "additionalProperties": true,
+      "properties": {
+        "optionalSlack": {
+          "type": "string",
+          "pattern": "^[0-9]+%?$",
+          "description": "The criterion's declared optional-check failure budget, verbatim as authored: digits for a count ('2'), digits + % for a percentage ('20%'). Absent iff the contract declares none — absence is distinguishable from '0', the explicit budget of zero."
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One row per (input, check), in the emitter's stated order.",
+          "items": {
+            "type": "object",
+            "required": ["inputIndex", "check", "optional", "passed", "failed", "skipped", "observedFraction"],
+            "additionalProperties": true,
+            "properties": {
+              "inputIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Zero-based structural input reference, as in failureDistribution."
+              },
+              "check": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "The check's bounded identity, as the contract declares it — never embedding input or response content."
+              },
+              "optional": {
+                "type": "boolean",
+                "description": "Whether the contract marks this check optional — stated explicitly for every row."
+              },
+              "passed": { "type": "integer", "minimum": 0 },
+              "failed": { "type": "integer", "minimum": 0 },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Trials on which the check was not judged because an earlier transform failed."
+              },
+              "observedFraction": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "passed / (passed + failed + skipped), as stated by the emitter."
+              }
+            }
+          }
+        }
       }
     },
     "failureDistribution": {
