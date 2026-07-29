@@ -1,6 +1,6 @@
 # baseltest User Guide
 
-The complete reference for baseltest's declarative surface: the run postures (test, measure, explore, optimize, check, report), the contract file format, the `mavai-services.yaml` service-definition file, the `mavai-bindings.py` registrations file, and how to bind a service so baseltest can invoke it.
+The complete reference for baseltest's declarative surface: the run postures (check, explore, optimize, measure, test), the contract file format, the `mavai-services.yaml` service-definition file, the `mavai-bindings.py` registrations file, and how to bind a service so baseltest can invoke it.
 
 New to baseltest? Start with the [getting-started guide](GETTING-STARTED.md) — it walks one example from zero to a verdict. This guide is the reference you come back to: every file, every key, every option.
 
@@ -15,7 +15,7 @@ New to baseltest? Start with the [getting-started guide](GETTING-STARTED.md) —
 
 ## Introduction
 
-baseltest tests services that do not behave the same way twice — LLM-backed services above all, but also ML models, randomised algorithms, and anything network-dependent. A stochastic service does not pass or fail a single invocation; it succeeds at a *rate*. baseltest treats that rate as the thing under test: it runs the service repeatedly, judges each response against declared criteria, and renders a verdict backed by real statistics (Wilson confidence bounds, feasibility-checked sample sizes) rather than a green tick over one lucky sample. It is the Python member of the [mavai](https://mavai.org) family, sharing its statistical methodology with [punit](https://github.com/mavai-org/punit) (Java) and [feotest](https://github.com/mavai-org/feotest) (Rust); every formula is validated against the family's [statistical oracle](https://github.com/mavai-org/mavai-R).
+baseltest tests services that do not behave the same way twice — LLM-backed services above all, but also ML models, randomised algorithms, and anything network-dependent. A stochastic service does not pass or fail a single invocation; it succeeds at a *rate*. baseltest treats that rate as the thing under test: it runs the service repeatedly, judges each response against declared criteria, and renders a verdict backed by real statistics (Wilson confidence bounds, feasibility-checked sample sizes) rather than a green tick over one lucky sample. Every formula it ships is validated against the [mavai statistical oracle](https://github.com/mavai-org/mavai-R).
 
 The declarative surface is built from three files:
 
@@ -23,7 +23,7 @@ The declarative surface is built from three files:
 |---|---|---|
 | Contract file | **yours** (e.g. `basket-builder.yaml`) | *What you are examining*: the inputs, what a good response looks like, and optionally the bar it must clear. Passed explicitly to every verb; identified by its `format:` key, never its filename. Keep as many as you have things to test. |
 | `mavai-services.yaml` | **fixed** | *What the service is*: named, configured service definitions, plus any exploration grid and optimization entries. Discovered automatically beside the contract file, then in the working directory. |
-| `mavai-bindings.py` | **fixed** | *Code registrations*: bindings that invoke your service, plus custom transforms, checks, scorers, and steppers. Discovered and imported automatically, exactly like the services file — the same trust model as pytest's `conftest.py`. |
+| `mavai-bindings.py` | **fixed** | *Code registrations*: bindings that invoke your service, plus custom transforms, checks, scorers, and steppers. **Required for a home-grown service** (baseltest can only reach your code through a registered binding); **not required when a built-in service type** such as `language-model` does the invoking. Discovered and imported automatically, exactly like the services file — the same trust model as pytest's `conftest.py`. |
 
 The contract file is deliberately **posture-free**: whether a run judges, records, sweeps, or searches is decided by the verb you invoke it with, never by a key in the file. The contract carries the *claim*; the invocation carries the *budget*.
 
@@ -32,11 +32,12 @@ Everything a run generates lands under one directory, `_baseltest/`, in the work
 ```
 _baseltest/
 ├── baselines/       # measure: one baseline artefact per run
-├── verdicts/        # test: one verdict record (family XML schema) per run
+├── verdicts/        # test: one verdict record (canonical XML schema) per run
 ├── explorations/    # explore: <contract-id>/ with one artefact per configuration
-├── optimizations/   # optimize: <contract-id>/ with one artefact per run id
-└── reports/         # report: rendered HTML
+└── optimizations/   # optimize: <contract-id>/ with one artefact per run id
 ```
+
+Rendered HTML reports have **no standard location** — the artefact directories above are the framework's; report output paths are yours. Rendering is done by the [`mavai` tool](#rendering-reports--the-mavai-tool), which writes to stdout or wherever its `-o` argument points.
 
 When the contract file runs out of expressive power, you graduate: take direct authorship of the service contract in Python (`baseltest.contract`) — the same object the file was compiled into, evaluated by the same engine. Nothing in this guide is lost by graduating; the file format is a front-end.
 
@@ -108,18 +109,23 @@ How the content reaches the service depends on the service:
 
 ### Criteria
 
-`criteria:` is a non-empty list. Each entry accepts:
+`criteria:` is a non-empty list. Every criterion is one of two kinds, decided by the presence of `threshold:`:
 
-| Key                | Meaning                                                                                                                                                                                                                                                                                                   |
-|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `name`             | The criterion's label in output, artefacts, and failure distributions. Optional — defaults to `criterion-<n>-<first form>`; names must be unique within the contract.                                                                                                                                     |
-| `threshold`        | The declared bar: a number in (0, 1). A criterion **with** a threshold is judged against it (a *declared* criterion). A criterion **without** one is *empirical*: its bar comes from a measured baseline (see [test](#basel-test)). `threshold: empirical` is reserved.                                   |
-| `threshold-origin` | Optional provenance: the category of source the bar comes from — e.g. `sla`, `slo`, `regulatory`. Pure metadata, recorded in artefacts and reports.                                                                                                                                                       |
-| `contract-ref`     | Optional provenance: the human-readable reference (e.g. `"Payment Provider SLA v2.0 §4.1"`).                                                                                                                                                                                                              |
-| `tolerate`         | An **empirical** criterion's sizing claim: the lowest true pass rate you are willing to accept before the test should fail, a number in (0, 1). Feeds risk-driven run sizing at test time. Contradictory alongside `threshold:` (a stipulated bar carries no baseline claim) — declaring both is refused. |
-| `confidence`       | Per-criterion override of the contract-level confidence, a number in (0, 1).                                                                                                                                                                                                                              |
-| `postconditions`   | A non-empty list of postcondition forms (below).                                                                                                                                                                                                                                                          |
-| *(form shorthand)* | For a single-check criterion, any one form key may sit directly on the entry: `contains: "hello"` is shorthand for a one-entry `postconditions:` list.                                                                                                                                                    |
+- **Declared (normative).** The contract states the bar explicitly (`threshold: 0.95`, typically from an SLA, SLO, or regulation). `basel test` judges the criterion directly against that bar — no prior run is needed.
+- **Empirical.** The contract states no threshold. The bar comes from the service's own measured performance, in two steps: first `basel measure` runs samples and persists the observed rate as a **baseline artefact**; then `basel test` consumes that baseline, runs fresh samples, and judges the observed success rate against the baseline rate — *no worse than measured*. Until a baseline exists, a test skips the criterion with a pointer at `basel measure`; see [test](#basel-test) and [measure](#basel-measure).
+
+The two kinds mix freely within one contract. Each entry accepts:
+
+| Key                | Required | Meaning                                                                                                                                                                                                                                                                                                   |
+|--------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `postconditions`   | **yes** (or the form shorthand below) | A non-empty list of postcondition forms (below).                                                                                                                                                                                                                                     |
+| *(form shorthand)* | —        | For a single-check criterion, any one form key may sit directly on the entry: `contains: "hello"` is shorthand for a one-entry `postconditions:` list.                                                                                                                                                    |
+| `threshold`        | no — its presence selects the kind | The declared bar: a number in (0, 1). Present → *declared* criterion, judged against it. Absent → *empirical* criterion, judged against a measured baseline. `threshold: empirical` is reserved.                                                                                     |
+| `name`             | no       | The criterion's label in output, artefacts, and failure distributions. Defaults to `criterion-<n>-<first form>`; names must be unique within the contract.                                                                                                                                                |
+| `threshold-origin` | no       | Provenance: the category of source the bar comes from — e.g. `sla`, `slo`, `regulatory`. Pure metadata, recorded in artefacts and reports.                                                                                                                                                                |
+| `contract-ref`     | no       | Provenance: the human-readable reference (e.g. `"Payment Provider SLA v2.0 §4.1"`).                                                                                                                                                                                                                       |
+| `tolerate`         | no (empirical criteria only) | An empirical criterion's sizing claim: the lowest true pass rate you are willing to accept before the test should fail, a number in (0, 1). Feeds risk-driven run sizing at test time. Contradictory alongside `threshold:` (a stipulated bar carries no baseline claim) — declaring both is refused. |
+| `confidence`       | no       | Per-criterion override of the contract-level confidence, a number in (0, 1).                                                                                                                                                                                                                              |
 
 A sample **passes a criterion** only when every one of its postconditions holds; a criterion's observed rate is the fraction of samples that passed it. A trial's failure reason is the *first* failing check's reason — order your checks so the most diagnostic one fails first.
 
@@ -193,19 +199,13 @@ inputs:
         optional: true            # relaxable, within the slack
 ```
 
-A trial then passes iff every required check holds and no more optional checks fail than the budget allows. The trial is still **one pass/fail outcome per sample** — thresholds, confidence, sizing, and verdicts are computed exactly as before; only the predicate deciding each trial changed. An unparseable response still fails the trial outright regardless of budget (and `optional:` on `parses:` is refused as meaningless), a skipped optional check counts against the budget, and `optional: false` is refused — required is the default, not a spelling.
+A trial then passes iff every required check holds and no more optional checks fail than the budget allows. The trial is still **one pass/fail outcome per sample** — thresholds, confidence, sizing, and verdicts are computed exactly as for a criterion without optional checks; only the predicate deciding each trial differs. An unparseable response still fails the trial outright regardless of budget (and `optional:` on `parses:` is refused as meaningless), a skipped optional check counts against the budget, and `optional: false` is refused — required is the default, not a spelling.
 
 Every run also prints (and persists — in the verdict record's `postcondition-standings` element, the baseline, and each exploration configuration's and optimize iteration's `standings:` block) the **postcondition standings**: per input and check, how many trials passed, failed, or were skipped, with the observed fraction, each check flagged `optional` or not and the criterion's declared `optional-slack` stated verbatim, so report tooling can flag partial credit straight from the artefact. The standings are triage — *which* fields the service misses, and how often — not statistics: they carry no confidence interval and no per-check verdict, because the run is sized to support the criterion's claim, not one claim per check. The strict whole-document rate remains the headline number; partial credit is a lens you opt into check by check.
 
-Before these forms, a field-by-field extraction contract needed a registered transform whose only job was normalisation, and every expected value had to be written pre-folded:
+A field-by-field extraction contract therefore needs no bindings file and no normalising transform — expected values are written in the source document's own spelling, and with `doc` the contract's only transform, `in: doc` is inferred on every path check:
 
 ```yaml
-# before: a `canonical` @transform in mavai-bindings.py, values pre-folded
-- in: canonical
-  path: "$.premium"
-  equals: "2637.8"
-# after: no bindings file, the document's own spelling — and with `doc` the
-# contract's only transform, `in: doc` is inferred on every path check
 - path: "$.premium"
   eq: 2637.80
 - path: "$.holder"
@@ -217,6 +217,8 @@ Before these forms, a field-by-field extraction contract needed a registered tra
 ```
 
 #### `path:` — structural selection
+
+A `path:` expression selects into **structure, never raw text** — so it only works when its subject is a view holding a parsed object. That view always comes from the contract's [`transforms:` block](#transforms-and-views): the stock `json`, `xml`, or `yaml` transform parses each response into a JSON value, an `ElementTree.Element`, or a YAML-projected JSON value, or a custom `@transform` returns a parsed object of its own. Without such a declared view, a `path:` check is refused at load — there is no path over the raw response string. For a **language-model service**, pair the transform with a declared [`response-schema:`](#the-language-model-type) so the model is instructed to emit output the transform will parse; the schema additionally lets `basel check` validate every path expression against the declared shape before a single sample runs, but it is the transform, not the schema, that delivers the parsed object.
 
 A `path:` check selects into a view's structured value and applies its string form to every selected value's string projection. The format pins its standards: **RFC 9535 JSONPath** for values in the JSON data model, **XPath 1.0** for XML documents. Every path expression is compiled eagerly at load time — a bad expression is a refusal before any invocation, and `basel check` validates it with zero samples.
 
@@ -269,14 +271,14 @@ latency:                # empirical: bounds derived from the measured baseline's
   empirical: [p95, p99] # latency profile at test time, at the test's own size
 ```
 
-| Key | Meaning |
-|---|---|
-| `p50` / `p90` / `p95` / `p99` | Explicit ceiling for that percentile, a positive whole number of milliseconds. Ceilings must be non-decreasing across percentiles — a tighter bound on a higher percentile contradicts itself. |
-| `empirical` | A non-empty list of percentiles (from the same four, each at most once) whose bounds are derived from the measured baseline. Contradictory alongside explicit ceilings. |
-| `confidence` | The derivation confidence for empirical bounds; recorded for explicit ones. A number in (0, 1). |
-| `threshold-origin` / `contract-ref` | The same provenance metadata as on criteria. |
+| Key                                 | Meaning                                                                                                                                                                                        |
+|-------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `p50` / `p90` / `p95` / `p99`       | Explicit ceiling for that percentile, a positive whole number of milliseconds. Ceilings must be non-decreasing across percentiles — a tighter bound on a higher percentile contradicts itself. |
+| `empirical`                         | A non-empty list of percentiles (from the same four, each at most once) whose bounds are derived from the measured baseline. Contradictory alongside explicit ceilings.                        |
+| `confidence`                        | The derivation confidence for empirical bounds; recorded for explicit ones. A number in (0, 1).                                                                                                |
+| `threshold-origin` / `contract-ref` | The same provenance metadata as on criteria.                                                                                                                                                   |
 
-Each percentile is judged only when the passing-sample count can support it (the family's minimum-contributing-samples gate). A bound the run's passing samples could not estimate renders the composite verdict **INCONCLUSIVE** — no judgement was possible, so no assertion can rest on it — and `basel test` exits 3, distinct from a failure.
+Each percentile is judged only when the passing-sample count can support it (the minimum-contributing-samples gate). A bound the run's passing samples could not estimate renders the composite verdict **INCONCLUSIVE** — no judgement was possible, so no assertion can rest on it — and `basel test` exits 3, distinct from a failure.
 
 ### Intent and confidence
 
@@ -284,18 +286,64 @@ Each percentile is judged only when the passing-sample count can support it (the
 
 ## Part 2: The run postures — experiment and test types
 
-One contract file, six verbs. The first four invoke the service; `check` and `report` never do.
+One contract file, five verbs, ordered here as a developer typically reaches for them: `check` to validate the authoring without running a sample, `explore` and `optimize` to find a configuration, `measure` to baseline it, `test` to stand guard. All but `check` invoke the service.
+
+Which verbs a contract needs follows from its [criteria](#criteria): a **declared (normative)** criterion carries its own threshold, so `basel test` alone suffices. An **empirical** criterion has none, so the sequence is `basel measure` first (persist the observed rate as a baseline), then `basel test` (fresh samples judged against that baseline).
 
 | Verb | Posture | Sizing | Artefact |
 |---|---|---|---|
-| `basel test` | **Judge**: a statistical verdict on thresholded criteria and latency bounds | Derived minimum, `--samples N`, or risk-driven | Verdict record (XML) in `_baseltest/verdicts/` |
-| `basel measure` | **Record**: every criterion characterised, no verdict | `--samples N` required | Baseline artefact in `_baseltest/baselines/` |
+| `basel check` | **Compile**: every load-time join validated, zero samples | — | — |
 | `basel explore` | **Sweep**: every configuration in the service's grid, descriptively | `--samples-per-config N` (default 5) | One artefact per configuration |
 | `basel optimize` | **Search**: iterative configuration search driven by a stepper | `--samples-per-iteration N` (default 20) | One full-history artefact per run id |
+| `basel measure` | **Record**: every criterion characterised, no verdict | `--samples N` required | Baseline artefact in `_baseltest/baselines/` |
+| `basel test` | **Judge**: a statistical verdict on thresholded criteria and latency bounds | Derived minimum, `--samples N`, or risk-driven | Verdict record (XML) in `_baseltest/verdicts/` |
 | `basel check` | **Compile**: every load-time join validated, zero samples | — | — |
-| `basel report` | **Render**: HTML from persisted artefacts, post-hoc | — | `_baseltest/reports/` |
 
-Exit codes are contractual, made for CI: **0** success · **1** judgement failure (a declared bar or latency bound was breached) · **2** refusal (the service was never invoked: malformed file, unsupportable configuration, provider rejection, nothing to render) · **3** unsupportable (the evidence cannot carry the assertion in either direction).
+Exit codes are contractual, made for CI: **0** success · **1** judgement failure (a declared bar or latency bound was breached) · **2** refusal (the service was never invoked: malformed file, unsupportable configuration, provider rejection) · **3** unsupportable (the evidence cannot carry the assertion in either direction).
+
+### `basel check`
+
+```bash
+basel check contract.yaml
+```
+
+The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI.
+
+**Paths are validated against declared shapes.** When a view's value has a declared schema — the parsed response (stock `json` view) against the service's `response-schema`, a derived view against its transformation's declared `output_schema` — every `path:` expression over it is statically resolved against that schema at load time, before a single sample is paid for. A mistyped path (`$.statments[*]` for `$.statements[*]`) is refused with **every** failing expression itemised in one message: the criterion and postcondition it sits in, the full expression, where the walk stopped, the keys actually declared there, and a nearest-match suggestion (*did you mean `statements`?*). Resolving expressions are counted in the `ok:` facts (`ok: 14 path expressions resolve against the response-schema of service 'extractor'`). The walk covers the decidable subset — member access, array indices, wildcards, union branches; filter expressions, slices, recursive descent, and open shapes **pass unverified, visibly** (`ok (unverified): …`) — no false refusals, ever. A service without a declared schema simply has no such join.
+
+One boundary to know: zero samples means zero responses, so *response-shape* behaviour (provider reply parsing, transform outcomes) is exercised only by live samples — the framework keeps the provider adapters' extraction paths under recorded-response tests precisely because `basel check` cannot reach them. (Declared schemas move a large class of response-shape assumptions left of that boundary — that is exactly what the path validation above buys.)
+
+### `basel explore`
+
+```bash
+basel explore contract.yaml [--samples-per-config N] [--explorations-dir DIR]
+```
+
+An exploration runs the contract over **every configuration in the service's grid** — the baseline `configuration:` plus each `explorations:` entry (see [Part 3](#explorations--the-configuration-grid)) — with explore's descriptive posture: no thresholds consulted, no verdict rendered, one artefact per configuration written under `--explorations-dir` (default `_baseltest/explorations/<contract-id>/`), named by the grid's discriminating factor values. Triage, not judgement: the default 5 samples per configuration is the point, and no count is ever refused as too small.
+
+Where a grid spans providers with differing support for a configuration key (`response-schema`, `prompt-caching`, `thinking`), the affected grid point runs without the key, announced by a console note — degradation is honest, never silent. Exploration *comparison* reports are rendered by the [`mavai` tool](#rendering-reports--the-mavai-tool): `mavai explore <dir> [-o report.html]`.
+
+### `basel optimize`
+
+```bash
+basel optimize contract.yaml [id] [--all] [--samples-per-iteration N] [--optimizations-dir DIR]
+```
+
+Runs one of the service's declared `optimizations:` entries (see [Part 3](#optimizations--iterative-search)): an iterative configuration search in which a **stepper** proposes each next configuration and a **scorer** judges each iteration. Each iteration runs like a miniature measure — descriptive, no verdict — and the full history (every configuration, score, per-criterion failure breakdown with exemplars, latency summary, and the stepper's own provenance) is persisted as one artefact per run id under `--optimizations-dir` (default `_baseltest/optimizations/<contract-id>/`).
+
+A lone entry runs without naming it; with several declared, the `id` is required (or `--all` runs each as an independent experiment — naming an id *and* passing `--all` is refused). The run ends at `max-iterations`, on the `no-improvement-window` plateau, or when the stepper stops. Note the artefact's `convergence:` block names the best *single iteration* by score, while a noise-aware stepper's own selection (recorded in its `stepper:` block) rests on evidence pooled across visits — when they differ, trust the pooled selection.
+
+### `basel measure`
+
+```bash
+basel measure contract.yaml --samples N [--assert] [--baseline-dir DIR]
+```
+
+A measurement records *every* criterion — rate, variance, failure distribution — with no verdict: a declared bar is noted against the evidence as *met* or *not met*, a recorded fact. The run always persists a **baseline artefact** into `--baseline-dir` (default `_baseltest/baselines/`): the durable record of what was observed, under exactly which resolved service identity (configuration values, covariates, provenance). When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles and the full ascending vector of passing-sample durations, the raw material from which a later test derives latency bounds at its own size and confidence.
+
+`--samples` is required: a measurement's budget is an experimental-design decision, so it must be typed. 1,000 is a solid baseline-grade count; a smaller deliberate budget is legitimate — an empirical bar derived from a smaller baseline simply widens honestly.
+
+`--assert` opts into failing *after* recording (the baseline is persisted regardless): exit 1 if a declared bar was not met, exit 3 if the sample size cannot support the judgement. `--html-report` is refused on measure — its product is the baseline artefact, not a report.
 
 ### `basel test`
 
@@ -313,59 +361,20 @@ A test judges the contract's **declared** criteria against their thresholds and 
 
 **Before a baseline exists**, an empirical criterion is skipped with a one-line indicator pointing at `basel measure`; a test whose criteria are *all* unthresholded and baseline-less is refused — nothing to test. A baseline is resolved only when its recorded identity matches the service's currently-resolved identity; any drifted configuration key or covariate refuses the run, naming the key (see [drift](#covariates-and-drift)).
 
-**Outputs.** The composite verdict and per-criterion lines print to the console; a verdict record in the family's XML schema is persisted to `--verdict-dir` (default `_baseltest/verdicts/`) unless `--no-verdict-xml`; `--html-report PATH` additionally renders the self-contained HTML summary inline (the same renderer as `basel report test`, so the two outputs are identical — the flag never changes the exit code).
+**Outputs.** The composite verdict and per-criterion lines print to the console; a verdict record in the canonical XML schema is persisted to `--verdict-dir` (default `_baseltest/verdicts/`) unless `--no-verdict-xml`; `--html-report PATH` additionally renders a self-contained HTML summary inline (the flag never changes the exit code).
 
-### `basel measure`
+### Rendering reports — the `mavai` tool
 
-```bash
-basel measure contract.yaml --samples N [--assert] [--baseline-dir DIR]
-```
-
-A measurement records *every* criterion — rate, variance, failure distribution — with no verdict: a declared bar is noted against the evidence as *met* or *not met*, a recorded fact. The run always persists a **baseline artefact** into `--baseline-dir` (default `_baseltest/baselines/`): the durable record of what was observed, under exactly which resolved service identity (configuration values, covariates, provenance). When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles and the full ascending vector of passing-sample durations, the raw material from which a later test derives latency bounds at its own size and confidence.
-
-`--samples` is required: a measurement's budget is an experimental-design decision, so it must be typed. 1,000 is a solid baseline-grade count; a smaller deliberate budget is legitimate — an empirical bar derived from a smaller baseline simply widens honestly.
-
-`--assert` opts into failing *after* recording (the baseline is persisted regardless): exit 1 if a declared bar was not met, exit 3 if the sample size cannot support the judgement. `--html-report` is refused on measure — its product is the baseline artefact, not a report.
-
-### `basel explore`
+HTML reports are not rendered by `basel`. Rendering belongs to the **`mavai`** command, which consumes the interchange artefacts every run persists. The tool is developed in the [mavai-report](https://github.com/mavai-org/mavai-report) project; obtain it from there, and refer to that project's `README.md` for installation instructions.
 
 ```bash
-basel explore contract.yaml [--samples-per-config N] [--explorations-dir DIR]
+mavai explore <dir> [-o report.html]     # exploration comparison
+mavai optimize <dir> [-o report.html]    # optimization comparison
+mavai measure <dir> [-o report.html]     # measurement (baseline) records
+mavai verdict <dir> [-o report.html]     # test-run verdicts and standings
 ```
 
-An exploration runs the contract over **every configuration in the service's grid** — the baseline `configuration:` plus each `explorations:` entry (see [Part 3](#explorations--the-configuration-grid)) — with explore's descriptive posture: no thresholds consulted, no verdict rendered, one artefact per configuration written under `--explorations-dir` (default `_baseltest/explorations/<contract-id>/`), named by the grid's discriminating factor values. Triage, not judgement: the default 5 samples per configuration is the point, and no count is ever refused as too small.
-
-Where a grid spans providers with differing support for a configuration key (`response-schema`, `prompt-caching`, `thinking`), the affected grid point runs without the key, announced by a console note — degradation is honest, never silent. Exploration *comparison* reports are rendered by the family's [mavai](https://github.com/mavai-org/mavai/releases) tool: `mavai explore <dir> [-o report.html]`.
-
-### `basel optimize`
-
-```bash
-basel optimize contract.yaml [id] [--all] [--samples-per-iteration N] [--optimizations-dir DIR]
-```
-
-Runs one of the service's declared `optimizations:` entries (see [Part 3](#optimizations--iterative-search)): an iterative configuration search in which a **stepper** proposes each next configuration and a **scorer** judges each iteration. Each iteration runs like a miniature measure — descriptive, no verdict — and the full history (every configuration, score, per-criterion failure breakdown with exemplars, latency summary, and the stepper's own provenance) is persisted as one artefact per run id under `--optimizations-dir` (default `_baseltest/optimizations/<contract-id>/`).
-
-A lone entry runs without naming it; with several declared, the `id` is required (or `--all` runs each as an independent experiment — naming an id *and* passing `--all` is refused). The run ends at `max-iterations`, on the `no-improvement-window` plateau, or when the stepper stops. Note the artefact's `convergence:` block names the best *single iteration* by score, while a noise-aware stepper's own selection (recorded in its `stepper:` block) rests on evidence pooled across visits — when they differ, trust the pooled selection.
-
-### `basel check`
-
-```bash
-basel check contract.yaml
-```
-
-The authoring loop's compile step: validates every load-time join — the contract file's structure, every compiled `path:` expression, the services file, each exploration grid point and optimization entry, the bindings (every configuration key against the factory's signature, every input against the binding's arity) — **without running a single sample**. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give. It belongs in your editor loop and CI.
-
-**Paths are validated against declared shapes.** When a view's value has a declared schema — the parsed response (stock `json` view) against the service's `response-schema`, a derived view against its transformation's declared `output_schema` — every `path:` expression over it is statically resolved against that schema at load time, before a single sample is paid for. A mistyped path (`$.statments[*]` for `$.statements[*]`) is refused with **every** failing expression itemised in one message: the criterion and postcondition it sits in, the full expression, where the walk stopped, the keys actually declared there, and a nearest-match suggestion (*did you mean `statements`?*). Resolving expressions are counted in the `ok:` facts (`ok: 14 path expressions resolve against the response-schema of service 'extractor'`). The walk covers the decidable subset — member access, array indices, wildcards, union branches; filter expressions, slices, recursive descent, and open shapes **pass unverified, visibly** (`ok (unverified): …`) — no false refusals, ever. A service without a declared schema simply has no such join.
-
-One boundary to know: zero samples means zero responses, so *response-shape* behaviour (provider reply parsing, transform outcomes) is exercised only by live samples — the framework keeps the provider adapters' extraction paths under recorded-response tests precisely because `basel check` cannot reach them. (Declared schemas move a large class of response-shape assumptions left of that boundary — that is exactly what the path validation above buys.)
-
-### `basel report`
-
-```bash
-basel report test [--verdict-dir DIR] [--out PATH]
-```
-
-Renders a self-contained HTML report from persisted verdict records — post-hoc, never invokes a service. `--out` relocates the output (default `_baseltest/reports/test.html`). `report measure` is reserved; `report explore` points at the family's `mavai` tool, which owns exploration comparison rendering.
+Each command reads a directory laid out as `<dir>/<service>/*.yaml` (`*.xml` for `verdict`) — e.g. `mavai explore _baseltest/explorations -o report.html` over the artefacts an exploration persisted. The report is written to stdout unless `-o FILE` is given; diagnostics go to stderr, and exit is non-zero when nothing was renderable. The renderer is purely presentational: every number in a report was stated by the emitting framework, and it never invokes a service.
 
 ## Part 3: The services file (`mavai-services.yaml`)
 
@@ -377,11 +386,11 @@ services:                     # required, a non-empty mapping of service entries
   <service-name>:
     type: <type-name>         # required: 'language-model', or a @binding_factory type
     configuration: { ... }    # required: the complete baseline factor record
-    explorations: [ ... ]     # optional: the configuration grid, as deltas
-    optimizations: [ ... ]    # optional: declared Optimize experiments
+    explorations: [ ... ]     # optional: the configurations an `explore` experiment runs (see below)
+    optimizations: [ ... ]    # optional: the searches an `optimize` experiment runs (see below)
 ```
 
-Each entry accepts exactly those four keys. A configuration value placed directly on the entry is refused with the uniformity rule: **every covariate value lives inside `configuration:`** — that block is the baseline factor record, the complete set of parameter values the service runs under, communicated uniformly and recorded in every artefact's provenance. The resolved configuration is the service's *identity*: it is what a baseline is measured under, what a later test is compared against, and what names an exploration's artefacts.
+Each entry accepts exactly those four keys. The last two declare experiments: `explorations:` is the configuration grid a [`basel explore`](#basel-explore) run sweeps, documented in [`explorations:` — the configuration grid](#explorations--the-configuration-grid) below; `optimizations:` is the set of iterative searches a [`basel optimize`](#basel-optimize) run executes, documented in [`optimizations:` — iterative search](#optimizations--iterative-search) below. A configuration value placed directly on the entry is refused with the uniformity rule: **every covariate value lives inside `configuration:`** — that block is the baseline factor record, the complete set of parameter values the service runs under, communicated uniformly and recorded in every artefact's provenance. The resolved configuration is the service's *identity*: it is what a baseline is measured under, what a later test is compared against, and what names an exploration's artefacts.
 
 `type:` selects a registered **service type**: the built-in `language-model`, or a user type registered with `@binding_factory` (whose factory signature is then the `configuration:` schema — see [Part 4](#binding_factory--configurable-service-types)). A bare `@binding` service needs **no services-file entry at all**: the contract's `service:` addresses it directly, and an entry naming its type is refused with a pointer to the factory form.
 
@@ -411,7 +420,7 @@ Every key is a **factor**: fixed per configuration, part of the drift-checked id
 
 | Variable | Meaning |
 |---|---|
-| `MAVAI_LLM_API_KEY` | The family-wide credential, consulted first for every provider. |
+| `MAVAI_LLM_API_KEY` | The provider-agnostic credential, consulted first for every provider. |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` / `PUBLICAI_API_KEY` | Each vendor's conventional variable, the fallback for its provider. `ollama` needs no credential. |
 | `MAVAI_LLM_ENDPOINT` | Overrides any provider's default endpoint; required when `provider:` is omitted. |
 | `MAVAI_LLM_MODEL` | The default model when the configuration declares none. |
@@ -465,9 +474,40 @@ Each entry declares one Optimize experiment. `id:` names the run and its artefac
 | `linear-sweep` | `key`, `step`, `stop` (all required; `step` non-zero) | Walks one numeric configuration key from its starting value in fixed increments to `stop`. A fixed grid you want fully characterised is an *exploration*; what earns the sweep a place here is plateau stopping abandoning the walk early. |
 | `refining-grid` | `key`, `lo`, `hi`, `step`, `min-step` (required); `confidence` (0.95), `min-improvement` (0.02), `confirmation-epochs` (2), `prefer` (`low`\|`high`) | Noise-aware, coarse-to-fine search over one numeric key: measures every value on a coarse grid over `[lo, hi]`, pools evidence per value across visits, narrows to the leader's neighbourhood at half the step down to `min-step` — a candidate is eliminated only when its uncertainty interval can no longer carry a meaningful advantage, never by a single bad round — then re-measures the finalists in independent confirmation epochs before selecting (practical ties prefer the lower value unless `prefer: high`). Its selection, finalist standings, and stopping reason land in the artefact's `stepper:` block. |
 
+#### Configuring the prompt engineer
+
+The `prompt-engineer` stepper optimizes a prompt by delegating to a **meta model**: each iteration sends it the current prompt, the pass rate it achieved, and the per-criterion failure breakdown with example failures, and the meta model's response — verbatim — becomes the next value of the targeted configuration key. An empty response ends the run. Every `stepper-config:` key is optional; a bare `stepper: prompt-engineer` already works. The full surface:
+
+```yaml
+optimizations:
+  - id: prompt-tuning
+    stepper: prompt-engineer
+    stepper-config:
+      provider: openai            # meta model identity — both default to the
+      model: gpt-4o-mini          #   optimized service's own provider/model
+      temperature: 0.5            # meta model sampling (default 0.5)
+      target-key: system-prompt   # the configuration key each suggestion replaces
+      max-exemplars: 3            # failure examples per criterion in the meta
+                                  #   message (default 2, may be 0)
+      system-prompt: |            # the META prompt: your instructions to the engineer
+        You are a prompt engineer for a German insurance-document extractor.
+        Improve the prompt you are given so the extraction criteria below
+        stop failing. Output only the new system prompt.
+    max-iterations: 8
+    no-improvement-window: 3
+    initial:                      # optional: seed iteration 0's prompt
+      system-prompt: "Extract the offer as JSON."
+```
+
+Two prompts are in play — keep them apart. The **service's** system prompt is the thing being optimized: it lives in the service's `configuration:`, and `target-key:` names it (default `system-prompt`; validated at load time against the service's configuration keys, so the stepper can equally tune any other prompt-valued key). The **stepper's own** `system-prompt:` is the *meta prompt* — the standing instructions to the engineer itself; the default asks for improvements aimed at structured-output and instruction-following failure modes, and overriding it is how you steer the engineer toward your domain.
+
+When `provider:`/`model:` are omitted, the meta identity is read from the optimized service's *current* configuration at each step — the credentials the service already uses cover the meta model too, and no vendor is silently pinned. The resolved meta identity (provider, model, temperature) is recorded on the artefact's `stepper:` block, so every run states which engineer produced its prompts.
+
 The built-in scorer, `pass-rate`, is the iteration's observed overall pass rate (it travels in artefacts under its canonical interchange name, `observed-pass-rate`). User steppers and scorers register in `mavai-bindings.py` — see [Part 4](#stepper-and-scorer--optimize-authors).
 
 ## Part 4: The bindings file (`mavai-bindings.py`)
+
+Whether you need this file depends on who invokes the service. A **home-grown service — anything baseltest must reach through your own code — requires `mavai-bindings.py`**: the `@binding` (or `@binding_factory`) registration is the only way the framework can call it. A service on a **built-in type such as `language-model` needs no bindings file** — the built-in adapters do the invoking, and the services file alone suffices (the zero-code path of [Part 5](#part-5-binding-your-service--a-walkthrough)). You may still add one beside a built-in service purely for custom transforms, checks, scorers, or steppers.
 
 `mavai-bindings.py` is an ordinary Python file, discovered beside the contract file (then in the working directory) and imported before the contract is instantiated — the same trust model as pytest's `conftest.py`: it is your own project file, executed because you placed it there. It exists so command-line runs can reach your code; API callers may equally register from any module they import before running. Everything in it is a **registration** made with five decorators from `baseltest.declarative`:
 
@@ -651,4 +691,4 @@ transforms:
 
 **Then compile before you run.** `basel check contract.yaml` validates every join — contract against services file against bindings, every input against the binding's signature, every path expression, every grid point and optimization entry — with zero samples. When it prints its `ok:` facts, `basel test` and `basel measure` will run as declared; when it refuses, the message is the same one a run would have given, with the signature or vocabulary you need in it.
 
-A closing rule of thumb on where logic belongs: the **binding** invokes; the **transforms** parse; the **criteria** judge. Keep judgement out of the binding (a binding that pre-filters bad responses biases the rate under test) and parsing out of the checks (a view is computed once and shared). The family invariant that judging code never sees the *input* is enforced by construction — checks address the response and its views only; per-input judgement is the contract's `expected:` machinery, never your code's.
+A closing rule of thumb on where logic belongs: the **binding** invokes; the **transforms** parse; the **criteria** judge. Keep judgement out of the binding (a binding that pre-filters bad responses biases the rate under test) and parsing out of the checks (a view is computed once and shared). The invariant that judging code never sees the *input* is enforced by construction — checks address the response and its views only; per-input judgement is the contract's `expected:` machinery, never your code's.

@@ -2,11 +2,12 @@
 
 Ready-to-run declarative authoring, from zero. Each folder holds **one contract file, named for what it tests** — the name is yours, and you keep as many contract files as you have things to test. (The `mavai-*` files beside it are the opposite: fixed, namespaced names the reader discovers automatically — `mavai-services.yaml` for service definitions, `mavai-bindings.py` for code registrations.) What a run does is the verb you invoke it with:
 
-- `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
-- `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
-- `basel explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
 - `basel check <contract-file>` — the authoring loop's compile step: validates the contract against its services file and bindings (every load-time join, including each exploration grid point and every input against the binding's signature) without running a single sample. Exit 0 with one `ok:` line per validated fact; exit 2 with the same refusal a run would give.
-- `basel report test` — an HTML test report from the persisted verdict records, rendered post-hoc into `_baseltest/reports/` — no service is invoked. Or render inline as part of a run with `--html-report <path>` on `test`; either way it is the same renderer, so the outputs are identical. Exploration comparison reports are rendered by the family's [mavai](https://github.com/mavai-org/mavai/releases) tool: `mavai explore _baseltest/explorations -o report.html`.
+- `basel explore <contract-file>` — an exploration: every configuration in the service's grid (the baseline plus its `explorations:` entries) runs a few samples (5 by default; `--samples-per-config` to size it), and each writes one descriptive artefact into `_baseltest/explorations/` — no verdicts, just the numbers to diff. Requires a service declared in the services file.
+- `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
+- `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
+
+HTML reports are rendered from the persisted artefacts by the [mavai](https://github.com/mavai-org/mavai-report) tool (see that project's `README.md` for installation): `mavai verdict _baseltest -o report.html` for test-run verdicts, `mavai explore _baseltest/explorations -o report.html` for exploration comparisons. `basel test` can additionally render a self-contained HTML summary inline with `--html-report <path>`.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
 
@@ -32,14 +33,14 @@ Run the test a few times: the observed rate moves, the verdict logic doesn't —
 
 Then run them **in order** — `measure` first, `test` second — and watch the ratchet: the bar-less `spirits-stay-polite` criterion is skipped by the first test (*requires a baseline*), but after a measure run the next test judges it **against the baseline** — no worse than measured, the artefact named on the verdict line. With a baseline in play the test also stops guessing its size: `basel test fortune-teller.yaml --tolerate 84` (or `tolerate: 0.84` in the file, or answer the questions it asks on a terminal) computes the smallest n at which a genuine drop to 84% fails the test about four times out of five, explained in plain language. An explicit `--samples` still works on its own, but the run states what it buys and asks before running a weak design.
 
-Every test run you just made persisted a verdict record, so a shareable report is one command away — no re-execution:
+Every test run you just made persisted a verdict record, so a shareable report is one command away — no re-execution. Render it with the [mavai](https://github.com/mavai-org/mavai-report) tool:
 
 ```bash
-basel report test                       # renders _baseltest/reports/test.html
-open _baseltest/reports/test.html       # macOS; xdg-open on Linux
+mavai verdict _baseltest -o report.html   # renders the persisted verdict records
+open report.html                          # macOS; xdg-open on Linux
 ```
 
-One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer it in one step? `basel test fortune-teller.yaml --samples 100 --html-report report.html` renders the identical page as part of the run.)
+One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer an inline summary as part of the run? `basel test fortune-teller.yaml --samples 100 --html-report report.html`.)
 
 ## `rule-driven-service/` — factors and covariates: configuration citizenship for your own service
 
@@ -151,7 +152,7 @@ The services file also carries an `explorations:` grid: the same job on a differ
 
    Each file carries the configuration's factors, observed pass rate, per-criterion counts and failure reasons, a gated latency summary (p50 at exploration-sized runs), and a per-sample **result projection** — which input drove each sample, which postconditions passed, how long the call took, and the model's response verbatim. Descriptive statistics only, triage rather than judgement — and when a configuration underperforms, the projection shows you *what it actually said*.
 
-5. **Render the comparison report** — the diff's visual sibling, one page over every configuration, rendered by the family's shared [mavai](https://github.com/mavai-org/mavai/releases) tool:
+5. **Render the comparison report** — the diff's visual sibling, one page over every configuration, rendered by the [mavai](https://github.com/mavai-org/mavai-report) tool (see that project's `README.md` for installation):
 
    ```bash
    cd ../..                                # back to examples/language-model

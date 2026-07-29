@@ -51,20 +51,21 @@ You'll see a verdict with its uncertainty stated — run the test a few times an
 
 ## The command line
 
-The `baseltest` package ships one command, `basel`, with six run and reporting verbs. The contract file carries the claim; the verb carries the posture; the invocation carries the budget.
+The `baseltest` package ships one command, `basel`, with five verbs. The contract file carries the claim; the verb carries the posture; the invocation carries the budget.
 
 | Verb | What it does | Sizing |
 |---|---|---|
 | `basel check <contract.yaml>` | Validates the contract against its services file, bindings, and `path:` expressions — every load-time join, **zero samples**: the authoring loop's compile step. | No sampling. |
-| `basel test <contract.yaml>` | Judges the thresholded criteria (and any declared latency bounds): a statistical verdict with its uncertainty stated, persisted as a verdict record. | Empirical criteria are sized from your stated risk: `--tolerate` (or the criterion's `tolerate:` key) and `--confidence` compute the required n, prompted for on a terminal when unclaimed. Declared bars default to their feasibility minimum (a silently derived n above 100 is refused); `--samples N` sizes it yourself — explained, and confirmed when weak (`--accept-weak-design` for automation). |
-| `basel measure <contract.yaml> --samples N` | Records **every** criterion and persists the baseline artefact — the durable record future empirical bars derive from, latency profile included. | `--samples` is required: a measurement's budget is an experimental-design decision. |
 | `basel explore <contract.yaml>` | Runs every configuration in the service's grid and writes one descriptive artefact per configuration — triage, no verdicts. | `--samples-per-config` (default 5; no count is ever refused as too small). |
 | `basel optimize <contract.yaml> [id]` | Runs one declared optimization: an iterative configuration search driven by its stepper, scored per iteration, the full history persisted as one artefact — descriptive, no verdicts. With several entries declared the id is required (or `--all`); never guessed. | `--samples-per-iteration` (default 20). |
-| `basel report test` | Renders a self-contained HTML report from persisted verdict records — post-hoc, never invokes a service. `report measure` is reserved. Exploration comparison reports are rendered by the family's [mavai](https://github.com/mavai-org/mavai/releases) tool: `mavai explore <dir> [-o report.html]`. | `--out` to relocate (default `_baseltest/reports/`). |
+| `basel measure <contract.yaml> --samples N` | Records **every** criterion and persists the baseline artefact — the durable record future empirical bars derive from, latency profile included. | `--samples` is required: a measurement's budget is an experimental-design decision. |
+| `basel test <contract.yaml>` | Judges the thresholded criteria (and any declared latency bounds): a statistical verdict with its uncertainty stated, persisted as a verdict record. | Empirical criteria are sized from your stated risk: `--tolerate` (or the criterion's `tolerate:` key) and `--confidence` compute the required n, prompted for on a terminal when unclaimed. Declared bars default to their feasibility minimum (a silently derived n above 100 is refused); `--samples N` sizes it yourself — explained, and confirmed when weak (`--accept-weak-design` for automation). |
 
-Frequently reached-for flags: `--html-report <path>` on `test` renders the report inline as part of the run (the same renderer as `basel report test`, so the two outputs are identical); `--baseline-dir`, `--verdict-dir`, `--explorations-dir`, and `--optimizations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
+HTML reports are rendered by the **`mavai`** tool — `mavai verdict|measure|explore|optimize <dir> [-o report.html]` over the persisted artefacts. It is developed in the [mavai-report](https://github.com/mavai-org/mavai-report) project; obtain it from there, and see that project's `README.md` for installation instructions.
 
-Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration, nothing to render) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it, and the [user guide](docs/USER-GUIDE.md) is the complete reference — every verb, every file, every option.
+Frequently reached-for flags: `--html-report <path>` on `test` renders a self-contained HTML summary inline as part of the run; `--baseline-dir`, `--verdict-dir`, `--explorations-dir`, and `--optimizations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
+
+Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it, and the [user guide](docs/USER-GUIDE.md) is the complete reference — every verb, every file, every option.
 
 ## The declarative core
 
