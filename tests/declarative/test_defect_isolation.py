@@ -145,9 +145,7 @@ class TestExploreContainsDefects:
     ) -> None:
         contract = write_files(tmp_path)
         (tmp_path / "mavai-bindings.py").write_text(JUDGE_BINDINGS, encoding="utf-8")
-        code = main(
-            ["explore", str(contract), "--explorations-dir", str(tmp_path / "x")]
-        )
+        code = main(["explore", str(contract), "--explorations-dir", str(tmp_path / "x")])
         assert code == 1
         captured = capsys.readouterr()
         assert "explored 3 configuration" in captured.out

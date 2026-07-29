@@ -80,5 +80,3 @@ class ServiceTypeContract:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "covariates", MappingProxyType(dict(self.covariates)))
-
-

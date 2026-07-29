@@ -429,6 +429,76 @@ def contains_set(expected: Sequence[Any], view: str = "raw") -> Postcondition:
     )
 
 
+def _member_display(values: Sequence[Any], limit: int = 3) -> str:
+    """A bounded member listing for reasons: the first few, the rest counted."""
+    shown = ", ".join(repr(value) for value in values[:limit])
+    remainder = len(values) - limit
+    return shown if remainder <= 0 else f"{shown} (+{remainder} more)"
+
+
+def set_of(
+    required: Sequence[Any],
+    optional: Sequence[Any],
+    min_present: int = 0,
+    refuse_extras: bool = True,
+    view: str = "raw",
+) -> Postcondition:
+    """The graded set claim, judged by membership — a set is a set.
+
+    Holds iff every ``required`` member appears in the selection, at least
+    ``min_present`` distinct ``optional`` members appear, and — under
+    ``refuse_extras`` — every selected element is a declared member.
+    Duplicates collapse to membership on both sides: a subject element
+    appearing twice is one member present, never an extra. The failure
+    reason states the arithmetic — the missing required members, the
+    present-versus-floor count, and any extras — each list bounded.
+    """
+    required_members = list(required)
+    optional_members = list(optional)
+    required_keys = {_element_key(item): item for item in required_members}
+    optional_keys = {_element_key(item): item for item in optional_members}
+
+    def check(subject: Any) -> PostconditionResult:
+        selected = _selection(subject)
+        if selected is None:
+            return _collective_type_failure("set-of", subject)
+        selected_keys: dict[tuple[str, Any], Any] = {}
+        for value in selected:
+            selected_keys.setdefault(_element_key(value), value)
+        missing = [item for key, item in required_keys.items() if key not in selected_keys]
+        present = sum(1 for key in optional_keys if key in selected_keys)
+        extras = [
+            value
+            for key, value in selected_keys.items()
+            if key not in required_keys and key not in optional_keys
+        ]
+        parts = []
+        if missing:
+            parts.append(f"missing required: {_member_display(missing)}")
+        if present < min_present:
+            parts.append(
+                f"optional members present {present} of {len(optional_members)} "
+                f"(min-present {min_present})"
+            )
+        if refuse_extras and extras:
+            parts.append(f"extras: {_member_display(extras)}")
+        if not parts:
+            return PostconditionResult.ok()
+        return PostconditionResult.failed("set-of: " + "; ".join(parts))
+
+    summary = (
+        f"{len(required_members)} required, {len(optional_members)} optional, "
+        f"min-present {min_present}" + ("" if refuse_extras else ", extras allowed")
+    )
+    return Postcondition(
+        name=f"set-of ({summary})",
+        check=check,
+        view=view,
+        form="set-of",
+        expected=summary,
+    )
+
+
 def count_equals(expected: int, view: str = "raw") -> Postcondition:
     """The selection holds exactly the expected number of values."""
 

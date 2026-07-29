@@ -39,6 +39,7 @@ class Form(StrEnum):
     EQUALS_SET = "equals-set"
     CONTAINS_SET = "contains-set"
     COUNT_EQUALS = "count-equals"
+    SET_OF = "set-of"
 
 
 @dataclass(frozen=True, slots=True)

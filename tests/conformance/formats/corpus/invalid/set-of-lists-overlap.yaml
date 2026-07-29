@@ -1,0 +1,20 @@
+# REFUSED: a member appearing in both required: and optional: is a
+# contradiction, refused naming the member (Part I, graded set claims,
+# 2026-07-29). Semantic: the schema cannot compare the lists.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+          optional:
+            - "Grunddeckung"
+            - "Glasbruch"
+inputs: ["extract"]

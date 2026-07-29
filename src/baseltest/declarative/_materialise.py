@@ -42,6 +42,7 @@ from baseltest.contract import (
     not_equals,
     one_of,
     satisfies,
+    set_of,
 )
 from baseltest.engine import Intent, RunKind, RunPlan, execute
 from baseltest.reporting import render_run
@@ -85,6 +86,12 @@ def _form_source(declaration: FormDeclaration) -> str:
         base = f"contains_set({list(argument)!r})"
     elif declaration.form is Form.COUNT_EQUALS:
         base = f"count_equals({int(argument)})"
+    elif declaration.form is Form.SET_OF:
+        base = (
+            f"set_of({list(argument['required'])!r}, {list(argument['optional'])!r}, "
+            f"min_present={argument['min-present']}, "
+            f"refuse_extras={argument['refuse-extras']!r})"
+        )
     elif declaration.form is Form.SATISFIES:
         base = (
             f"satisfies({str(argument)!r}, {_identifier(str(argument))})"

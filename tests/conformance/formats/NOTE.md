@@ -10,7 +10,14 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.10.0** — the partial-credit and default-view
+Pinned at `mavai-R` **v0.10.4** — the graded set claim: the composite
+`set-of:` form (required/optional member lists, `min-present:` floor,
+`refuse-extras:` allowance) with membership semantics — a set is a set,
+duplicates collapse with a loader warning, pinned by the
+`contract-set-of-duplicate-member.yaml` valid case — and its categories
+(structural `set-of-without-optional`/`set-of-min-present-malformed`,
+semantic `set-of-lists-overlap`/`set-of-min-present-bounds`). Earlier
+pin: v0.10.0 — the partial-credit and default-view
 amendments: `optional:`/`optional-slack:` with the structural categories
 `optional-slack-malformed`/`optional-operand`/`optional-on-parses`, and the
 path-conditional default subject view, which retires the structural

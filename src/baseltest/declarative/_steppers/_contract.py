@@ -49,9 +49,7 @@ class StepProposal:
     provenance: Mapping[str, object] | None = None
 
 
-StepFunction = Callable[
-    [dict[str, Any], "OptimizeContext"], "StepProposal | dict[str, Any] | None"
-]
+StepFunction = Callable[[dict[str, Any], "OptimizeContext"], "StepProposal | dict[str, Any] | None"]
 ScorerFunction = Callable[["IterationSummary"], float]
 
 

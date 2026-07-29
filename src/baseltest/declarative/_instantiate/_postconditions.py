@@ -39,6 +39,7 @@ from baseltest.contract import (
     not_equals,
     one_of,
     satisfies,
+    set_of,
 )
 from baseltest.engine.naming import bounded_excerpt, per_input_name
 
@@ -76,11 +77,19 @@ _SCALAR_VALUE_FORMS: dict[str, Callable[..., Postcondition]] = {
 }
 
 # Collective set forms: the whole selection at once. The parser guarantees
-# a declared view and a path.
+# a declared view and a path; set-of arrives normalised (lists deduped,
+# min-present resolved to a count, refuse-extras defaulted).
 _SET_FORMS: dict[str, Callable[..., Postcondition]] = {
     "equals-set": lambda arg, view: equals_set(list(arg), view=view),
     "contains-set": lambda arg, view: contains_set(list(arg), view=view),
     "count-equals": lambda arg, view: count_equals(int(arg), view=view),
+    "set-of": lambda arg, view: set_of(
+        arg["required"],
+        arg["optional"],
+        min_present=arg["min-present"],
+        refuse_extras=arg["refuse-extras"],
+        view=view,
+    ),
 }
 
 

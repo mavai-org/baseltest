@@ -1,0 +1,19 @@
+# REFUSED: min-present: exceeds the optional: list's distinct size —
+# an unsatisfiable floor (Part I, graded set claims, 2026-07-29).
+# Semantic: the bound depends on the list's contents.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          optional:
+            - "Glasbruch"
+            - "Wasserschaden"
+          min-present: 3
+inputs: ["extract"]

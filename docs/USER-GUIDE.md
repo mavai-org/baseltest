@@ -144,12 +144,34 @@ Each postcondition entry declares exactly one form, optionally qualified by `in:
 | `equals-set`| list of scalars | The selected values equal the list as a **multiset** — order-independent, duplicates significant.                                                                    |
 | `contains-set` | list of scalars | Every listed element appears among the selected values (all-of).                                                                                                  |
 | `count-equals` | integer      | The path selected exactly that many values (`count-equals: 0` asserts an empty selection).                                                                           |
+| `set-of`    | mapping         | The graded set claim: every `required:` member appears, at least `min-present:` of the `optional:` members appear, and — under `refuse-extras: true`, the default — nothing unlisted appears. Judged by membership: a set is a set (see below).                    |
 
-`in:` names the view whose value the check judges. A check without `in:` and without `path:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). A check with `path:` but no `in:` cannot mean raw text — a path needs structure — so its subject defaults to the view your criterion declares with `parses:`, or, failing that, the contract's only transform; with several transforms and no `parses:`, the omission is refused at load naming both fixes. An explicit `in:` always wins, and `path:`'s subject must be a declared view either way — `in: raw` beside a `path:` is refused. The **set forms** (`equals-set`, `contains-set`, `count-equals`) go further: they judge the selected values *collectively* — the only way to state a cross-element condition — so they always require a `path:`; there is no collection over raw text or a scalar.
+`in:` names the view whose value the check judges. A check without `in:` and without `path:` judges the raw response text (`raw` is the reserved name for it, should you want to be explicit). A check with `path:` but no `in:` cannot mean raw text — a path needs structure — so its subject defaults to the view your criterion declares with `parses:`, or, failing that, the contract's only transform; with several transforms and no `parses:`, the omission is refused at load naming both fixes. An explicit `in:` always wins, and `path:`'s subject must be a declared view either way — `in: raw` beside a `path:` is refused. The **set forms** (`equals-set`, `contains-set`, `count-equals`, `set-of`) go further: they judge the selected values *collectively* — the only way to state a cross-element condition — so they always require a `path:`; there is no collection over raw text or a scalar.
 
 #### Value comparison — literal expected values
 
 The value-comparison forms judge a structured response against expected values **written exactly as they appear in the source document** — no normalising transform in between. A number's argument may be a plain YAML number or a quoted numeric string (`eq: "500.00"` preserves the exact decimal spelling); comparison is decimal either way, so no pre-canonicalising (`"273.5"` for a premium of `273.50`) and no float artefacts. Set elements compare by strict JSON value: numbers numerically, strings exactly, booleans and `null` by identity — a JSON `1200` never equals the string `"1200"`. A subject the form cannot interpret — text under `eq`, a number under `equals-ci`, anything non-boolean under `is` — fails that trial with a type reason, like any other per-trial failure. Booleans get the dedicated form: write `is: true`, not the string-projection idiom `equals: "true"` (which remains valid); the bare `equals: true` is refused pointing at `is:`.
+
+#### Graded set claims — `set-of`
+
+`equals-set` is exact and all-or-nothing: one missing member out of fourteen sinks the check. When the truer claim is *graded* — "these members must appear, most of those should, nothing unlisted may" — `set-of` states it inside one check:
+
+```yaml
+- path: "$.applicableTerms[*]"
+  set-of:
+    required:                  # every member must appear — non-negotiable
+      - "Allgemeine Bedingungen (AB); 12.2022"
+    optional:                  # members that may appear
+      - "Zusatzbedingungen Terrorismus"
+      - "Zusatzbedingungen Elementarschaden"
+      - "Kundeninformation nach VVG"
+    min-present: 2             # at least 2 distinct optional members (or "66%", by floor)
+    refuse-extras: true        # nothing unlisted may appear (the default)
+```
+
+The check holds iff every `required:` member appears, at least `min-present:` distinct `optional:` members appear (absent, the floor is 0 — the optional list is then purely an extras allowance), and, under `refuse-extras:`, every selected element is a declared member. Unlike the sharp forms, **membership is what counts — a set is a set**: duplicates collapse to one entry on both sides, so a member listed twice draws a console warning (it is almost certainly a typo, never a multiplicity claim — state exact multiplicity with `equals-set`), and a subject element appearing twice is one member present, never an extra. Failure reasons state the arithmetic — the missing required members, the present-versus-floor count, and any extras, by name.
+
+Spellings a sharper form owns are refused naming it: a `set-of` without `optional:` members states `equals-set` (or, with `refuse-extras: false`, `contains-set`) — say that. A `min-present:` equal to the optional list's size means every optional member is required — move them to `required:`. The pure-subset claim ("nothing invented, omissions tolerated") is `set-of: {optional: [...], refuse-extras: true}` — the one graded claim with no sharper spelling. `set-of` grades *inside* one check; the partial-credit machinery below grades *between* checks — they compose, and neither substitutes for the other.
 
 #### Partial credit — optional checks and the slack budget
 
@@ -205,7 +227,7 @@ Which language applies:
 
 Selection semantics, uniform across languages:
 
-- An **empty selection fails the trial** with its own reason — which means a filter selector (`$.items[?@.name == 'egg'].quantity`) asserts the item's presence for free. Two carve-outs: `is-null` **holds** on an empty selection (null-or-absent is the one condition), and the set forms judge the empty selection as the empty collection (`count-equals: 0` holds; a set form with a non-empty argument fails).
+- An **empty selection fails the trial** with its own reason — which means a filter selector (`$.items[?@.name == 'egg'].quantity`) asserts the item's presence for free. Two carve-outs: `is-null` **holds** on an empty selection (null-or-absent is the one condition), and the set forms judge the empty selection as the empty collection (`count-equals: 0` holds; a set form with a non-empty argument fails; a `set-of` holds on it only when it has no `required:` members and a floor of 0).
 - A non-empty selection requires **every** selected value to satisfy the form — the string forms and the scalar value forms alike: one bad quantity among five items fails that trial. The set forms instead receive the selection **as one collection**.
 - Under a string form, scalars compare by content (strings) or by their JSON text (numbers, booleans, null) — so `equals: "true"` matches a JSON `true`, and `equals: "12"` matches the number 12. The value forms judge the selected value itself: `eq` compares decimals, `is-null` matches JSON `null` but never the string `"null"`.
 - Selecting a JSON object or array under a string form is a per-trial type failure — structure is selected *through*, not compared as text.

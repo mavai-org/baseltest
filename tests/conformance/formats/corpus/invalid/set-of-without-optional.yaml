@@ -1,0 +1,21 @@
+# REFUSED: a set-of: without an optional: list states a claim a sharper
+# form already owns — equals-set: under refuse-extras: true (the
+# default), contains-set: under false — and is refused naming the
+# sharper form (Part I, graded set claims, 2026-07-29; the
+# when-a-sharper-name-exists house rule). Structural: optional: is
+# schema-required on the composite operand.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+            - "Glasbruch"
+inputs: ["extract"]

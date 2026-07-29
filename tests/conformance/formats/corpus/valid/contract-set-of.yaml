@@ -1,0 +1,56 @@
+# The graded set claim (Part I, graded set claims, 2026-07-29): the
+# composite set-of: form — required members, tolerated members with a
+# min-present floor (count or percentage, floor-resolved), refuse-extras
+# defaulting true — judged with membership semantics over the selection.
+# Exercises: the full spelling, the percentage floor, an explicit
+# refuse-extras: false, the pure-subset claim (optional only — the one
+# graded claim with no sharper spelling), and per-input use.
+format: mavai-contract/1
+contract: extractor-returns-the-agreed-terms
+service: buildings-extractor
+transforms:
+  doc: json
+criteria:
+  - name: terms-are-the-agreed-set
+    threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.applicableTerms[*]"
+        set-of:
+          required:
+            - "Allgemeine Bedingungen (AB) - Gemeinsame Bestimmungen; 12.2022"
+            - "Kundeninformation nach VVG; 09.2021"
+          optional:
+            - "Zusatzbedingungen (ZB) - Terrorismusversicherung"
+            - "Zusatzbedingungen (ZB) - Elementarschadenversicherung"
+            - "Zusatzbedingungen (ZB) - Stockwerkeigentum; 09.2021"
+          min-present: 2
+      - in: doc
+        path: "$.recommendedClauses[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+          optional:
+            - "Glasbruch"
+            - "Wasserschaden"
+            - "Diebstahl"
+            - "Erdbeben"
+          min-present: "50%"
+          refuse-extras: false
+      - in: doc
+        path: "$.notedExclusions[*]"
+        set-of:
+          optional:
+            - "Krieg"
+            - "Kernenergie"
+inputs:
+  - "extract the allianz building policy"
+  - input: "extract the two-clause policy"
+    expected:
+      - in: doc
+        path: "$.applicableTerms[*]"
+        set-of:
+          required:
+            - "Kundeninformation nach VVG; 09.2021"
+          optional:
+            - "Zusatzbedingungen (ZB) - Terrorismusversicherung"
