@@ -134,7 +134,10 @@ class TestExploreContainsDefects:
         )
         assert len(exploration.completed) == 3
         assert len(exploration.aborted) == 1
-        artefacts = sorted(p.name for p in (tmp_path / "x" / "support-agent-tuning").glob("*.yaml"))
+        artefacts = sorted(
+            p.name
+            for p in (tmp_path / "x" / "support-agent-tuning" / "model+temperature").glob("*.yaml")
+        )
         assert len(artefacts) == 3
         aborted = exploration.aborted[0]
         assert aborted.factors["model"] == "other-model"

@@ -141,7 +141,10 @@ class TestExploreRuns:
             write_files(tmp_path), samples_per_config=3, explorations_dir=tmp_path / "x", emit=False
         )
         assert len(explored) == 4
-        files = sorted(p.name for p in (tmp_path / "x" / "support-agent-tuning").glob("*.yaml"))
+        # The experiment directory names the swept keys — the question
+        # this experiment asks — in the type's canonical order.
+        experiment = tmp_path / "x" / "support-agent-tuning" / "model+temperature"
+        files = sorted(p.name for p in experiment.glob("*.yaml"))
         assert files == [
             "model-other-model_temperature-0.7.yaml",
             "model-small-model_temperature-0.0.yaml",
@@ -151,6 +154,24 @@ class TestExploreRuns:
         # 4 configurations x 3 samples each, every one a real invocation
         assert len(llm_environment) == 12
         assert {p["temperature"] for p in llm_environment} == {0.0, 0.2, 0.7}
+
+    def test_a_no_sweep_run_lands_in_baseline_only(
+        self, tmp_path: Path, llm_environment: list[dict[str, Any]]
+    ) -> None:
+        # A run that declares no explorations and a sweep of the same
+        # contract never share a directory — the baseline.yaml incident
+        # (a stale pre-sweep artefact presented as a configuration
+        # difference) is structurally impossible.
+        no_sweep = SERVICES[: SERVICES.index("    explorations:")]
+        explored = explore(
+            write_files(tmp_path, services=no_sweep),
+            samples_per_config=2,
+            explorations_dir=tmp_path / "x",
+            emit=False,
+        )
+        assert len(explored) == 1
+        files = list((tmp_path / "x" / "support-agent-tuning" / "baseline-only").glob("*.yaml"))
+        assert [p.name for p in files] == ["baseline.yaml"]
 
     def test_artefacts_carry_projections_and_gated_latency(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
@@ -300,7 +321,7 @@ class TestExploreRuns:
         monkeypatch.chdir(tmp_path)
         assert main(["explore", str(write_files(tmp_path))]) == 0
         root = tmp_path / "_baseltest" / "explorations" / "support-agent-tuning"
-        assert len(list(root.glob("*.yaml"))) == 4
+        assert len(list((root / "model+temperature").glob("*.yaml"))) == 4
 
 
 class TestMixedProviderGrids:

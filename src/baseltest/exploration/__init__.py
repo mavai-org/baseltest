@@ -9,12 +9,14 @@ descriptive statistics only: no bounds, no thresholds, no verdicts.
 """
 
 from .writer import (
+    experiment_directory,
     exploration_stem,
     render_exploration,
     write_exploration,
 )
 
 __all__ = [
+    "experiment_directory",
     "exploration_stem",
     "render_exploration",
     "write_exploration",

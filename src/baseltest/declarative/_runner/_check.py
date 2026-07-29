@@ -8,6 +8,7 @@ per-sample callable exactly as a run would) without invoking anything.
 from pathlib import Path
 
 from baseltest.engine import RunKind
+from baseltest.exploration import experiment_directory, exploration_stem
 
 from .._instantiate import instantiate
 from .._instantiate._service import _validate_inputs
@@ -15,10 +16,16 @@ from .._parser import load_contract
 from .._registrations import discover_registrations
 from .._registry import Bindings
 from .._schema_walk import validate_declared_paths
-from .._services import discover_services
+from .._services import ServiceDefinition, discover_services, factor_values
+from ._shared import DEFAULT_EXPLORATIONS_DIR
 
 
-def check(path: str | Path, bindings: Bindings | None = None) -> tuple[str, ...]:
+def check(
+    path: str | Path,
+    bindings: Bindings | None = None,
+    *,
+    explorations_dir: str | Path = DEFAULT_EXPLORATIONS_DIR,
+) -> tuple[str, ...]:
     """Validate a contract against its services and bindings — zero samples.
 
     The authoring loop's compile step: loads the contract, discovers the
@@ -74,6 +81,7 @@ def check(path: str | Path, bindings: Bindings | None = None) -> tuple[str, ...]
         count = len(definition.explorations)
         entries = "entry" if count == 1 else "entries"
         facts.append(f"exploration grid: {count} {entries} constructed and joined")
+    facts.extend(_stale_artefact_advisory(declaration.contract, definition, explorations_dir))
     for entry in definition.optimizations:
         _validate_inputs(
             declaration.service, definition.type.invoker(entry.parameters), declaration.inputs
@@ -88,3 +96,51 @@ def check(path: str | Path, bindings: Bindings | None = None) -> tuple[str, ...]
         # though not a refusal: the run simply goes to its cap.
         facts.extend(note for entry in definition.optimizations for note in entry.notes)
     return tuple(facts)
+
+
+def _stale_artefact_advisory(
+    contract: str, definition: ServiceDefinition, explorations_dir: str | Path
+) -> list[str]:
+    """Name artefacts in the active experiment directory that no current grid point writes.
+
+    The swept-keys layout makes cross-experiment pollution structurally
+    impossible; the residual edge is grid *contraction* within unchanged
+    swept keys, which still strands points. This pre-flight names what it
+    sees — the stale files, and whether the directory's artefacts span
+    several run vintages — and deletes nothing: the artefact tree is
+    regenerable working output, operator-owned.
+    """
+    active = Path(explorations_dir) / contract / experiment_directory(definition.swept_keys)
+    if not active.is_dir():
+        return []
+    current_stems = {
+        exploration_stem(tuple(factor_values(definition, parameters).items()))
+        for parameters in definition.grid
+    }
+    advisories = []
+    vintages = set()
+    for artefact in sorted(active.glob("*.yaml")):
+        vintage = _generated_date(artefact)
+        if vintage is not None:
+            vintages.add(vintage)
+        if artefact.stem not in current_stems:
+            advisories.append(
+                f"stale: {artefact.name} — no current grid point resolves to this configuration"
+            )
+    if len(vintages) > 1:
+        spelled = "two" if len(vintages) == 2 else str(len(vintages))
+        advisories.append(
+            f"note: artefacts span {spelled} run vintages ({', '.join(sorted(vintages))})"
+        )
+    return advisories
+
+
+def _generated_date(artefact: Path) -> str | None:
+    """The artefact's generation date (the timestamp's date part), or None."""
+    try:
+        for line in artefact.read_text(encoding="utf-8").splitlines():
+            if line.startswith("generatedAt:"):
+                return line.split(":", 1)[1].strip().strip('"')[:10]
+    except OSError:
+        return None
+    return None

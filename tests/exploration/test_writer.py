@@ -7,6 +7,7 @@ from ruamel.yaml import YAML
 
 from baseltest.engine import LatencyBlock, SampleRecord
 from baseltest.exploration import (
+    experiment_directory,
     exploration_stem,
     render_exploration,
     write_exploration,
@@ -114,16 +115,33 @@ class TestRendering:
         assert "factors:" not in render_exploration(record(factors=()))
 
 
+class TestExperimentDirectory:
+    def test_single_swept_key_names_the_question(self) -> None:
+        assert experiment_directory(("temperature",)) == "temperature"
+
+    def test_several_swept_keys_join_with_plus(self) -> None:
+        assert experiment_directory(("temperature", "model")) == "temperature+model"
+
+    def test_no_sweep_is_baseline_only(self) -> None:
+        assert experiment_directory(()) == "baseline-only"
+
+
 class TestWriting:
-    def test_one_file_per_configuration_under_the_contract_directory(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        path = write_exploration(record(), tmp_path)
-        assert path == tmp_path / "support-agent-tuning" / "temperature-0.7.yaml"
+    def test_one_file_per_configuration_under_the_experiment_directory(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        path = write_exploration(record(), tmp_path, "temperature")
+        assert path == tmp_path / "support-agent-tuning" / "temperature" / "temperature-0.7.yaml"
         assert path.is_file()
 
+    def test_a_no_sweep_run_and_a_sweep_never_share_a_directory(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        flat = write_exploration(record(factors=()), tmp_path, "baseline-only")
+        swept = write_exploration(record(), tmp_path, "temperature")
+        assert flat.parent != swept.parent
+        assert flat.parent.parent == swept.parent.parent
+
     def test_rerunning_the_same_grid_point_refreshes_in_place(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
-        write_exploration(record(successes=4), tmp_path)
-        path = write_exploration(record(successes=5), tmp_path)
-        files = list((tmp_path / "support-agent-tuning").glob("*.yaml"))
+        write_exploration(record(successes=4), tmp_path, "temperature")
+        path = write_exploration(record(successes=5), tmp_path, "temperature")
+        files = list((tmp_path / "support-agent-tuning" / "temperature").glob("*.yaml"))
         assert files == [path]
         assert parse_yaml(path.read_text(encoding="utf-8"))["statistics"]["successes"] == 5
 

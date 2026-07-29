@@ -216,6 +216,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     check_parser.add_argument("contract_file", type=Path, help="path to the contract file")
+    check_parser.add_argument(
+        "--explorations-dir",
+        type=Path,
+        default=DEFAULT_EXPLORATIONS_DIR,
+        help=(
+            "where the stale-artefact advisory looks for the active experiment's "
+            "exploration artefacts (advisory only — nothing is deleted)"
+        ),
+    )
     report_parser = subparsers.add_parser(
         "report",
         help=("render an HTML report from persisted artefacts — post-hoc, never invokes a service"),
@@ -258,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if arguments.command == "check":
         try:
-            facts = check(arguments.contract_file)
+            facts = check(arguments.contract_file, explorations_dir=arguments.explorations_dir)
         except ContractConfigurationError as refusal:
             print(f"contract {arguments.contract_file}: cannot run as declared", file=sys.stderr)
             print(f"  {refusal}", file=sys.stderr)
@@ -266,6 +275,10 @@ def main(argv: list[str] | None = None) -> int:
         for fact in facts:
             if fact.startswith("(unverified) "):
                 print(f"ok (unverified): {fact[len('(unverified) ') :]}")
+            elif fact.startswith(("stale: ", "note: ")):
+                # The pre-flight advisory: named, never judged — the
+                # operator deletes; the tool only says what it sees.
+                print(fact)
             else:
                 print(f"ok: {fact}")
         return 0
