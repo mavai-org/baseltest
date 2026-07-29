@@ -118,6 +118,10 @@ _CATEGORY_MESSAGES = {
     "value-operand-malformed": "takes a number or a numeric string",
     "is-null-operand": "takes the literal `true`",
     "set-operand-empty": "non-empty list of scalar values",
+    "set-of-without-optional": "— say that",
+    "set-of-min-present-malformed": "a bare fraction is never guessed at",
+    "set-of-lists-overlap": "in both `required:` and `optional:`",
+    "set-of-min-present-bounds": "the `optional:` list's distinct size",
     "is-operand-not-boolean": "`is:` takes a boolean",
     # mavai-services/1
     "services-format-identifier": "`format:` must be",

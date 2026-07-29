@@ -1,0 +1,24 @@
+# LOADS: a duplicated member within a set-of: list collapses to one
+# entry — membership semantics, a set is a set (Part I, graded set
+# claims, 2026-07-29). The loader SHOULD warn (a duplicate is most
+# likely an authoring typo) — the warning is informational, never a
+# refusal; the outcome is binding.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+          optional:
+            - "Glasbruch"
+            - "Glasbruch"
+            - "Wasserschaden"
+          min-present: 1
+inputs: ["extract"]

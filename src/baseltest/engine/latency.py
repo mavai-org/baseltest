@@ -41,6 +41,7 @@ class LatencyBasis(StrEnum):
 
     PASSING_SAMPLES = "passing-samples"
 
+
 if TYPE_CHECKING:  # a type-only edge: the run module imports this one at runtime
     from .run import SampleRecord
 

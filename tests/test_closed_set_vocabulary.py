@@ -64,6 +64,7 @@ def test_form_values() -> None:
         "equals-set",
         "contains-set",
         "count-equals",
+        "set-of",
     }
 
 

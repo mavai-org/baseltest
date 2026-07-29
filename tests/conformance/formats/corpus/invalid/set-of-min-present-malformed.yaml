@@ -1,0 +1,22 @@
+# REFUSED: min-present: takes a count or an explicit percentage — the
+# % suffix is the disambiguator, exactly as optional-slack: (Part I,
+# graded set claims, 2026-07-29); a bare fraction is refused.
+# Structural: fails the operand's schema.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+          optional:
+            - "Glasbruch"
+            - "Wasserschaden"
+          min-present: 0.8
+inputs: ["extract"]

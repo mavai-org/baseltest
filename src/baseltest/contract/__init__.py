@@ -66,6 +66,7 @@ from .postconditions import (
     not_equals,
     one_of,
     satisfies,
+    set_of,
 )
 
 __all__ = [
@@ -113,4 +114,5 @@ __all__ = [
     "not_equals",
     "one_of",
     "satisfies",
+    "set_of",
 ]

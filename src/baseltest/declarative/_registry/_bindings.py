@@ -32,9 +32,7 @@ class Bindings:
     def __init__(self) -> None:
         self._registry = Registry()
 
-    def binding(
-        self, name: str, *, covariates: dict[str, str] | None = None
-    ) -> Callable[[_F], _F]:
+    def binding(self, name: str, *, covariates: dict[str, str] | None = None) -> Callable[[_F], _F]:
         """Register the code that invokes a service, under the name contract files use.
 
         The decorated callable accepts the contract's per-sample input values

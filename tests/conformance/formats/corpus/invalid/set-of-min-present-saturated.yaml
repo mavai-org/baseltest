@@ -1,0 +1,22 @@
+# REFUSED: min-present: equal to the optional: list's distinct size
+# states that every optional member is required — move them to
+# required: (Part I, graded set claims, 2026-07-29). Semantic: the
+# bound depends on the list's contents.
+format: mavai-contract/1
+contract: c
+service: s
+transforms:
+  doc: json
+criteria:
+  - threshold: 0.9
+    postconditions:
+      - in: doc
+        path: "$.terms[*]"
+        set-of:
+          required:
+            - "Grunddeckung"
+          optional:
+            - "Glasbruch"
+            - "Wasserschaden"
+          min-present: 2
+inputs: ["extract"]
