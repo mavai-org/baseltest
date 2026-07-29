@@ -26,7 +26,6 @@ from ._runner import (
     explore,
     load_for_run,
     optimize,
-    report,
     run,
 )
 from ._sizing import ResolvedSizing, SizingRefusalError, resolve_test_sizing
@@ -225,39 +224,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "exploration artefacts (advisory only — nothing is deleted)"
         ),
     )
-    report_parser = subparsers.add_parser(
-        "report",
-        help=("render an HTML report from persisted artefacts — post-hoc, never invokes a service"),
-    )
-    report_parser.add_argument(
-        "kind",
-        choices=("test", "measure", "explore"),
-        help=(
-            "which report to render: test (from verdict records); explore "
-            "moved to the family's mavai tool; measure is reserved"
-        ),
-    )
-    report_parser.add_argument(
-        "--verdict-dir",
-        type=Path,
-        default=DEFAULT_VERDICT_DIR,
-        help="where `report test` reads verdict records from",
-    )
-    report_parser.add_argument(
-        "--explorations-dir",
-        type=Path,
-        default=DEFAULT_EXPLORATIONS_DIR,
-        help=(
-            "no longer read here: exploration comparison reports moved to "
-            "the family's mavai tool (mavai explore <dir> -o report.html)"
-        ),
-    )
-    report_parser.add_argument(
-        "--out",
-        type=Path,
-        default=None,
-        help="output path (default: _baseltest/reports/<kind-specific name>)",
-    )
     return parser
 
 
@@ -281,23 +247,6 @@ def main(argv: list[str] | None = None) -> int:
                 print(fact)
             else:
                 print(f"ok: {fact}")
-        return 0
-
-    if arguments.command == "report":
-        if arguments.kind == "explore":
-            print(MAVAI_EXPLORE_POINTER, file=sys.stderr)
-            return 2
-        try:
-            written = report(
-                arguments.kind,
-                verdict_dir=arguments.verdict_dir,
-                out=arguments.out,
-            )
-        except ContractConfigurationError as refusal:
-            print("report: nothing to render", file=sys.stderr)
-            print(f"  {refusal}", file=sys.stderr)
-            return 2
-        print(f"report written: {written.as_posix()}")
         return 0
 
     try:

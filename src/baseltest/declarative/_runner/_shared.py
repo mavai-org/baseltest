@@ -18,7 +18,6 @@ DEFAULT_BASELINE_DIR = ARTEFACT_ROOT / "baselines"
 DEFAULT_VERDICT_DIR = ARTEFACT_ROOT / "verdicts"
 DEFAULT_EXPLORATIONS_DIR = ARTEFACT_ROOT / "explorations"
 DEFAULT_OPTIMIZATIONS_DIR = ARTEFACT_ROOT / "optimizations"
-DEFAULT_REPORTS_DIR = ARTEFACT_ROOT / "reports"
 
 # Rendering exploration comparisons is the shared family tool's job; this
 # framework's half of that split is emitting the canonical artefacts. The
