@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from baseltest.engine import DefectDiagnosisError, RunResult, execute
-from baseltest.exploration import exploration_stem, write_exploration
+from baseltest.exploration import experiment_directory, exploration_stem, write_exploration
 from baseltest.observation import RunObservation
 from baseltest.reporting import render_explorations, render_run_plan
 
@@ -118,6 +118,11 @@ def explore(
     configurations, sizing, notes = instantiate_explore(
         declaration, services, registry, samples_per_config=samples_per_config
     )
+    # The experiment-level directory names the question the experiment
+    # asks — its swept keys — so changing what is swept opens a fresh
+    # directory and a superseded artefact can never sit beside fresh
+    # ones (instantiation guarantees the definition exists here).
+    experiment = experiment_directory(services[declaration.service].swept_keys)
     if emit:
         print(render_run_plan(sizing.samples, sizing.provenance, per_configuration=True))
         for note in notes:
@@ -150,7 +155,7 @@ def explore(
             factors=configuration.factors,
             configuration=configuration.configuration,
         )
-        artefact = write_exploration(record, Path(explorations_dir))
+        artefact = write_exploration(record, Path(explorations_dir), experiment)
         explored.append(
             ConfigurationExploration(
                 factors=dict(configuration.factors), result=result, path=artefact

@@ -1,5 +1,6 @@
 """The check verb: every load-time join, zero samples."""
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,18 @@ def write_files(tmp_path: Path, services: str = SERVICES, contract: str = CONTRA
     return path
 
 
+def _teller_bindings(tmp_path: Path) -> None:
+    (tmp_path / "mavai-bindings.py").write_text(
+        "from collections.abc import Callable\n"
+        "from baseltest.declarative import Bindings\n"
+        "bindings = Bindings()\n"
+        "@bindings.binding_factory('fortune-teller')\n"
+        "def fortune_teller(mood: str = 'plain') -> Callable[[str], str]:\n"
+        "    return lambda name: f'{mood} {name}'\n",
+        encoding="utf-8",
+    )
+
+
 class TestCheckVerb:
     def test_valid_files_pass_with_facts_and_zero_invocations(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -60,6 +73,57 @@ class TestCheckVerb:
         assert "ok: service 'cheerful-teller': type 'fortune-teller', baseline" in out
         assert "ok: exploration grid: 1 entry constructed and joined" in out
         assert not marker.exists()  # the compile step never invokes the service
+
+    def test_stale_artefacts_are_named_never_deleted(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _teller_bindings(tmp_path)
+        contract = write_files(tmp_path)
+        # The active experiment directory holds one current point and
+        # one a re-gridded sweep stranded — plus two run vintages.
+        active = tmp_path / "_baseltest" / "explorations" / "teller-stays-on-mood" / "mood"
+        active.mkdir(parents=True)
+        (active / "mood-cheerful.yaml").write_text(
+            'generatedAt: "2026-07-28T09:00:00+00:00"\n', encoding="utf-8"
+        )
+        (active / "mood-ecstatic.yaml").write_text(
+            'generatedAt: "2026-07-29T09:00:00+00:00"\n', encoding="utf-8"
+        )
+
+        with contextlib.chdir(tmp_path):
+            assert main(["check", str(contract)]) == 0
+        out = capsys.readouterr().out
+        assert (
+            "stale: mood-ecstatic.yaml — no current grid point resolves to this configuration"
+            in out
+        )
+        assert "stale: mood-cheerful.yaml" not in out
+        assert "note: artefacts span two run vintages (2026-07-28, 2026-07-29)" in out
+        # Advisory only: both files still exist.
+        assert sorted(p.name for p in active.glob("*.yaml")) == [
+            "mood-cheerful.yaml",
+            "mood-ecstatic.yaml",
+        ]
+
+    def test_no_advisory_when_the_experiment_directory_is_clean(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _teller_bindings(tmp_path)
+        contract = write_files(tmp_path)
+        active = tmp_path / "_baseltest" / "explorations" / "teller-stays-on-mood" / "mood"
+        active.mkdir(parents=True)
+        (active / "mood-cheerful.yaml").write_text(
+            'generatedAt: "2026-07-29T09:00:00+00:00"\n', encoding="utf-8"
+        )
+        (active / "mood-gloomy.yaml").write_text(
+            'generatedAt: "2026-07-29T10:00:00+00:00"\n', encoding="utf-8"
+        )
+
+        with contextlib.chdir(tmp_path):
+            assert main(["check", str(contract)]) == 0
+        out = capsys.readouterr().out
+        assert "stale:" not in out
+        assert "note: artefacts span" not in out
 
     def test_bare_binding_contract_checks_clean(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

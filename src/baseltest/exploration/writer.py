@@ -154,13 +154,27 @@ def render_exploration(record: RunObservation) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_exploration(record: RunObservation, directory: Path) -> Path:
-    """Write one configuration's artefact under ``directory/{contract}/``.
+def experiment_directory(swept_keys: tuple[str, ...]) -> str:
+    """The experiment-level directory segment: the swept keys, joined with ``+``.
+
+    The segment names the *question* the experiment asks (``temperature``,
+    ``temperature+model``), so evolving what is swept opens a fresh
+    directory and cannot strand a superseded artefact beside fresh ones;
+    a run that declares no explorations is ``baseline-only``, so a
+    no-sweep run and a sweep of the same contract never share a
+    directory.
+    """
+    return "+".join(swept_keys) if swept_keys else "baseline-only"
+
+
+def write_exploration(record: RunObservation, directory: Path, experiment: str) -> Path:
+    """Write one configuration's artefact under ``directory/{contract}/{experiment}/``.
 
     Returns the written path. Filenames derive from the factor values, so
-    re-running the same grid refreshes each configuration's file in place.
+    re-running the same declared experiment refreshes each configuration's
+    file in place — one directory, one vintage.
     """
-    target = directory / record.contract_id
+    target = directory / record.contract_id / experiment
     target.mkdir(parents=True, exist_ok=True)
     path = target / f"{exploration_stem(record.factors)}.yaml"
     path.write_text(render_exploration(record), encoding="utf-8")

@@ -119,7 +119,8 @@ class TestExploration:
             bindings=bindings,
         )
         assert [e.factors for e in explored] == [{"mood": "cheerful"}, {"mood": "gloomy"}]
-        assert sorted(p.name for p in (tmp_path / "x" / "teller-stays-on-mood").iterdir()) == [
+        experiment = tmp_path / "x" / "teller-stays-on-mood" / "mood"
+        assert sorted(p.name for p in experiment.iterdir()) == [
             "mood-cheerful.yaml",
             "mood-gloomy.yaml",
         ]
