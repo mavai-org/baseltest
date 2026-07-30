@@ -123,6 +123,12 @@ _CATEGORY_MESSAGES = {
     "set-of-lists-overlap": "in both `required:` and `optional:`",
     "set-of-min-present-bounds": "the `optional:` list's distinct size",
     "is-operand-not-boolean": "`is:` takes a boolean",
+    "roots-block-malformed": "`roots:` must be a non-empty mapping",
+    "roots-name-shape": "must match [a-z][a-z0-9-]*",
+    "roots-value-malformed": "root `corpus:`",
+    "roots-reference-undeclared": "references an undeclared root",
+    "roots-dead-declaration": "referenced by nothing in the file",
+    "roots-directory-missing": "not an existing directory",
     # mavai-services/1
     "services-format-identifier": "`format:` must be",
     "services-block-missing": "`services:` must be a non-empty mapping",
@@ -150,6 +156,8 @@ _CATEGORY_MESSAGES = {
     "optimization-duplicate-id": "already used",
     "optimization-id-required-when-multiple": "`id:` is required when",
     "optimization-initial-restates-baseline": "merely restates",
+    "lm-system-prompt-file-malformed": "file form is `{file: <path>}`",
+    "services-roots-reference-undeclared": "references an undeclared root",
 }
 
 
@@ -175,7 +183,7 @@ def _load(entry: dict) -> None:
                 criterion, declaration.confidence, expected, declaration.transforms, registry
             )
     else:
-        parse_services(path.read_text(encoding="utf-8"), bindings._registry)
+        parse_services(path.read_text(encoding="utf-8"), bindings._registry, path)
 
 
 def _assert_case(entry: dict) -> None:

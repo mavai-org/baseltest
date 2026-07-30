@@ -13,6 +13,8 @@ from typing import Any
 
 from baseltest.engine import Intent
 
+from .._roots import RootDisclosure
+
 FORMAT_IDENTIFIER = "mavai-contract/1"
 RAW_VIEW = "raw"
 
@@ -117,6 +119,9 @@ class ContractDeclaration:
     intent: Intent
     confidence: float
     latency: LatencyDeclaration | None = None
+    # The declared roots, as provenance discloses them (declared value +
+    # overridden flag — never a resolved machine-local path).
+    roots: tuple["RootDisclosure", ...] = field(default=(), compare=False)
     source_path: Path | None = field(default=None, compare=False)
     # Whether the file itself declared `confidence:` (as opposed to the
     # default applying) — interactive sizing asks only for what is missing.

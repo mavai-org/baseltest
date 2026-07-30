@@ -1,0 +1,9 @@
+# REFUSED: system-prompt's file form is {file: <path>} with a non-empty
+# path (§II.3, named path anchors, 2026-07-29); the empty string names
+# no file. Structural: minLength on the file value.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: { file: "" }

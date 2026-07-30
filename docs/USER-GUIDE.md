@@ -100,6 +100,25 @@ inputs:
 
 The part keys are `text:` (a string, or `{ file: <path> }` for external text) and the media kinds `image:`, `document:`, `audio:`, and `file:` (each a file path). Paths resolve **relative to the contract file** and are read once at load time — a missing or unreadable file is refused before any sample runs (`basel check` catches it). A `.txt`/`.md`/`.xml`/`.json` file is delivered as *text*, never parsed into structure.
 
+#### Named path anchors — `roots:`
+
+A contract beside its material needs no more than relative paths. A contract reading a *shared* corpus ends up encoding its own location into every reference (`../../../../corpus/…`). The optional top-level `roots:` block declares **named path anchors** once per file, and any file-path position may reach through one with `@<name>/`:
+
+```yaml
+roots:
+  corpus: ../../../../corpus       # name -> directory, relative to this file
+
+inputs:
+  - input:
+      - text: { file: "@corpus/applications/application-001.txt" }
+```
+
+Root names match `[a-z][a-z0-9-]*`; values are non-empty **relative** directory paths that must exist after resolution. A leading `@` always means a root reference (a literal `@`-initial filename is spelled `./@…`); the remainder is an ordinary relative path *below* the root — a reference that climbs out of its anchor is refused. Declared-but-unreferenced roots are refused as dead declarations, and `@name` alone names no file — a root is a directory.
+
+The **`MAVAI_ROOT_<NAME>`** environment variable (name uppercased, `-` → `_`) replaces a declared value entirely and may be absolute — the machine-local channel, which keeps committed files portable. Identity is untouched throughout: file inputs fingerprint by content, never by path, so a contract relocated together with its corpus — or resolved through an override pointing at a copy — keeps its baseline. Provenance disclosure records each root's *declared* value and an `overridden` flag, never the resolved override path.
+
+Roots are **per file**: the contract file's and the services file's `roots:` blocks are independent namespaces — nothing shared, inherited, or discovered upward.
+
 A single part stays a bare value (a `text:` part becomes its string; a media part becomes the file); two or more parts form one ordered multimodal message, and **part order is significant**. **Content, not path, defines the input**: change a file's bytes behind a stable path and it is a different input — the baseline's inputs identity moves, so a stale baseline is refused rather than silently reused over other bytes.
 
 How the content reaches the service depends on the service:
@@ -400,7 +419,7 @@ The built-in type for a model given a job. Its `configuration:` keys:
 
 | Key | Required | Meaning |
 |---|---|---|
-| `system-prompt` | **yes** | The job. Without a system prompt there is a model, but no service to test. |
+| `system-prompt` | **yes** | The job. Without a system prompt there is a model, but no service to test. A string, or `{ file: <path> }` — the file (plain, or via a `@root/` reference) is read once at load and the resolved string is the covariate exactly as if written inline. |
 | `provider` | no | A named vendor adapter: `openai`, `anthropic`, `mistral`, `ollama`, or `apertus`. Omitted, the generic OpenAI-compatible adapter applies and `MAVAI_LLM_ENDPOINT` must name your endpoint (vLLM, a gateway, a self-hosted deployment). |
 | `model` | no | The model identifier, passed through verbatim. Falls back to the `MAVAI_LLM_MODEL` environment variable; a run with neither is refused. |
 | `temperature` | no | The sampling temperature, passed through wherever the provider's wire format has a slot for it. |
@@ -415,6 +434,8 @@ Every key is a **factor**: fixed per configuration, part of the drift-checked id
 **Provider support.** Not every provider supports every key. `response-schema` is honoured by `openai`, `anthropic`, `mistral`, `ollama`, and the generic adapter, and refused by `apertus` (its hosted endpoint does not assert support). `prompt-caching` and `thinking` are currently realised by `anthropic` only; the declared-off values (`prompt-caching: false`, `thinking: none`) are honoured trivially by every provider. The rule when a provider cannot honour an *active* key is uniform: under **measure** and **test**, baseltest refuses up front rather than quietly dropping it — dropping it would change what is being measured; under **explore**, the affected grid point runs without the key, announced by a console note, so mixed-provider grids still run. One provider-specific constraint: on `anthropic`, `thinking: adaptive` cannot be combined with an explicit `temperature:` or `top-p:` — the API constrains sampling parameters while thinking, and baseltest refuses the combination at load time.
 
 **Multimodal input.** A `language-model` service takes media input parts — an `image:`, `document:`, or `audio:` beside the prompt (see [Inputs](#inputs)) — when the matching modality is declared in `capabilities:`. The framework base64-encodes the media into the provider's own content block (OpenAI's `image_url`, Anthropic's base64 source block, Ollama's images array); a text-only request is unchanged. Providers differ in what they carry: `openai` and the generic adapter carry image, document, and audio; `anthropic` carries image and document; `mistral` and `ollama` carry image; `apertus` is text-only. The gate follows the same discipline as the other capability-gated keys — declaring a modality a provider cannot carry, or sending media without declaring it, is refused before any sample runs, never dropped.
+
+**Prompt files.** A long tuned system prompt need not live as a YAML block scalar: `system-prompt: { file: prompts/extractor.md }` reads the file (UTF-8) at load, in the baseline `configuration:` and in `explorations:` deltas alike. The services file takes the same optional top-level `roots:` block as the contract file (see [Named path anchors](#named-path-anchors--roots)) — its own namespace, so `system-prompt: { file: "@prompts/extractor.md" }` resolves against *this* file's roots. Because the resolved string is the covariate (resolved-as-used), moving a prompt between inline and file spelling with identical content changes nothing — and two grid points whose prompt files differ in path but not content are one covariate point, refused as duplicates like any other.
 
 **Credentials and endpoints** live in the environment only — never in either file:
 

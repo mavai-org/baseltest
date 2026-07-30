@@ -12,6 +12,7 @@ from pathlib import Path
 from baseltest.engine import Intent
 from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
 
+from .._roots import Roots
 from ._criteria import _parse_criterion
 from ._inputs import _parse_inputs
 from ._latency import _parse_latency
@@ -68,7 +69,12 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
 
     views = _parse_transforms(data)
     base_dir = source_path.parent if source_path is not None else None
-    inputs, expected_pairs = _parse_inputs(data["inputs"], views, base_dir)
+    # Named path anchors: resolve the block before inputs parse (the
+    # file-referencing positions consume it), refuse dead declarations
+    # after (usage coherence is a whole-file property).
+    roots = Roots.parse(data.get("roots"), base_dir, "the contract file")
+    inputs, expected_pairs = _parse_inputs(data["inputs"], views, base_dir, roots)
+    roots.refuse_dead()
 
     criteria_value = data["criteria"]
     if not isinstance(criteria_value, list) or not criteria_value:
@@ -139,6 +145,7 @@ def parse_contract(text: str, source_path: Path | None = None) -> ContractDeclar
         intent=intent,
         confidence=float(confidence),
         latency=_parse_latency(data),
+        roots=roots.disclosures(),
         source_path=source_path,
         confidence_declared="confidence" in data,
     )

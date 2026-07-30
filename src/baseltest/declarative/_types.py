@@ -62,6 +62,11 @@ class ServiceTypeContract:
             explore run: ``parameters -> (parameters, note)``, where a
             non-``None`` note is announced to the operator (e.g. the
             language model's structured-output degradation).
+        file_value_keys: Configuration keys whose value may be the
+            ``{file: <path>}`` form — resolved by the services loader
+            (root references included) before the type's ``parse`` sees
+            the configuration, so everything downstream sees the plain
+            resolved string (resolved-as-used).
     """
 
     name: str
@@ -77,6 +82,7 @@ class ServiceTypeContract:
     prepare_explore_point: Callable[[Any], tuple[Any, str | None]] = field(
         default=_identity_explore_point
     )
+    file_value_keys: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "covariates", MappingProxyType(dict(self.covariates)))

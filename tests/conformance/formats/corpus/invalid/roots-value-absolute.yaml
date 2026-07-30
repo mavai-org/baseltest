@@ -1,0 +1,15 @@
+# REFUSED: a declared root value must be relative — absolute locations
+# are the MAVAI_ROOT_<NAME> override's job, which keeps machine-local
+# paths out of committed files (Part I, named path anchors, 2026-07-29).
+# Structural for the POSIX spelling pinned here; loaders refuse every
+# absolute spelling.
+format: mavai-contract/1
+contract: c
+service: s
+roots:
+  corpus: /var/shared-corpus
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs:
+  - - text: { file: "@corpus/note.txt" }

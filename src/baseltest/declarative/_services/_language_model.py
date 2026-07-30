@@ -312,4 +312,5 @@ def _language_model_type() -> ServiceTypeContract:
         invoker=language_model_invoker,
         accepts_configuration_key=lambda key: key in _CONFIGURATION_KEYS,
         prepare_explore_point=_language_model_explore_point,
+        file_value_keys=("system-prompt",),
     )

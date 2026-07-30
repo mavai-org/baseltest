@@ -1,0 +1,19 @@
+# The services format's roots: block and its first file-referencing
+# position (Part I / §II.3, named path anchors, 2026-07-29):
+# system-prompt: accepts {file: <path>} — plain relative, or resolved
+# against a declared root. The resolved string is the covariate exactly
+# as if written inline (resolved-as-used, §II.4; fingerprint law,
+# §II.6). Roots are per-file: these are this services file's own, never
+# shared with a contract file.
+format: mavai-services/1
+roots:
+  prompts: ./assets
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: { file: "@prompts/system-prompt.txt" }
+  greeter-plain-path:
+    type: language-model
+    configuration:
+      system-prompt: { file: ./assets/system-prompt.txt }

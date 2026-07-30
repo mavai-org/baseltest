@@ -15,6 +15,7 @@ from typing import Any
 
 from baseltest.contract import FileInput, MediaKind, MessageParts
 
+from .._roots import Roots  # noqa: TC001 — runtime threading
 from ._forms import _parse_form_entry
 from ._model import Form, FormDeclaration
 from ._shape import _fail, _require_mapping
@@ -28,7 +29,9 @@ _MEDIA_KEYS = tuple(kind.value for kind in MediaKind)
 _PART_KEYS = ("text", *_MEDIA_KEYS)
 
 
-def _resolve_and_read(raw_path: str, where: str, base_dir: Path | None) -> tuple[Path, bytes]:
+def _resolve_and_read(
+    raw_path: str, where: str, base_dir: Path | None, roots: "Roots"
+) -> tuple[Path, bytes]:
     """Resolve a file-sourced part's path relative to the contract and read it.
 
     Resolution is relative to the contract file's directory, never the
@@ -36,12 +39,16 @@ def _resolve_and_read(raw_path: str, where: str, base_dir: Path | None) -> tuple
     a load-time authoring error, surfaced before any invocation (so
     ``basel check`` catches it too).
     """
-    if base_dir is None:
-        raise _fail(
-            f"{where}: a file-sourced input needs a contract loaded from disk to "
-            f"resolve {raw_path!r} relative to it"
-        )
-    resolved = (base_dir / raw_path).resolve()
+    rooted = roots.resolve(raw_path, where)
+    if rooted is not None:
+        resolved = rooted
+    else:
+        if base_dir is None:
+            raise _fail(
+                f"{where}: a file-sourced input needs a contract loaded from disk to "
+                f"resolve {raw_path!r} relative to it"
+            )
+        resolved = (base_dir / raw_path).resolve()
     try:
         data = resolved.read_bytes()
     except OSError as error:
@@ -49,12 +56,12 @@ def _resolve_and_read(raw_path: str, where: str, base_dir: Path | None) -> tuple
     return resolved, data
 
 
-def _text_part(value: Any, where: str, base_dir: Path | None) -> str:
+def _text_part(value: Any, where: str, base_dir: Path | None, roots: "Roots") -> str:
     """A ``text:`` part — an inline string, or ``{file: <path>}`` decoded as UTF-8 text."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str):
-        _, data = _resolve_and_read(value["file"], where, base_dir)
+        _, data = _resolve_and_read(value["file"], where, base_dir, roots)
         try:
             return data.decode("utf-8")
         except UnicodeDecodeError as error:
@@ -62,17 +69,21 @@ def _text_part(value: Any, where: str, base_dir: Path | None) -> str:
     raise _fail(f"{where}: `text:` is a string or a `{{file: <path>}}` mapping")
 
 
-def _media_part(kind: str, value: Any, where: str, base_dir: Path | None) -> FileInput:
+def _media_part(
+    kind: str, value: Any, where: str, base_dir: Path | None, roots: "Roots"
+) -> FileInput:
     """A media part (``audio:``/``image:``/``document:``/``file:``) — a file path
     resolved to a :class:`FileInput`. The framework never interprets the bytes."""
     if not isinstance(value, str) or not value:
         raise _fail(f"{where}: `{kind}:` is a file path string")
-    resolved, data = _resolve_and_read(value, where, base_dir)
+    resolved, data = _resolve_and_read(value, where, base_dir, roots)
     content_hash = hashlib.sha256(data).hexdigest()
     return FileInput(path=resolved, kind=MediaKind(kind), data=data, content_hash=content_hash)
 
 
-def _part_mapping(mapping: dict[str, Any], where: str, base_dir: Path | None) -> Any:
+def _part_mapping(
+    mapping: dict[str, Any], where: str, base_dir: Path | None, roots: "Roots"
+) -> Any:
     """A single-key input part mapping — text or a media reference."""
     if len(mapping) != 1:
         keys = ", ".join(sorted(mapping))
@@ -83,16 +94,16 @@ def _part_mapping(mapping: dict[str, Any], where: str, base_dir: Path | None) ->
         )
     ((key, value),) = mapping.items()
     if key == "text":
-        return _text_part(value, where, base_dir)
+        return _text_part(value, where, base_dir, roots)
     if key in _MEDIA_KEYS:
-        return _media_part(key, value, where, base_dir)
+        return _media_part(key, value, where, base_dir, roots)
     raise _fail(
         f"{where}: unknown input part `{key}:` — a part is one of "
         f"{'/'.join(_PART_KEYS)}, or a `{{input, expected}}` entry"
     )
 
 
-def _normalised_input(entry: Any, where: str, base_dir: Path | None) -> Any:
+def _normalised_input(entry: Any, where: str, base_dir: Path | None, roots: "Roots") -> Any:
     """One input value: a scalar, a flat list of scalars, or a file-sourced part.
 
     Three list-free forms plus two list forms:
@@ -109,14 +120,14 @@ def _normalised_input(entry: Any, where: str, base_dir: Path | None) -> Any:
     if isinstance(entry, _INPUT_SCALARS):
         return entry
     if isinstance(entry, dict):
-        return _part_mapping(entry, where, base_dir)
+        return _part_mapping(entry, where, base_dir, roots)
     if isinstance(entry, list):
         if not entry:
             raise _fail(f"{where}: a list-valued input must be non-empty")
         if all(isinstance(item, _INPUT_SCALARS) for item in entry):
             return tuple(entry)
         if all(isinstance(item, dict) for item in entry):
-            parts = tuple(_part_mapping(item, where, base_dir) for item in entry)
+            parts = tuple(_part_mapping(item, where, base_dir, roots) for item in entry)
             return parts[0] if len(parts) == 1 else MessageParts(parts)
         raise _fail(
             f"{where}: a list-valued input is a flat list of scalars (splatted across "
@@ -129,7 +140,7 @@ def _normalised_input(entry: Any, where: str, base_dir: Path | None) -> Any:
 
 
 def _parse_inputs(
-    value: Any, views: dict[str, str], base_dir: Path | None
+    value: Any, views: dict[str, str], base_dir: Path | None, roots: "Roots"
 ) -> tuple[tuple[Any, ...], tuple[tuple[int, Any, tuple[FormDeclaration, ...]], ...]]:
     if not isinstance(value, list) or not value:
         raise _fail("`inputs:` must be a non-empty list")
@@ -138,9 +149,9 @@ def _parse_inputs(
     for index, entry in enumerate(value, start=1):
         where = f"inputs entry {index}"
         if not (isinstance(entry, dict) and set(entry) == {"input", "expected"}):
-            inputs.append(_normalised_input(entry, where, base_dir))
+            inputs.append(_normalised_input(entry, where, base_dir, roots))
             continue
-        input_value = _normalised_input(entry["input"], where, base_dir)
+        input_value = _normalised_input(entry["input"], where, base_dir, roots)
         where = f"expected for input {input_value!r}"
         expected = entry["expected"]
         if isinstance(expected, dict):

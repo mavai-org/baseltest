@@ -10,6 +10,7 @@ from typing import Any
 
 from .._errors import ContractConfigurationError
 from .._optimize import OptimizationDeclaration
+from .._roots import RootDisclosure
 from .._types import ServiceTypeContract
 
 SERVICES_FORMAT_IDENTIFIER = "mavai-services/1"
@@ -47,6 +48,9 @@ class ServiceDefinition:
     explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
     optimizations: tuple[OptimizationDeclaration, ...] = ()
+    # The declaring file's roots, as provenance discloses them (declared
+    # value + overridden flag — never a resolved machine-local path).
+    roots: tuple["RootDisclosure", ...] = ()
 
     @property
     def grid(self) -> tuple[Any, ...]:

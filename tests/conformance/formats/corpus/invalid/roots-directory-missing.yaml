@@ -1,0 +1,14 @@
+# REFUSED: after resolution a root must be an existing directory; this
+# one names a directory that does not exist beside this file (Part I,
+# named path anchors, 2026-07-29). Semantic: filesystem existence is the
+# loader's obligation, refused at load so a check run catches it.
+format: mavai-contract/1
+contract: c
+service: s
+roots:
+  corpus: ./no-such-directory
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs:
+  - - text: { file: "@corpus/note.txt" }

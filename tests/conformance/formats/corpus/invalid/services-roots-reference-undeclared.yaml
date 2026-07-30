@@ -1,0 +1,11 @@
+# REFUSED: the services file's roots are its own (never a contract's),
+# and this file declares none — the @prompts/ reference is refused
+# listing the declared roots (none) (Part I, named path anchors,
+# 2026-07-29). Semantic: the schema deliberately accepts any file-path
+# string; the sigil's meaning is the loader's obligation.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: { file: "@prompts/system-prompt.txt" }
