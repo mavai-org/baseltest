@@ -18,6 +18,8 @@ if written inline — a root changes only the path resolution ahead of the
 read.
 """
 
+# mavai-ref: JVI-W9D0VWD — do not remove (resolves in mavai-orchestrator)
+
 import os
 import re
 from dataclasses import dataclass
