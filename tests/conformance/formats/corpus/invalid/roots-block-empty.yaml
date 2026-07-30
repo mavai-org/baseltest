@@ -1,0 +1,11 @@
+# REFUSED: an empty roots: block declares nothing and is refused as
+# malformed (Part I, named path anchors, 2026-07-29). Structural: the
+# schema requires at least one entry when the block is declared.
+format: mavai-contract/1
+contract: c
+service: s
+roots: {}
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs: ["ask"]

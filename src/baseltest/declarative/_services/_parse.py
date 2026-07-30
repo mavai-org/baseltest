@@ -14,6 +14,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
 from .._optimize import OptimizationDeclaration, parse_optimizations
+from .._roots import Roots
 from .._types import ServiceTypeContract
 from ._model import (
     SERVICES_FILENAME,
@@ -26,6 +27,53 @@ if TYPE_CHECKING:
     from .._registry import Registry
 
 _DEFINITION_KEYS = {"type", "configuration", "explorations", "optimizations"}
+
+
+def _resolve_file_values(
+    name: str,
+    mapping: dict[str, Any],
+    type_contract: ServiceTypeContract,
+    where: str,
+    roots: Roots,
+    base_dir: Path | None,
+) -> dict[str, Any]:
+    """Resolve any ``{file: <path>}`` values the type admits to plain strings.
+
+    Resolution happens before the type's ``parse`` sees the configuration
+    — root references included, the file read once at load and decoded as
+    UTF-8 — so identity, provenance, and the steppers all see the string
+    exactly as if it had been written inline (resolved-as-used).
+    """
+    for key in type_contract.file_value_keys:
+        value = mapping.get(key)
+        if not isinstance(value, dict):
+            continue
+        location = f"service {name!r}: {where}: `{key}:`"
+        if set(value) != {"file"} or not isinstance(value.get("file"), str) or not value["file"]:
+            raise _fail(
+                f"{location} file form is `{{file: <path>}}` with a non-empty path and no other key"
+            )
+        raw = value["file"]
+        rooted = roots.resolve(raw, location)
+        if rooted is not None:
+            resolved = rooted
+        elif base_dir is None:
+            raise _fail(
+                f"{location}: a `{{file:}}` value needs a services file loaded "
+                f"from disk to resolve {raw!r} relative to it"
+            )
+        else:
+            resolved = (base_dir / raw).resolve()
+        try:
+            data = resolved.read_bytes()
+        except OSError as error:
+            raise _fail(f"{location}: cannot read file {resolved}: {error}") from error
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise _fail(f"{location}: file {resolved} is not valid UTF-8 text: {error}") from error
+        mapping = {**mapping, key: text}
+    return mapping
 
 
 def _resolved_point(
@@ -46,6 +94,8 @@ def _parse_explorations(
     entries: Any,
     baseline: dict[str, Any],
     type_contract: ServiceTypeContract,
+    roots: Roots,
+    base_dir: Path | None,
 ) -> tuple[tuple[Any, ...], tuple[str, ...]]:
     """Resolve the ``explorations:`` entries over the baseline record.
 
@@ -74,6 +124,7 @@ def _parse_explorations(
                 )
             if key not in ordered:
                 ordered.append(key)
+        entry = _resolve_file_values(name, dict(entry), type_contract, where, roots, base_dir)
         merged = {**baseline, **entry}
         resolved.append(type_contract.parse(name, merged, where))
         swept.update(entry)
@@ -97,7 +148,12 @@ def _parse_explorations(
 
 
 def _parse_definition(
-    name: str, data: dict[str, Any], type_contract: ServiceTypeContract, registry: "Registry"
+    name: str,
+    data: dict[str, Any],
+    type_contract: ServiceTypeContract,
+    registry: "Registry",
+    roots: Roots,
+    base_dir: Path | None,
 ) -> ServiceDefinition:
     for key in data:
         if key not in _DEFINITION_KEYS:
@@ -113,12 +169,15 @@ def _parse_definition(
             f"service {name!r}: a `configuration:` block is required — the complete "
             "set of parameter values the service runs under"
         )
+    configuration = _resolve_file_values(
+        name, dict(configuration), type_contract, "configuration", roots, base_dir
+    )
     parameters = type_contract.parse(name, configuration, "configuration")
     explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
     if "explorations" in data:
         explorations, swept_keys = _parse_explorations(
-            name, data["explorations"], configuration, type_contract
+            name, data["explorations"], configuration, type_contract, roots, base_dir
         )
     optimizations: tuple[OptimizationDeclaration, ...] = ()
     if "optimizations" in data:
@@ -132,12 +191,20 @@ def _parse_definition(
         explorations=explorations,
         swept_keys=swept_keys,
         optimizations=optimizations,
+        roots=roots.disclosures(),
     )
 
 
 # mavai-ref: JVI-GGCWP5H — do not remove (resolves in mavai-orchestrator)
-def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefinition]:
-    """Parse a service-definition file's text, resolving types against the registry."""
+def parse_services(
+    text: str, registry: "Registry", source_path: Path | None = None
+) -> dict[str, ServiceDefinition]:
+    """Parse a service-definition file's text, resolving types against the registry.
+
+    ``source_path`` locates the file on disk — the anchor for the
+    ``roots:`` block and every ``{file: <path>}`` value. Omitted, the
+    file may declare neither.
+    """
     yaml = YAML(typ="safe", pure=True)
     yaml.version = (1, 2)
     try:
@@ -149,11 +216,13 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
     if data.get("format") != SERVICES_FORMAT_IDENTIFIER:
         raise _fail(f"`format:` must be {SERVICES_FORMAT_IDENTIFIER!r}")
     for key in data:
-        if key not in ("format", "services"):
+        if key not in ("format", "roots", "services"):
             raise _fail(
-                f"the services file has unknown key `{key}:` — it holds `format:` "
-                "and the `services:` block, nothing else"
+                f"the services file has unknown key `{key}:` — it holds `format:`, "
+                "an optional `roots:` block, and the `services:` block, nothing else"
             )
+    base_dir = source_path.parent if source_path is not None else None
+    roots = Roots.parse(data.get("roots"), base_dir, "the services file")
     services = data.get("services")
     if not isinstance(services, dict) or not services:
         raise _fail("`services:` must be a non-empty mapping")
@@ -171,7 +240,10 @@ def parse_services(text: str, registry: "Registry") -> dict[str, ServiceDefiniti
                 "ship with the framework; user types are registered in "
                 "mavai-bindings.py with @bindings.binding_factory)"
             )
-        definitions[str(name)] = _parse_definition(str(name), entry, type_contract, registry)
+        definitions[str(name)] = _parse_definition(
+            str(name), entry, type_contract, registry, roots, base_dir
+        )
+    roots.refuse_dead()
     return definitions
 
 
@@ -180,5 +252,5 @@ def discover_services(contract_path: Path, registry: "Registry") -> dict[str, Se
     for directory in (contract_path.parent, Path.cwd()):
         candidate = directory / SERVICES_FILENAME
         if candidate.is_file():
-            return parse_services(candidate.read_text(encoding="utf-8"), registry)
+            return parse_services(candidate.read_text(encoding="utf-8"), registry, candidate)
     return {}

@@ -10,7 +10,16 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.10.4** — the graded set claim: the composite
+Pinned at `mavai-R` **v0.10.5** — named path anchors: the `roots:`
+block and `@<name>/` references in both formats, the services format's
+first file-referencing position (`system-prompt: {file: <path>}`), and
+their eight refusal categories (structural `roots-block-malformed`/
+`roots-name-shape`/`roots-value-malformed`/
+`lm-system-prompt-file-malformed`, semantic `roots-reference-undeclared`/
+`roots-dead-declaration`/`roots-directory-missing`/
+`services-roots-reference-undeclared`), plus the corpus `assets/`
+directory the valid cases anchor to. Earlier pin: v0.10.4 — the graded
+set claim: the composite
 `set-of:` form (required/optional member lists, `min-present:` floor,
 `refuse-extras:` allowance) with membership semantics — a set is a set,
 duplicates collapse with a loader warning, pinned by the

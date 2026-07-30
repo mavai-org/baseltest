@@ -1,0 +1,13 @@
+# REFUSED: root names match [a-z][a-z0-9-]* (Part I, named path anchors,
+# 2026-07-29); an upper-case or underscore spelling is refused naming the
+# pattern. Structural: propertyNames.
+format: mavai-contract/1
+contract: c
+service: s
+roots:
+  Shared_Corpus: ./assets
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs:
+  - - text: { file: "@Shared_Corpus/note.txt" }

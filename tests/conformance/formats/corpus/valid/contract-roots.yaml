@@ -1,0 +1,21 @@
+# Named path anchors (Part I, named path anchors, 2026-07-29): roots:
+# declares directory anchors once, relative to this file; a file-sourced
+# part whose path begins @<name>/ resolves against the named root — here
+# both a text part and a media part. The corpus assets directory stands
+# in for a shared corpus. The MAVAI_ROOT_<NAME> override is environment
+# behaviour and outside the corpus: outcomes hold under an empty
+# environment, so the declared value is what resolves.
+format: mavai-contract/1
+contract: assistant-reads-the-shared-corpus
+service: assistant
+intent: smoke
+roots:
+  corpus: ./assets
+criteria:
+  - name: response-carries-words
+    threshold: 0.8
+    matches: '\w'
+inputs:
+  - - text: { file: "@corpus/note.txt" }
+  - - text: "What colour dominates this image? Answer with one word."
+    - image: "@corpus/swatch.png"

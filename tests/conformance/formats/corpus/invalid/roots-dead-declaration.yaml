@@ -1,0 +1,14 @@
+# REFUSED: a declared root referenced by nothing in the file is a dead
+# declaration — remove it (Part I, named path anchors, 2026-07-29). The
+# directory exists (the valid corpus assets), so the only defect is the
+# unused declaration. Semantic: usage coherence is the loader's
+# obligation.
+format: mavai-contract/1
+contract: c
+service: s
+roots:
+  corpus: ../valid/assets
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs: ["ask without touching the corpus"]

@@ -1,0 +1,13 @@
+# REFUSED: a root's value is a relative directory path; the empty string
+# declares nowhere (Part I, named path anchors, 2026-07-29). Structural:
+# minLength.
+format: mavai-contract/1
+contract: c
+service: s
+roots:
+  corpus: ""
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs:
+  - - text: { file: "@corpus/note.txt" }

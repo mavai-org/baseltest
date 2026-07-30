@@ -1,0 +1,13 @@
+# REFUSED: a path beginning @<name>/ always references a declared root,
+# and no roots: block declares corpus — refused listing the declared
+# roots (none) (Part I, named path anchors, 2026-07-29). Semantic: the
+# schema deliberately accepts any file-path string; the sigil's meaning
+# is the loader's obligation.
+format: mavai-contract/1
+contract: c
+service: s
+criteria:
+  - threshold: 0.9
+    matches: '\w'
+inputs:
+  - - text: { file: "@corpus/note.txt" }

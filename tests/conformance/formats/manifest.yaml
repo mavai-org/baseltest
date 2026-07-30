@@ -69,6 +69,12 @@ categories:
   set-of-min-present-malformed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (graded set claims, 2026-07-29)", refusal: structural }
   set-of-lists-overlap: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (graded set claims, 2026-07-29)", refusal: semantic }
   set-of-min-present-bounds: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (graded set claims, 2026-07-29)", refusal: semantic }
+  roots-block-malformed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: structural }
+  roots-name-shape: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: structural }
+  roots-value-malformed: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: structural }
+  roots-reference-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: semantic }
+  roots-dead-declaration: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: semantic }
+  roots-directory-missing: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: semantic }
   view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
   default-view-unresolvable: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27); §II.10 (load-time validation)", refusal: semantic }
   parses-view-undeclared: { spec: "MAVAI-CONTRACT-FORMAT.md §II.10 (load-time validation)", refusal: semantic }
@@ -91,6 +97,7 @@ categories:
   lm-prompt-caching-type: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
   lm-max-tokens-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (max-tokens, 2026-07-25)", refusal: structural }
   lm-capabilities-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (capabilities, 2026-07-25)", refusal: structural }
+  lm-system-prompt-file-malformed: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (named path anchors, 2026-07-29)", refusal: structural }
   explorations-empty: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6", refusal: structural }
   exploration-entry-null-value: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6", refusal: structural }
   optimization-entry-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: structural }
@@ -103,6 +110,7 @@ categories:
   optimization-duplicate-id: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
   optimization-id-required-when-multiple: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
   optimization-initial-restates-baseline: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
+  services-roots-reference-undeclared: { spec: "MAVAI-SERVICES-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: semantic }
 
 corpus:
   # ── valid/ ────────────────────────────────────────────────────────
@@ -122,11 +130,13 @@ corpus:
   - { file: contract-partial-credit.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)" }
   - { file: contract-default-view.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
   - { file: contract-default-view-sole-transform.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
+  - { file: contract-roots.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)" }
   - { file: services-minimal.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I" }
   - { file: services-language-model-full.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.3" }
   - { file: services-explorations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6" }
   - { file: services-optimizations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", requires: ["stepper:prompt-engineer", "stepper:linear-sweep", "scorer:pass-rate"] }
   - { file: services-user-type.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.7", requires: ["type:triage"] }
+  - { file: services-roots-prompt-file.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.3 (named path anchors, 2026-07-29)" }
   # ── invalid/ — mavai-contract/1 ───────────────────────────────────
   - { file: format-identifier.yaml, format: mavai-contract/1, outcome: refused, category: format-identifier }
   - { file: missing-required-key.yaml, format: mavai-contract/1, outcome: refused, category: missing-required-key }
@@ -177,6 +187,13 @@ corpus:
   - { file: set-of-lists-overlap.yaml, format: mavai-contract/1, outcome: refused, category: set-of-lists-overlap }
   - { file: set-of-min-present-excess.yaml, format: mavai-contract/1, outcome: refused, category: set-of-min-present-bounds }
   - { file: set-of-min-present-saturated.yaml, format: mavai-contract/1, outcome: refused, category: set-of-min-present-bounds }
+  - { file: roots-block-empty.yaml, format: mavai-contract/1, outcome: refused, category: roots-block-malformed }
+  - { file: roots-name-shape.yaml, format: mavai-contract/1, outcome: refused, category: roots-name-shape }
+  - { file: roots-value-empty.yaml, format: mavai-contract/1, outcome: refused, category: roots-value-malformed }
+  - { file: roots-value-absolute.yaml, format: mavai-contract/1, outcome: refused, category: roots-value-malformed }
+  - { file: roots-reference-undeclared.yaml, format: mavai-contract/1, outcome: refused, category: roots-reference-undeclared }
+  - { file: roots-dead-declaration.yaml, format: mavai-contract/1, outcome: refused, category: roots-dead-declaration }
+  - { file: roots-directory-missing.yaml, format: mavai-contract/1, outcome: refused, category: roots-directory-missing }
   # ── invalid/ — mavai-services/1 ───────────────────────────────────
   - { file: services-format-identifier.yaml, format: mavai-services/1, outcome: refused, category: services-format-identifier }
   - { file: services-block-missing.yaml, format: mavai-services/1, outcome: refused, category: services-block-missing }
@@ -204,3 +221,5 @@ corpus:
   - { file: optimization-duplicate-id.yaml, format: mavai-services/1, outcome: refused, category: optimization-duplicate-id }
   - { file: optimization-id-required-when-multiple.yaml, format: mavai-services/1, outcome: refused, category: optimization-id-required-when-multiple }
   - { file: optimization-initial-restates-baseline.yaml, format: mavai-services/1, outcome: refused, category: optimization-initial-restates-baseline, requires: ["stepper:linear-sweep"] }
+  - { file: lm-system-prompt-file-malformed.yaml, format: mavai-services/1, outcome: refused, category: lm-system-prompt-file-malformed }
+  - { file: services-roots-reference-undeclared.yaml, format: mavai-services/1, outcome: refused, category: services-roots-reference-undeclared }

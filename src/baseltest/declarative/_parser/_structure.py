@@ -12,6 +12,7 @@ from ._shape import _SEAM_POINTER, _fail, _require_mapping
 
 _TOP_LEVEL_KEYS = {
     "format",
+    "roots",
     "contract",
     "service",
     "transforms",

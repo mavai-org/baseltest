@@ -5,6 +5,7 @@ measure run the baseline artefact is on disk before ``run`` returns.
 """
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import RunKind, RunResult, execute
@@ -29,6 +30,10 @@ from .._registry import Bindings
 from .._sizing import ResolvedSizing
 from ._load import LoadedContract, load_for_run
 from ._shared import DEFAULT_BASELINE_DIR, _tty_progress
+
+if TYPE_CHECKING:
+    from .._parser._model import ContractDeclaration
+    from .._services._model import ServiceDefinition
 
 
 def run(
@@ -139,6 +144,10 @@ def run(
             "binding": declaration.service,
             "taskFile": contract_path.name,
             **service_provenance,
+            # Roots disclosure: the declared value and the overridden
+            # flag, never a resolved override path (publication hygiene).
+            # Informational — baseline matching never consults these.
+            **_roots_disclosure(declaration, services),
         }
         record = BaselineRecord.from_run_result(
             result,
@@ -205,3 +214,25 @@ def _run_design(
             derived_threshold=baseline_context.weakest_threshold,
         )
     return RunDesign(approach=approach, claims=claims, governing=governing, baseline=baseline)
+
+
+def _roots_disclosure(
+    declaration: "ContractDeclaration", services: dict[str, "ServiceDefinition"]
+) -> dict[str, str]:
+    """Each file's declared roots as provenance entries.
+
+    ``root.<name>`` carries the declared (file-relative) value;
+    ``root.<name>.overridden`` states whether ``MAVAI_ROOT_<NAME>``
+    replaced it. The contract file's and the services file's roots are
+    disclosed under their own prefixes — per-file namespaces, per the
+    format.
+    """
+    entries: dict[str, str] = {}
+    for disclosure in getattr(declaration, "roots", ()):
+        entries[f"root.{disclosure.name}"] = disclosure.declared
+        entries[f"root.{disclosure.name}.overridden"] = str(disclosure.overridden).lower()
+    definition = services.get(declaration.service)
+    for disclosure in getattr(definition, "roots", ()) if definition is not None else ():
+        entries[f"servicesRoot.{disclosure.name}"] = disclosure.declared
+        entries[f"servicesRoot.{disclosure.name}.overridden"] = str(disclosure.overridden).lower()
+    return entries
