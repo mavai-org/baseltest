@@ -9,6 +9,7 @@ def test_top_level_exposes_the_core_entry_points() -> None:
         "Bindings",
         "FileInput",
         "MessageParts",
+        "Reply",
         "__version__",
         "check_contract",
         "explore",

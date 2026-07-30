@@ -6,7 +6,7 @@ which accepts a JSON Schema.
 
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import FileInput, MediaKind
+from baseltest.contract import FileInput, MediaKind, Reply
 
 from ._media import b64, message_parts
 from ._protocol import Provider, no_constraint, plain_headers
@@ -53,7 +53,14 @@ def _body(parameters: "LanguageModelParameters", model: str, user_input: Any) ->
 
 
 def _extract(body: dict[str, Any]) -> Any:
-    return body["message"]["content"]
+    text = body["message"]["content"]
+    if isinstance(body.get("prompt_eval_count"), int) and isinstance(body.get("eval_count"), int):
+        return Reply(
+            text=text,
+            input_tokens=body["prompt_eval_count"],
+            output_tokens=body["eval_count"],
+        )
+    return text
 
 
 PROVIDER = Provider(

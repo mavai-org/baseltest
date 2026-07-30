@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import FileInput, MediaKind
+from baseltest.contract import FileInput, MediaKind, Reply
 
 from ._media import (
     CAPABILITY_FOR,
@@ -203,8 +203,19 @@ def openai_compatible_body(
 
 
 def openai_compatible_extract(body: dict[str, Any]) -> Any:
-    """choices[0].message.content."""
-    return body["choices"][0]["message"]["content"]
+    """choices[0].message.content, with the protocol's usage counts beside
+    it when the endpoint reports them (a gateway may not)."""
+    text = body["choices"][0]["message"]["content"]
+    usage = body.get("usage") or {}
+    if isinstance(usage.get("prompt_tokens"), int) and isinstance(
+        usage.get("completion_tokens"), int
+    ):
+        return Reply(
+            text=text,
+            input_tokens=usage["prompt_tokens"],
+            output_tokens=usage["completion_tokens"],
+        )
+    return text
 
 
 GENERIC = Provider(

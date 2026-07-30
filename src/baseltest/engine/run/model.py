@@ -151,6 +151,9 @@ class RunResult:
     inputs_identity: str
     overall_successes: int = 0
     samples: tuple[SampleRecord, ...] = ()
+    # Reported token usage summed over the run's samples; 0 when no
+    # service reply carried usage (cost blocks then state no tokens).
+    total_tokens: int = 0
     latency: "LatencyEvaluation | None" = None
 
     @property
