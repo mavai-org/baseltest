@@ -62,6 +62,7 @@ def _reduce_samples(
     int,
     tuple[SampleRecord, ...],
     list[int],
+    int,
 ]:
     """Fold sample outcomes into the run's tallies, standings, and records.
 
@@ -88,6 +89,7 @@ def _reduce_samples(
         criterion.name: {} for criterion in contract.criteria
     }
     overall_successes = 0
+    total_tokens = 0
     sample_records: list[SampleRecord] = []
     passing_durations_ms: list[int] = []
     tick = {Outcome.PASSED: 0, Outcome.FAILED: 1, Outcome.SKIPPED: 2}
@@ -105,6 +107,7 @@ def _reduce_samples(
                     key = (excerpt, status is Outcome.PASSED)
                     value_tally[key] = value_tally.get(key, 0) + 1
         overall_successes += int(outcome.trial_passed)
+        total_tokens += outcome.tokens or 0
         if outcome.trial_passed:
             passing_durations_ms.append(outcome.duration_ms)
         if outcome.record is not None:
@@ -122,7 +125,14 @@ def _reduce_samples(
         )
         for name, per_check in counts.items()
     }
-    return tallies, standings, overall_successes, tuple(sample_records), passing_durations_ms
+    return (
+        tallies,
+        standings,
+        overall_successes,
+        tuple(sample_records),
+        passing_durations_ms,
+        total_tokens,
+    )
 
 
 # Distinct obtained-value exemplars stated per standings row; the remainder
@@ -184,9 +194,14 @@ def execute(
     started_at = datetime.now(tz=UTC)
     outcomes = _run_samples(contract, plan, on_sample, record_samples)
     finished_at = datetime.now(tz=UTC)
-    tallies, standings, overall_successes, sample_records, passing_durations_ms = _reduce_samples(
-        contract, outcomes
-    )
+    (
+        tallies,
+        standings,
+        overall_successes,
+        sample_records,
+        passing_durations_ms,
+        total_tokens,
+    ) = _reduce_samples(contract, outcomes)
 
     results = []
     for criterion in contract.criteria:
@@ -231,4 +246,5 @@ def execute(
         inputs_identity=inputs_fingerprint(plan.inputs),
         overall_successes=overall_successes,
         samples=sample_records,
+        total_tokens=total_tokens,
     )

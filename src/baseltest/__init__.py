@@ -14,7 +14,7 @@ service contract in Python directly.
 """
 
 from baseltest._version import __version__
-from baseltest.contract import FileInput, MessageParts
+from baseltest.contract import FileInput, MessageParts, Reply
 from baseltest.declarative import (
     Bindings,
     check_contract,
@@ -27,6 +27,7 @@ __all__ = [
     "Bindings",
     "FileInput",
     "MessageParts",
+    "Reply",
     "__version__",
     "check_contract",
     "explore",

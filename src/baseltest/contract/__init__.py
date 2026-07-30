@@ -68,8 +68,10 @@ from .postconditions import (
     satisfies,
     set_of,
 )
+from .reply import Reply
 
 __all__ = [
+    "Reply",
     "PERCENTILE_LEVELS",
     "BaseltestError",
     "ContractValidationError",

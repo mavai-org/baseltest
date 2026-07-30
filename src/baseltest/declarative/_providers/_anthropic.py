@@ -26,7 +26,7 @@ via the vendor constraint below.
 
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import FileInput, MediaKind, ServiceDeliveryError
+from baseltest.contract import FileInput, MediaKind, Reply, ServiceDeliveryError
 
 from ._media import b64, content_blocks, mime_type, unexpected_kind
 from ._protocol import Provider
@@ -109,6 +109,15 @@ def _extract(body: dict[str, Any]) -> Any:
     # it sits.
     for block in body["content"]:
         if block.get("type") == "text":
+            usage = body.get("usage") or {}
+            if isinstance(usage.get("input_tokens"), int) and isinstance(
+                usage.get("output_tokens"), int
+            ):
+                return Reply(
+                    text=block["text"],
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=usage["output_tokens"],
+                )
             return block["text"]
     kinds = ", ".join(str(block.get("type")) for block in body["content"]) or "(none)"
     stop_reason = body.get("stop_reason")

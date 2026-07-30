@@ -23,6 +23,7 @@ from baseltest.contract import (
     TrialViews,
     evaluate_trial,
 )
+from baseltest.contract.reply import Reply
 
 from ..defect import DefectDiagnosisError
 from ..naming import bounded_excerpt
@@ -45,6 +46,9 @@ class _SampleOutcome:
     trial_passed: bool
     duration_ms: int
     record: SampleRecord | None
+    # Reported token usage for this sample's exchange, when the service
+    # replied with a usage-bearing Reply; None for string responses.
+    tokens: int | None = None
 
 
 def _skipped_outcomes(criterion: Criterion, input_index: int) -> tuple[tuple[str, Outcome], ...]:
@@ -132,6 +136,12 @@ def _run_one_sample(
             contract, ordinal, context.index, duration_ms, str(failure), record_samples
         )
     duration_ms = round((time.perf_counter() - invoked_at) * 1000)
+    # The usage-bearing reply seam: the text flows on exactly as a bare
+    # string response; the token counts land on the sample outcome.
+    tokens: int | None = None
+    if isinstance(response, Reply):
+        tokens = response.total_tokens
+        response = response.text
     views = TrialViews(response, contract.views)  # one cache per trial, all criteria
     evaluations: list[tuple[str, TrialEvaluation]] = []
     outcomes: list[tuple[str, Outcome]] = []
@@ -179,4 +189,5 @@ def _run_one_sample(
         trial_passed=trial_passed,
         duration_ms=duration_ms,
         record=record,
+        tokens=tokens,
     )

@@ -103,6 +103,7 @@ class RunObservation:
     failure_distribution: tuple[FailureEntry, ...] = ()
     criteria: Mapping[str, CriterionStatistics] = field(default_factory=dict)
     total_time_ms: int = 0
+    total_tokens: int = 0
     configuration: tuple[tuple[str, Any], ...] = ()
     latency: LatencyBlock | None = None
     samples: tuple[SampleRecord, ...] = ()
@@ -142,6 +143,7 @@ class RunObservation:
             failure_distribution=_failure_entries(result),
             criteria=criteria,
             total_time_ms=round(elapsed * 1000),
+            total_tokens=result.total_tokens,
             latency=latency_block(result.samples),
             samples=result.samples,
         )

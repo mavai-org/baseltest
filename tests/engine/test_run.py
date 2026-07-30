@@ -241,16 +241,17 @@ class TestReduceOrderIndependence:
         inputs = ("a", "b", "c")
         outcomes = [_run_one_sample(contract, i, inputs, record_samples=True) for i in range(6)]
 
-        f_tallies, f_standings, f_successes, f_records, f_durations = _reduce_samples(
+        f_tallies, f_standings, f_successes, f_records, f_durations, f_tokens = _reduce_samples(
             contract, outcomes
         )
-        r_tallies, r_standings, r_successes, r_records, r_durations = _reduce_samples(
+        r_tallies, r_standings, r_successes, r_records, r_durations, r_tokens = _reduce_samples(
             contract, list(reversed(outcomes))
         )
 
         assert f_records == r_records  # frozen SampleRecords, sequence included
         assert f_standings == r_standings  # frozen rows, order restored per input
         assert f_successes == r_successes
+        assert f_tokens == r_tokens
         assert f_durations == r_durations
         assert f_tallies["c"].trials == r_tallies["c"].trials
         assert f_tallies["c"].successes == r_tallies["c"].successes

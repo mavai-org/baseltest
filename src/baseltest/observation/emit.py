@@ -103,6 +103,18 @@ def observation_lines(record: RunObservation, indent: str = "") -> list[str]:
             f"{indent}  avgTimePerSampleMs: {average}",
         ]
     )
+    if record.total_tokens > 0:
+        # Stated only when a reply carried usage: token-less runs keep
+        # their existing cost shape (the fields are informational).
+        avg_tokens = (
+            round(record.total_tokens / record.samples_executed) if record.samples_executed else 0
+        )
+        lines.extend(
+            [
+                f"{indent}  totalTokens: {record.total_tokens}",
+                f"{indent}  avgTokensPerSample: {avg_tokens}",
+            ]
+        )
     if record.latency is not None:
         lines.extend(latency_lines(record.latency, indent))
     if record.samples:
