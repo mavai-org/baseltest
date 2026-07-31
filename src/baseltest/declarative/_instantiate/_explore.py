@@ -30,12 +30,15 @@ class ExploreConfiguration:
 
     ``factors`` is the discriminating subset (grid keys that vary — names
     files and labels); ``configuration`` is the full resolved map the
-    point runs under, recorded in its artefact.
+    point runs under, recorded in its artefact. ``base`` marks the point
+    the sweep was built around — the services file's own
+    ``configuration:``, which the ``explorations:`` entries override.
     """
 
     parameters: Any
     factors: dict[str, Any]
     configuration: Mapping[str, Any]
+    base: bool
     contract: ServiceContract[Any]
     plan: RunPlan
 
@@ -102,7 +105,10 @@ def instantiate_explore(
     )
     configurations = []
     notes: list[str] = []
-    for parameters in definition.grid:
+    # The grid states the baseline `configuration:` first, then each
+    # `explorations:` entry resolved over it — so the first point IS the
+    # authored base, and saying so here is the whole of the fact.
+    for index, parameters in enumerate(definition.grid):
         # A type's last look at its grid point (e.g. the language model's
         # structured-output degradation): announced, never silent.
         parameters, note = definition.type.prepare_explore_point(parameters)
@@ -128,6 +134,7 @@ def instantiate_explore(
                 parameters=parameters,
                 factors=factor_values(definition, parameters),
                 configuration=configuration_values(definition, parameters),
+                base=index == 0,
                 contract=contract,
                 plan=plan,
             )

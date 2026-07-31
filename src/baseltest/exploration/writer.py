@@ -144,8 +144,12 @@ def render_exploration(record: RunObservation) -> str:
         f"schemaVersion: {quote(SCHEMA_VERSION)}",
         f"serviceContractId: {quote(record.contract_id)}",
         f"configuration: {quote(exploration_stem(record.factors))}",
-        f"generatedAt: {quote(record.generated_at.isoformat())}",
     ]
+    # Stated only on the base, and only as true: an absent marker means
+    # this emitter said nothing, never "not the base".
+    if record.base_configuration:
+        lines.append("baseConfiguration: true")
+    lines.append(f"generatedAt: {quote(record.generated_at.isoformat())}")
     # The block carries the full resolved configuration (constants
     # included) so one artefact tells the whole story; the filename
     # stem still derives from the discriminating factors alone.

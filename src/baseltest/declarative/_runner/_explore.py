@@ -154,6 +154,7 @@ def explore(
             result,
             factors=configuration.factors,
             configuration=configuration.configuration,
+            base_configuration=configuration.base,
         )
         artefact = write_exploration(record, Path(explorations_dir), experiment)
         explored.append(
