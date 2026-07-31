@@ -9,6 +9,8 @@ provenance for the artefact.
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from baseltest.contract import Reply
+
 from .._errors import ContractConfigurationError
 from ._context import FailureDetail, IterationResult, OptimizeContext
 from ._contract import StepFunction, StepProposal
@@ -45,11 +47,11 @@ def _prompt_engineer(
         raise ContractConfigurationError(
             f"stepper 'prompt-engineer': `max-exemplars:` must be at least 0, got {max_exemplars}"
         )
-    invokers: dict[tuple[str | None, str | None], Callable[[str], str]] = {}
+    invokers: dict[tuple[str | None, str | None], Callable[[str], str | Reply]] = {}
 
     def meta_invoker(
         current: dict[str, Any],
-    ) -> tuple[Callable[[str], str], str | None, str | None]:
+    ) -> tuple[Callable[[str], str | Reply], str | None, str | None]:
         # Deferred import: this module defines the registration surface the
         # services module builds on; the provider machinery is reached only
         # when a step actually runs.
@@ -77,7 +79,10 @@ def _prompt_engineer(
             "metaModel": meta_model or "(environment default)",
             "metaTemperature": temperature,
         }
-        suggestion = invoke(_meta_message(last, target_key, max_exemplars)).strip()
+        answer = invoke(_meta_message(last, target_key, max_exemplars))
+        # The meta model's endpoint may report usage; only the text is the
+        # proposal. Meta-call tokens are not sample cost.
+        suggestion = (answer.text if isinstance(answer, Reply) else answer).strip()
         if not suggestion:
             # a meta model with nothing to propose stops the run
             return StepProposal(config=None, provenance=provenance)

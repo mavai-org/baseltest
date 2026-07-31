@@ -13,6 +13,8 @@ from collections.abc import Callable
 from pathlib import PurePath
 from typing import Any, TypeVar
 
+from baseltest.contract import Reply
+
 from .._errors import ContractConfigurationError
 from .._steppers import (
     ScorerFunction,
@@ -217,7 +219,7 @@ class Registry:
             )
         return contract
 
-    def resolve_binding(self, name: str) -> Callable[..., str]:
+    def resolve_binding(self, name: str) -> Callable[..., str | Reply]:
         """Look up a bare binding at contract-load time; unresolvable names are refused."""
         contract = self._registered_type(name)
         if not contract.addressable:

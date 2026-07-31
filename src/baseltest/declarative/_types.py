@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from baseltest.contract import Reply
+
 
 def _identity_explore_point(parameters: Any) -> tuple[Any, str | None]:
     return parameters, None
@@ -77,7 +79,7 @@ class ServiceTypeContract:
     parameter_order: Callable[[tuple[str, ...]], tuple[str, ...]]
     resolved_values: Callable[[Any], dict[str, Any]]
     provenance: Callable[[Any], dict[str, str]]
-    invoker: Callable[[Any], Callable[..., str]]
+    invoker: Callable[[Any], Callable[..., str | Reply]]
     accepts_configuration_key: Callable[[str], bool]
     prepare_explore_point: Callable[[Any], tuple[Any, str | None]] = field(
         default=_identity_explore_point
