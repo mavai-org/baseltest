@@ -12,6 +12,7 @@ from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
 
 from .errors import BaseltestError
 from .postconditions import Postcondition
+from .reply import Reply
 
 _RequestContra = TypeVar("_RequestContra", contravariant=True)
 
@@ -20,12 +21,14 @@ class Service(Protocol[_RequestContra]):
     """The stochastic service under test: one request in, one response out.
 
     Structural, so an author's plain function or lambda ``(request) -> str``
-    is a ``Service`` without inheriting anything. An anticipated bad response
-    is *returned* for the criteria to judge; only a genuine defect raises,
-    aborting the run.
+    is a ``Service`` without inheriting anything. A service with token usage
+    to report returns a :class:`Reply` in place of the bare string — the
+    text is judged identically; the counts land on the sample outcome. An
+    anticipated bad response is *returned* for the criteria to judge; only
+    a genuine defect raises, aborting the run.
     """
 
-    def __call__(self, request: _RequestContra, /) -> str: ...
+    def __call__(self, request: _RequestContra, /) -> str | Reply: ...
 
 
 RequestT = TypeVar("RequestT")

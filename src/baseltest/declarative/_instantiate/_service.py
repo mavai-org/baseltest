@@ -9,7 +9,7 @@ import inspect
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from baseltest.contract import FileInput, MessageParts
+from baseltest.contract import FileInput, MessageParts, Reply
 
 from .._errors import ContractConfigurationError
 from .._providers import require_media, resolve_provider
@@ -18,17 +18,17 @@ from .._services import LanguageModelParameters, ServiceDefinition
 from .._signatures import value_fits as _value_fits
 
 
-def _splat_tuple_invoke(invoke: Callable[..., str]) -> Callable[[Any], str]:
+def _splat_tuple_invoke(invoke: Callable[..., str | Reply]) -> Callable[[Any], str | Reply]:
     """Splat a tuple-valued input across the service's positional parameters;
     a scalar input passes straight through."""
 
-    def wrapped(value: Any) -> str:
+    def wrapped(value: Any) -> str | Reply:
         return invoke(*value) if isinstance(value, tuple) else invoke(value)
 
     return wrapped
 
 
-def _validate_inputs(service: str, fn: Callable[..., str], inputs: Sequence[Any]) -> None:
+def _validate_inputs(service: str, fn: Callable[..., str | Reply], inputs: Sequence[Any]) -> None:
     """The inputs ↔ per-sample-callable join, checked before any sample runs.
 
     Arity is always checked; scalar-annotated parameters are checked where
@@ -97,7 +97,7 @@ def _validate_media(config: Any, inputs: Sequence[Any]) -> None:
 
 def _resolve_service(
     reference: str, services: dict[str, ServiceDefinition], registry: Registry
-) -> tuple[Callable[..., str], dict[str, str]]:
+) -> tuple[Callable[..., str | Reply], dict[str, str]]:
     """Resolve a service reference: definitions first, then the type registry.
 
     Service names (services-file keys) and type names (the registry) are

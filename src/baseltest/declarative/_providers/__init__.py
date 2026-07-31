@@ -24,7 +24,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import BaseltestError, ServiceDeliveryError
+from baseltest.contract import BaseltestError, Reply, ServiceDeliveryError
 
 from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _litellm, _mistral, _ollama, _openai
@@ -154,7 +154,7 @@ def _resolve_endpoint(provider: Provider) -> str:
 
 def build_invoker(
     provider: Provider, parameters: "LanguageModelParameters"
-) -> Callable[[Any], str]:
+) -> "Callable[[Any], str | Reply]":
     """The invocation callable: one plain request per call, no retries."""
     capabilities = parameters.capabilities
     if parameters.response_schema is not None and not honours(
@@ -195,7 +195,7 @@ def build_invoker(
         )
     headers = provider.headers(_api_key(provider))
 
-    def invoke(user_input: Any) -> str:
+    def invoke(user_input: Any) -> str | Reply:
         request = urllib.request.Request(
             endpoint,
             data=json.dumps(provider.body(parameters, model, user_input)).encode("utf-8"),
@@ -237,6 +237,18 @@ def build_invoker(
                 f"service delivered a response body not matching the "
                 f"{provider.name} shape: {type(error).__name__}: {error}"
             ) from None
+        # A usage-bearing Reply is the framework's own return shape and
+        # passes through unchanged — the engine owns the unwrap seam, and
+        # the token counts must reach the sample outcome. The no-text
+        # guard still applies to what the reply carries: a null content
+        # field beside usage counts is the same delivered-but-empty body.
+        if isinstance(content, Reply):
+            if not isinstance(content.text, str):
+                raise ServiceDeliveryError(
+                    f"service delivered a response with no text content "
+                    f"(the {provider.name} content field held {type(content.text).__name__})"
+                )
+            return content
         if not isinstance(content, str):
             raise ServiceDeliveryError(
                 f"service delivered a response with no text content "

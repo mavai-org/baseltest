@@ -12,6 +12,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from baseltest.contract import Reply
+
 from .._errors import ContractConfigurationError
 from .._signatures import SCALAR_TYPES as _SCALAR_TYPES
 from .._signatures import kebab as _kebab
@@ -23,7 +25,7 @@ from ._guards import RESERVED_COVARIATE_KEYS
 
 
 def _bare_type(
-    name: str, fn: Callable[..., str], covariates: dict[str, str]
+    name: str, fn: Callable[..., str | Reply], covariates: dict[str, str]
 ) -> ServiceTypeContract:
     """A bare binding as a service type: the degenerate zero-configuration case."""
 
@@ -128,7 +130,7 @@ def _factory_type(
         entries.update(covariates)
         return entries
 
-    def invoker(resolved: dict[str, Any]) -> Callable[..., str]:
+    def invoker(resolved: dict[str, Any]) -> Callable[..., str | Reply]:
         produced = factory(**{_snake(key): value for key, value in resolved.items()})
         if not callable(produced):
             raise ContractConfigurationError(
@@ -136,7 +138,7 @@ def _factory_type(
                 "the per-sample callable — a binding factory constructs the code that "
                 "is invoked once per sample"
             )
-        result: Callable[..., str] = produced
+        result: Callable[..., str | Reply] = produced
         return result
 
     return ServiceTypeContract(

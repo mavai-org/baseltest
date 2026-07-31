@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from dataclasses import replace as _replace
 from typing import Any
 
+from baseltest.contract import Reply
+
 from .._providers import (
     CAPABILITY_NAMES,
     ENV_MODEL,
@@ -249,14 +251,16 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
     }
 
 
-def language_model_invoker(parameters: LanguageModelParameters) -> Callable[[Any], str]:
+def language_model_invoker(parameters: LanguageModelParameters) -> "Callable[[Any], str | Reply]":
     """Build the invocation callable for a language-model service.
 
     Delegates to the named provider adapter (or the generic
     OpenAI-compatible one): one plain request per invocation, never a
     retry. A transport failure or error response is a defect (the service
     was unreachable, not stochastic); an anticipated bad *answer* is simply
-    the response, judged by the criteria.
+    the response, judged by the criteria. An endpoint that reports token
+    usage answers with a :class:`~baseltest.contract.Reply`, which the
+    engine unwraps at the sample boundary.
     """
     return build_invoker(resolve_provider(parameters.provider), parameters)
 

@@ -973,6 +973,39 @@ class TestPromptEngineer:
         meta_calls = [p for p in captured if META_MARKER in p["messages"][0]["content"]]
         assert meta_calls[0]["model"] == "small-model"  # the service's own model
 
+    def test_a_usage_reporting_endpoint_drives_samples_and_meta_proposals_alike(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A gateway that reports usage on every response (the litellm
+        # shape) answers with the framework's Reply at both seams: the
+        # sampled service's responses are judged by their text, and the
+        # meta model's proposal is the reply's text — never a failed
+        # delivery, never a crash on the usage envelope.
+        def fake_urlopen(request: Any) -> FakeResponse:
+            payload = json.loads(request.data.decode("utf-8"))
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                content = "IMPROVED: respond with hello"
+            else:
+                content = "hello there" if system.startswith("IMPROVED") else "goodbye"
+            reply = {
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+            }
+            return FakeResponse(json.dumps(reply).encode("utf-8"))
+
+        monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+        monkeypatch.setenv(ENV_MODEL, "env-default-model")
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        record = outcomes[0].record
+        factors = dict(record.iterations[1].factors)
+        assert factors["system-prompt"] == "IMPROVED: respond with hello"
+        assert record.best.score == 1.0
+
 
 class TestCheckVerb:
     def test_check_validates_the_optimizations_for_zero_samples(
