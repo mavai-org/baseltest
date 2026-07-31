@@ -1,5 +1,6 @@
 """The exploration artefact: family schema, readable stems, deterministic emission."""
 
+import dataclasses
 import io
 from datetime import UTC, datetime
 
@@ -310,3 +311,21 @@ class TestResultProjection:
         anchor_line = next(line for line in text.splitlines() if "anchor:ac72368a" in line)
         sample_line = text.splitlines()[text.splitlines().index(anchor_line) + 1]
         assert sample_line.strip().startswith('"sample[0]"')
+
+
+class TestBaseConfigurationMarker:
+    """The base is a stated fact, not an inference: a balanced sweep offers
+    a consumer nothing to infer from, so the emitter — which reads the
+    services file — says which configuration the sweep was built around."""
+
+    def test_the_base_states_the_marker(self) -> None:
+        text = render_exploration(dataclasses.replace(record(), base_configuration=True))
+        data = parse_yaml(text)
+        assert data["baseConfiguration"] is True
+
+    def test_an_exploration_states_no_marker_at_all(self) -> None:
+        # Absence means the emitter said nothing; a stated `false` would
+        # invite a consumer to read absence as "not the base".
+        text = render_exploration(record())
+        assert "baseConfiguration" not in parse_yaml(text)
+        assert "baseConfiguration" not in text

@@ -210,6 +210,29 @@ class TestExploreRuns:
         out = capsys.readouterr().out
         assert "most common failure: 2× " in out
 
+    def test_only_the_services_own_configuration_is_marked_as_the_base(
+        self, tmp_path: Path, llm_environment: list[dict[str, Any]]
+    ) -> None:
+        # The services file's own `configuration:` is the base; the
+        # `explorations:` entries override it. That authored fact is lost
+        # once every document carries its fully-resolved factor set, so
+        # the emitter states it — exactly once per corpus.
+        explored = explore(
+            write_files(tmp_path), samples_per_config=2, explorations_dir=tmp_path / "x", emit=False
+        )
+        marked = [
+            entry
+            for entry in explored
+            if "baseConfiguration: true" in entry.path.read_text(encoding="utf-8")
+        ]
+        assert len(marked) == 1
+        # It is the grid's first point — the baseline configuration, whose
+        # factors the explorations replace — not merely the first written.
+        assert marked[0] is explored[0]
+        # And the marker is never negated onto the explorations.
+        for entry in explored[1:]:
+            assert "baseConfiguration" not in entry.path.read_text(encoding="utf-8")
+
     def test_artefacts_are_descriptive_only(
         self, tmp_path: Path, llm_environment: list[dict[str, Any]]
     ) -> None:
