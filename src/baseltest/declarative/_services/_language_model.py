@@ -26,7 +26,7 @@ from .._providers import (
     honours,
     resolve_provider,
 )
-from .._types import ServiceTypeContract
+from .._types import FileValueKind, ServiceTypeContract
 from ._model import _fail
 
 _CONFIGURATION_KEYS = {
@@ -316,5 +316,8 @@ def _language_model_type() -> ServiceTypeContract:
         invoker=language_model_invoker,
         accepts_configuration_key=lambda key: key in _CONFIGURATION_KEYS,
         prepare_explore_point=_language_model_explore_point,
-        file_value_keys=("system-prompt",),
+        file_value_keys={
+            "system-prompt": FileValueKind.TEXT,
+            "response-schema": FileValueKind.MAPPING,
+        },
     )

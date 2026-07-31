@@ -218,6 +218,21 @@ def _iteration_zero(
                 "value — the overlay states replacements; omit a key to keep its "
                 "baseline value"
             )
+        # The overlay is resolved here, past the loader's file-value seam, so a
+        # `{file:}` reference would reach `parse` unread — as a string that is
+        # not the prompt, or a mapping that is not the schema. Refused, never
+        # taken literally.
+        if (
+            key in type_contract.file_value_keys
+            and isinstance(value, dict)
+            and set(value) == {"file"}
+        ):
+            raise _fail(
+                f"service {name!r}: {where}: `initial:` key `{key}:` is a "
+                "`{file:}` reference, which resolves only in `configuration:` and "
+                "`explorations:` — state the value inline here, or move the "
+                "reference into the baseline the overlay departs from"
+            )
     merged = {**baseline, **initial}
     parameters = type_contract.parse(name, merged, f"{where} `initial:` overlay")
     baseline_parameters = type_contract.parse(name, baseline, "configuration")
