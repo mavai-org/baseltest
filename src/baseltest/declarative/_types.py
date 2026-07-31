@@ -17,10 +17,24 @@ degenerate zero-configuration instance.
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Any
 
 from baseltest.contract import Reply
+
+
+class FileValueKind(StrEnum):
+    """What a ``{file: <path>}`` reference resolves TO for a given key.
+
+    A key's kind is a property of the key, not of the file: a text key
+    takes the decoded string, a mapping key takes the parsed document.
+    Naming it on the seam is what lets the loader substitute the right
+    shape before the type's ``parse`` ever sees the configuration.
+    """
+
+    TEXT = "text"
+    MAPPING = "mapping"
 
 
 def _identity_explore_point(parameters: Any) -> tuple[Any, str | None]:
@@ -65,10 +79,13 @@ class ServiceTypeContract:
             non-``None`` note is announced to the operator (e.g. the
             language model's structured-output degradation).
         file_value_keys: Configuration keys whose value may be the
-            ``{file: <path>}`` form — resolved by the services loader
-            (root references included) before the type's ``parse`` sees
-            the configuration, so everything downstream sees the plain
-            resolved string (resolved-as-used).
+            ``{file: <path>}`` form, each mapped to what the reference
+            resolves to — resolved by the services loader (root
+            references included) before the type's ``parse`` sees the
+            configuration, so everything downstream sees the resolved
+            value as if it had been written inline (resolved-as-used):
+            a :attr:`FileValueKind.TEXT` key the decoded string, a
+            :attr:`FileValueKind.MAPPING` key the parsed document.
     """
 
     name: str
@@ -84,7 +101,8 @@ class ServiceTypeContract:
     prepare_explore_point: Callable[[Any], tuple[Any, str | None]] = field(
         default=_identity_explore_point
     )
-    file_value_keys: tuple[str, ...] = ()
+    file_value_keys: Mapping[str, FileValueKind] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "covariates", MappingProxyType(dict(self.covariates)))
+        object.__setattr__(self, "file_value_keys", MappingProxyType(dict(self.file_value_keys)))

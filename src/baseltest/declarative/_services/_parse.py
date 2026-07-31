@@ -15,7 +15,7 @@ from ruamel.yaml.error import YAMLError
 
 from .._optimize import OptimizationDeclaration, parse_optimizations
 from .._roots import Roots
-from .._types import ServiceTypeContract
+from .._types import FileValueKind, ServiceTypeContract
 from ._model import (
     SERVICES_FILENAME,
     SERVICES_FORMAT_IDENTIFIER,
@@ -29,6 +29,51 @@ if TYPE_CHECKING:
 _DEFINITION_KEYS = {"type", "configuration", "explorations", "optimizations"}
 
 
+def _references_a_file(value: dict[str, Any], kind: FileValueKind) -> bool:
+    """Whether a mapping-valued entry is a ``{file:}`` reference rather than
+    an inline value.
+
+    A text key's inline value is a string, so a mapping there can only be
+    the file form — malformed spellings included, which keeps their
+    refusal specific. A mapping key's inline value is itself a mapping,
+    so only the sole-``file`` spelling is the reference; anything else is
+    the value written inline.
+    """
+    return kind is FileValueKind.TEXT or set(value) == {"file"}
+
+
+def _parsed_mapping(text: str, resolved: Path, location: str) -> dict[str, Any]:
+    """One mapping-valued file, parsed as YAML (JSON being a subset of it)."""
+    yaml = YAML(typ="safe", pure=True)
+    yaml.version = (1, 2)
+    try:
+        document = yaml.load(io.StringIO(text))
+    except YAMLError as error:
+        raise _fail(f"{location}: file {resolved} is not well-formed YAML: {error}") from error
+    if not isinstance(document, dict):
+        raise _fail(
+            f"{location}: file {resolved} holds {_shape(document)}, but this key takes "
+            "a mapping — the referenced file must contain what the key's inline value "
+            "would have been"
+        )
+    return document
+
+
+def _shape(document: Any) -> str:
+    """A readable name for what a file parsed to, for the refusal message."""
+    if document is None:
+        return "nothing"
+    if isinstance(document, bool):
+        return "a boolean"
+    if isinstance(document, list):
+        return "a list"
+    if isinstance(document, str):
+        return "a string"
+    if isinstance(document, int | float):
+        return "a number"
+    return f"a {type(document).__name__}"
+
+
 def _resolve_file_values(
     name: str,
     mapping: dict[str, Any],
@@ -37,16 +82,17 @@ def _resolve_file_values(
     roots: Roots,
     base_dir: Path | None,
 ) -> dict[str, Any]:
-    """Resolve any ``{file: <path>}`` values the type admits to plain strings.
+    """Resolve any ``{file: <path>}`` values the type admits to their content.
 
     Resolution happens before the type's ``parse`` sees the configuration
     — root references included, the file read once at load and decoded as
-    UTF-8 — so identity, provenance, and the steppers all see the string
-    exactly as if it had been written inline (resolved-as-used).
+    UTF-8 — so identity, provenance, and the steppers all see the value
+    exactly as if it had been written inline (resolved-as-used): a text
+    key its decoded string, a mapping key its parsed document.
     """
-    for key in type_contract.file_value_keys:
+    for key, kind in type_contract.file_value_keys.items():
         value = mapping.get(key)
-        if not isinstance(value, dict):
+        if not isinstance(value, dict) or not _references_a_file(value, kind):
             continue
         location = f"service {name!r}: {where}: `{key}:`"
         if set(value) != {"file"} or not isinstance(value.get("file"), str) or not value["file"]:
@@ -72,7 +118,8 @@ def _resolve_file_values(
             text = data.decode("utf-8")
         except UnicodeDecodeError as error:
             raise _fail(f"{location}: file {resolved} is not valid UTF-8 text: {error}") from error
-        mapping = {**mapping, key: text}
+        content = text if kind is FileValueKind.TEXT else _parsed_mapping(text, resolved, location)
+        mapping = {**mapping, key: content}
     return mapping
 
 
