@@ -115,7 +115,7 @@ class TestPersistence:
         assert not any(key.startswith("postcondition-standings:") for key in keys)
 
     def test_the_baseline_artefact_carries_the_standings_block(self) -> None:
-        artefact = render_baseline(BaselineRecord.from_run_result(run()))
+        artefact = render_baseline(BaselineRecord.from_run_result(run(), "svc"))
         assert "postconditionStandings:" in artefact
         assert '"contains \\"a\\""' in artefact or 'contains \\"a\\"' in artefact
         assert "observedFraction: 0.000000" in artefact
@@ -123,7 +123,7 @@ class TestPersistence:
     def test_the_baseline_reader_tolerates_the_standings_block(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         from baseltest.baseline import read_baseline, write_baseline
 
-        path = write_baseline(BaselineRecord.from_run_result(run()), tmp_path)
+        path = write_baseline(BaselineRecord.from_run_result(run(), "svc"), tmp_path)
         stored = read_baseline(path)
         assert stored.criteria["c"].trials == 4
 
@@ -166,7 +166,7 @@ class TestPartialCreditFacts:
         assert ('contains "x"', "true") in flags
         assert ('contains "a"', "false") in flags
 
-        artefact = render_baseline(BaselineRecord.from_run_result(result))
+        artefact = render_baseline(BaselineRecord.from_run_result(result, "svc"))
         assert 'optionalSlack: "20%"' in artefact
         assert "optional: true" in artefact
         assert "optional: false" in artefact
@@ -193,7 +193,7 @@ class TestPartialCreditFacts:
         block = root.find(f"{namespace}postcondition-standings/{namespace}criterion")
         assert block is not None
         assert block.get("optional-slack") is None
-        assert "optionalSlack" not in render_baseline(BaselineRecord.from_run_result(result))
+        assert "optionalSlack" not in render_baseline(BaselineRecord.from_run_result(result, "svc"))
         assert "optionalSlack" not in "\n".join(
             observation_lines(RunObservation.from_run_result(result))
         )
@@ -258,12 +258,12 @@ class TestStructuredRows:
         observation = "\n".join(observation_lines(RunObservation.from_run_result(result)))
         assert 'form: "contains"' in observation
         assert "observed:" in observation
-        artefact = render_baseline(BaselineRecord.from_run_result(result))
+        artefact = render_baseline(BaselineRecord.from_run_result(result, "svc"))
         assert 'form: "contains"' in artefact
         assert '"held": false' in artefact
 
     def test_the_baseline_reader_tolerates_structured_rows(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         from baseltest.baseline import read_baseline, write_baseline
 
-        path = write_baseline(BaselineRecord.from_run_result(run()), tmp_path)
+        path = write_baseline(BaselineRecord.from_run_result(run(), "svc"), tmp_path)
         assert read_baseline(path).criteria["c"].trials == 4

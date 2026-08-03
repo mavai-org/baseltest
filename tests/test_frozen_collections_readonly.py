@@ -41,9 +41,12 @@ def test_criterion_characterisation_failure_distribution_is_read_only() -> None:
 
 def test_baseline_record_views_are_read_only() -> None:
     record = BaselineRecord(
-        contract_id="c",
+        service_contract_id="c",
+        service_name="s",
+        confidence_level=0.95,
         generated_at=datetime(2026, 1, 1, tzinfo=UTC),
-        sample_count=10,
+        samples_planned=10,
+        samples_executed=10,
         inputs_identity="fp",
         criteria={},
         views={"body": "sha256:abc"},

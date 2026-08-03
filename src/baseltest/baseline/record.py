@@ -6,8 +6,27 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-from baseltest.contract import PostconditionStanding
+from baseltest.contract import FailureAxis, PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, latency_block
+from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL, wilson_lower_bound
+
+
+class CriterionMode(StrEnum):
+    """Whether a criterion estimates a proportion (companion §1.5).
+
+    An observational criterion states no rate and no bound: it estimates no
+    proportion at all, passing iff no failure was observed.
+    """
+
+    INFERENTIAL = "inferential"
+    OBSERVATIONAL = "observational"
+
+
+class CriterionProcedure(StrEnum):
+    """The inferential procedure a criterion is judged under."""
+
+    REGRESSION = "REGRESSION"
+    COMPLIANCE = "COMPLIANCE"
 
 
 class JudgementState(StrEnum):
@@ -65,14 +84,19 @@ class CriterionCharacterisation:
     successes: int
     trials: int
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
+    failure_axes: Mapping[str, FailureAxis] = field(default_factory=dict)
     judgement: NormativeJudgement | None = None
     standings: tuple[PostconditionStanding, ...] = ()
     optional_slack: str | None = None
+    mode: CriterionMode = CriterionMode.INFERENTIAL
+    procedure: CriterionProcedure | None = CriterionProcedure.REGRESSION
+    wilson_lower_bound: float | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "failure_distribution", MappingProxyType(dict(self.failure_distribution))
         )
+        object.__setattr__(self, "failure_axes", MappingProxyType(dict(self.failure_axes)))
 
     @property
     def observed_rate(self) -> float:
@@ -86,15 +110,25 @@ class BaselineRecord:
     """Everything the baseline artefact states.
 
     Attributes:
-        contract_id: The measured contract's identity.
+        service_contract_id: The measured service contract's identity.
+        service_name: The name of the service that was invoked. Identity,
+            not provenance: a contract may exercise several services and a
+            service may be the subject of several contracts, so neither
+            names a record alone.
         generated_at: Measurement time, UTC.
-        sample_count: The run's total sample count.
+        confidence_level: The level every ``wilson_lower_bound`` in this
+            record was computed at. Distinct from a criterion's stipulated
+            ``NormativeJudgement.confidence``, which need not agree.
         inputs_identity: Order-insensitive fingerprint of the input list.
+        samples_planned: Trials asked for.
+        samples_executed: Trials actually run. Equal to ``samples_planned``
+            until early termination exists; sourced from the run either way,
+            never assumed by the writer.
+        termination_reason: Why the run ended.
+        covariate_profile: The resolved covariate values — identity.
+        factor_record: Run provenance. Never compared by resolution.
         criteria: Per-criterion characterisations, keyed by criterion name,
             in declaration order.
-        provenance: Additional provenance the caller supplies (e.g. the
-            contract-format identifier, the resolved binding's name). String
-            keys and values; recorded verbatim.
         latency: The gated aggregate-latency summary, carrying the full
             ascending vector of passing-sample durations — the raw material
             a later test needs to derive its own bound at its own
@@ -107,12 +141,17 @@ class BaselineRecord:
             instead). Additive, optional field of the artefact schema.
     """
 
-    contract_id: str
+    service_contract_id: str
+    service_name: str
     generated_at: datetime
-    sample_count: int
+    confidence_level: float
     inputs_identity: str
+    samples_planned: int
+    samples_executed: int
     criteria: Mapping[str, CriterionCharacterisation]
-    provenance: Mapping[str, str] = field(default_factory=dict)
+    termination_reason: str = "COMPLETED"
+    covariate_profile: Mapping[str, str] = field(default_factory=dict)
+    factor_record: Mapping[str, str] = field(default_factory=dict)
     latency: LatencyBlock | None = None
     views: Mapping[str, str] = field(default_factory=dict)
 
@@ -122,14 +161,21 @@ class BaselineRecord:
     @staticmethod
     def from_run_result(
         result: RunResult,
-        provenance: Mapping[str, str] | None = None,
+        service_name: str,
+        covariate_profile: Mapping[str, str] | None = None,
+        factor_record: Mapping[str, str] | None = None,
         views: Mapping[str, str] | None = None,
+        confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
     ) -> "BaselineRecord":
         """Build a record from a completed run.
 
         Thresholded criteria carry their measurement-time judgement
         (met/failed from the run's verdict); unthresholded criteria are
         characterised without one.
+
+        The Wilson lower bound is computed here, where the counts and the
+        confidence level are both in hand — never in the writer, which
+        states what the record holds and derives nothing.
         """
         criteria: dict[str, CriterionCharacterisation] = {}
         for criterion_result in result.criterion_results:
@@ -150,17 +196,32 @@ class BaselineRecord:
                 successes=tally.successes,
                 trials=tally.trials,
                 failure_distribution=dict(tally.failure_reasons),
+                failure_axes=dict(tally.failure_axes),
                 judgement=judgement,
                 standings=criterion_result.standings,
                 optional_slack=slack.declared if slack is not None else None,
+                wilson_lower_bound=(
+                    wilson_lower_bound(tally.successes, tally.trials, confidence_level)
+                    if tally.trials
+                    else None
+                ),
             )
+        # Every criterion sees every sample, so any criterion's trial count
+        # is the run's executed count (companion §1.4.5a). Sourced rather
+        # than assumed equal to the plan: when early termination lands, this
+        # already states the truth.
+        executed = max((r.tally.trials for r in result.criterion_results), default=0)
         return BaselineRecord(
-            contract_id=result.contract_id,
+            service_contract_id=result.contract_id,
+            service_name=service_name,
             generated_at=result.finished_at,
-            sample_count=result.plan.samples,
+            confidence_level=confidence_level,
             inputs_identity=result.inputs_identity,
+            samples_planned=result.plan.samples,
+            samples_executed=executed,
             criteria=criteria,
-            provenance=dict(provenance or {}),
+            covariate_profile=dict(covariate_profile or {}),
+            factor_record=dict(factor_record or {}),
             latency=latency_block(result.samples),
             views=dict(views or {}),
         )

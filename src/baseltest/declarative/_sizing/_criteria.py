@@ -13,7 +13,7 @@ from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_basel
 from baseltest.engine import inputs_fingerprint
 from baseltest.statistics import check_feasibility
 
-from .._parser import FORMAT_IDENTIFIER, ContractDeclaration, CriterionDeclaration
+from .._parser import ContractDeclaration, CriterionDeclaration
 from .._services import ServiceDefinition
 from ._model import _EmpiricalCriterion
 from ._rates import _effective_rate
@@ -45,15 +45,17 @@ def resolve_contract_baseline(
             if type_contract is not None and type_contract.addressable
             else {}
         )
+    # Identity is the tuple: contract, service, inputs, covariates. The
+    # service is now stated in its own right rather than compared as a
+    # pseudo-covariate, and `taskFormat` leaves the comparison entirely —
+    # a contract-format identifier does not change the distribution being
+    # measured, so it is provenance (area rule 7).
     return resolve_baseline(
         baseline_dir,
         declaration.contract,
+        declaration.service,
         inputs_fingerprint(declaration.inputs),
-        {
-            "taskFormat": FORMAT_IDENTIFIER,
-            "binding": declaration.service,
-            **service_provenance,
-        },
+        dict(service_provenance),
     )
 
 
