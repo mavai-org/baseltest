@@ -6,8 +6,11 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.10.7`.** Verified byte-identical to that release
-when recorded (2026-08-03).
+**Vendored from mavai-R `0.10.8`.** Verified byte-identical to that release
+when recorded (2026-08-03). The schemas are unchanged between 0.10.7 and
+0.10.8 — that release corrected a worked example, not a schema — so the
+recorded version names the release these copies match, not the release they
+were first taken from.
 
 | file | validated by |
 |---|---|
