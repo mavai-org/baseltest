@@ -73,7 +73,12 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
         lines.append(f"    procedure: {quote(c.procedure)}")
     lines.extend([f"    trials: {c.trials}", f"    successes: {c.successes}"])
     if c.mode is CriterionMode.INFERENTIAL:
-        lines.append(f"    observedPassRate: {c.observed_rate:.6f}")
+        # Not stateable at zero trials, and stating 0.0 would assert a rate
+        # from the same non-evidence that makes the bound null — absence and
+        # "0%" must not be the same statement. Value-or-absent, as the
+        # latency percentiles already are.
+        if c.trials:
+            lines.append(f"    observedPassRate: {c.observed_rate:.6f}")
         # Stated as an explicit null at zero trials: a consumer must be able
         # to tell "no evidence" from "field absent".
         bound = "null" if c.wilson_lower_bound is None else f"{c.wilson_lower_bound:.6f}"
