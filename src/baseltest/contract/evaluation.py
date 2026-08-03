@@ -99,6 +99,14 @@ class TrialViews:
 _SUBJECT_EXCERPT_LIMIT = 256
 
 
+_NO_VALUE_AT_PATH = "\u2400 no value at path"
+"""The stated marker for a path that selected nothing.
+
+A missing field and a wrong extraction are different defects, and a reader
+must be able to tell them apart without inferring it from an empty excerpt.
+"""
+
+
 def _subject_excerpt(value: Any) -> str:
     """A bounded excerpt of a projected subject — the area's excerpt rule."""
     text = str(value)
@@ -121,6 +129,24 @@ class ObservedValue:
     held: bool
 
 
+class FailureAxis(StrEnum):
+    """Why a trial failed, on the companion's diagnostic axis (§1.4.5a).
+
+    Diagnostic only: it never changes the arithmetic. Every trial counts in
+    the denominator, whichever axis its failure lies on — the axis tells the
+    developer whether the postcondition was judged and did not hold, or no
+    testable value could be produced at all. A high transform/no-value share
+    is itself a signal to read before the pass rate.
+
+    Stated as a field rather than inferred from a reason string's prefix:
+    the reason is author-facing prose, and parsing a display convention to
+    recover structure is the sin the standings' structured rows removed.
+    """
+
+    CONDITION = "condition"
+    TRANSFORM_NO_VALUE = "transform/no-value"
+
+
 @dataclass(frozen=True, slots=True)
 class TrialEvaluation:
     """One criterion's judgement of one response.
@@ -130,6 +156,8 @@ class TrialEvaluation:
         reason: The failure reason on a fail (a view's transformation
             failure, or the first postcondition that did not hold);
             ``None`` on a pass.
+        axis: The :class:`FailureAxis` ``reason`` lies on; ``None`` on a
+            pass. Stated, never parsed back out of ``reason``.
         outcomes: Per-postcondition ``(name, status)`` pairs in
             declaration order, with the family's three-valued
             :class:`Outcome` status.
@@ -140,6 +168,7 @@ class TrialEvaluation:
 
     passed: bool
     reason: str | None = None
+    axis: FailureAxis | None = None
     outcomes: tuple[tuple[str, Outcome], ...] = ()
     subjects: tuple[tuple[str, str], ...] = ()
 
@@ -202,6 +231,14 @@ def evaluate_trial(
             return TrialEvaluation(
                 passed=False,
                 reason=first_required_reason or reason,
+                # An earlier required postcondition already failed on the
+                # condition axis; this transform failure did not become the
+                # stated reason, so the axis follows the reason, not the site.
+                axis=(
+                    FailureAxis.CONDITION
+                    if first_required_reason is not None
+                    else FailureAxis.TRANSFORM_NO_VALUE
+                ),
                 outcomes=tuple(outcomes),
                 subjects=tuple(subjects),
             )
@@ -212,7 +249,6 @@ def evaluate_trial(
                 postcondition=postcondition.name,
                 original=defect,
             ) from defect
-        subjects.append((postcondition.name, _subject_excerpt(subject)))
         try:
             result = postcondition.evaluate(subject)
         except Exception as defect:
@@ -222,6 +258,21 @@ def evaluate_trial(
                 postcondition=postcondition.name,
                 original=defect,
             ) from defect
+        # The obtained value is what the check found where it looked. Only a
+        # path-addressed check performs a projection, so only it can report
+        # one; an unaddressed check judged the subject itself. Recording the
+        # whole view here instead — as this did until 2026-08-03 — makes
+        # every row show the same alphabetically-first field of the reply,
+        # answering neither "what was returned at this path" nor "what was
+        # the whole reply".
+        subjects.append(
+            (
+                postcondition.name,
+                _NO_VALUE_AT_PATH
+                if result.no_value_at_path
+                else _subject_excerpt(result.obtained if result.obtained is not None else subject),
+            )
+        )
         if result.passed:
             outcomes.append((postcondition.name, Outcome.PASSED))
         else:
@@ -247,6 +298,7 @@ def evaluate_trial(
     return TrialEvaluation(
         passed=trial_reason is None,
         reason=trial_reason,
+        axis=None if trial_reason is None else FailureAxis.CONDITION,
         outcomes=tuple(outcomes),
         subjects=tuple(subjects),
     )
@@ -260,11 +312,16 @@ class CriterionTally:
         successes: Trials on which the criterion passed.
         trials: Total trials evaluated.
         failure_reasons: Distribution of failure reasons over failed trials.
+        failure_axes: The :class:`FailureAxis` each observed reason lies
+            on. A reason has exactly one axis, so this is a lookup beside
+            the distribution rather than a second key on it — consumers
+            that only count failures are untouched.
     """
 
     successes: int = 0
     trials: int = 0
     failure_reasons: Counter[str] = field(default_factory=Counter)
+    failure_axes: dict[str, FailureAxis] = field(default_factory=dict)
 
     def record(self, evaluation: TrialEvaluation) -> None:
         """Fold one trial's evaluation into the tally."""
@@ -272,7 +329,10 @@ class CriterionTally:
         if evaluation.passed:
             self.successes += 1
         else:
-            self.failure_reasons[evaluation.reason or "unspecified"] += 1
+            reason = evaluation.reason or "unspecified"
+            self.failure_reasons[reason] += 1
+            if evaluation.axis is not None:
+                self.failure_axes[reason] = evaluation.axis
 
     @property
     def observed_rate(self) -> float:

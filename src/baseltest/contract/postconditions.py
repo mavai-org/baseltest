@@ -29,10 +29,21 @@ class PostconditionResult:
         passed: Whether the check held.
         reason: A short human-readable reason when it did not, used in
             failure-distribution reporting; ``None`` on a pass.
+        obtained: What the check actually found where it looked — the value
+            selected by a path-addressed check, reported by the check
+            because it is the only party that performed the projection.
+            ``None`` when the check is not path-addressed, in which case the
+            subject it judged is the value.
+        no_value_at_path: The path selected nothing. Distinct from finding a
+            different value: a missing field and a wrong extraction are
+            different defects, and a reader must be able to tell them apart
+            without inferring it from an absent excerpt.
     """
 
     passed: bool
     reason: str | None = None
+    obtained: Any | None = None
+    no_value_at_path: bool = False
 
     @staticmethod
     def ok() -> "PostconditionResult":

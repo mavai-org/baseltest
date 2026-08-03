@@ -209,12 +209,21 @@ def path_qualified(
         else:
             texts = _xpath_values(value, expression)
         if not texts:
-            return PostconditionResult.failed(f"path {expression} selected nothing")
+            return PostconditionResult(
+                passed=False,
+                reason=f"path {expression} selected nothing",
+                no_value_at_path=True,
+            )
+        obtained = texts[0] if len(texts) == 1 else texts
         for text in texts:
             result = inner.check(text)
             if not result.passed:
-                return PostconditionResult.failed(f"path {expression}: {result.reason}")
-        return PostconditionResult.ok()
+                return PostconditionResult(
+                    passed=False,
+                    reason=f"path {expression}: {result.reason}",
+                    obtained=obtained,
+                )
+        return PostconditionResult(passed=True, obtained=obtained)
 
     return Postcondition(
         name=f"{inner.name} at {expression}",
@@ -265,14 +274,25 @@ def path_each_value(
                 return mismatch
         selected = _selected_values(language, expression, compiled, value)
         if not selected:
+            # Nothing at the path is a distinct defect from a wrong value,
+            # and only the check knows which occurred.
             if empty_selection_holds:
-                return PostconditionResult.ok()
-            return PostconditionResult.failed(f"path {expression} selected nothing")
+                return PostconditionResult(passed=True, no_value_at_path=True)
+            return PostconditionResult(
+                passed=False,
+                reason=f"path {expression} selected nothing",
+                no_value_at_path=True,
+            )
+        obtained = selected[0] if len(selected) == 1 else selected
         for item in selected:
             result = inner.check(item)
             if not result.passed:
-                return PostconditionResult.failed(f"path {expression}: {result.reason}")
-        return PostconditionResult.ok()
+                return PostconditionResult(
+                    passed=False,
+                    reason=f"path {expression}: {result.reason}",
+                    obtained=obtained,
+                )
+        return PostconditionResult(passed=True, obtained=obtained)
 
     return Postcondition(
         name=f"{inner.name} at {expression}",
@@ -307,10 +327,20 @@ def path_collective(
             if mismatch is not None:
                 return mismatch
         selected = _selected_values(language, expression, compiled, value)
+        # A collective form judges the selection as one collection, so the
+        # selection itself is what was obtained; an empty one is the empty
+        # collection, which is still "nothing at the path".
         result = inner.check(selected)
         if result.passed:
-            return result
-        return PostconditionResult.failed(f"path {expression}: {result.reason}")
+            return PostconditionResult(
+                passed=True, obtained=selected, no_value_at_path=not selected
+            )
+        return PostconditionResult(
+            passed=False,
+            reason=f"path {expression}: {result.reason}",
+            obtained=selected,
+            no_value_at_path=not selected,
+        )
 
     return Postcondition(
         name=f"{inner.name} at {expression}",
