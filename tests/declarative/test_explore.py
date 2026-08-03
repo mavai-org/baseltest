@@ -498,6 +498,11 @@ class TestOtherVerbsIgnoreTheGrid:
                     latency_indent = None
                 if line.startswith("generatedAt"):
                     continue
+                # The fingerprint covers the body including the timestamp
+                # this comparison deliberately drops, so it cannot be
+                # compared alongside a normalised body.
+                if line.startswith("contentFingerprint"):
+                    continue
                 if line.strip() == "latency:":
                     latency_indent = indent
                     continue

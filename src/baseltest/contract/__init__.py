@@ -23,6 +23,7 @@ from .errors import BaseltestError, ContractValidationError, PreconditionError
 from .evaluation import (
     CriterionTally,
     EvaluationContext,
+    FailureAxis,
     ObservedValue,
     Outcome,
     PostconditionStanding,
@@ -71,6 +72,7 @@ from .postconditions import (
 from .reply import Reply
 
 __all__ = [
+    "FailureAxis",
     "Reply",
     "PERCENTILE_LEVELS",
     "BaseltestError",

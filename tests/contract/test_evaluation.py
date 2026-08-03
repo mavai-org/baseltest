@@ -10,6 +10,7 @@ from baseltest.contract import (
     Criterion,
     CriterionTally,
     EvaluationContext,
+    FailureAxis,
     ServiceContract,
     TransformError,
     TrialDefectError,
@@ -192,6 +193,106 @@ class TestTally:
         reasons = list(tally.failure_reasons)
         assert any(r.startswith("transform failed") for r in reasons)
         assert any("truthy" in r for r in reasons)
+
+
+class TestObtainedValue:
+    """A standings exemplar states what the check found where it looked.
+
+    Until 2026-08-03 it stated a truncation of the whole view output, so
+    every row of a document-extraction corpus showed the same
+    alphabetically-first field regardless of which check failed — the
+    defect that forced readers to reconstruct observed values by regex.
+    """
+
+    def test_a_path_addressed_check_reports_the_value_at_its_path(self) -> None:
+        from baseltest.declarative._instantiate._postconditions import _compiled_path
+        from baseltest.declarative._structured import path_each_value
+
+        language, expression, compiled, _ = _compiled_path("$.b", "doc", {"doc": "json"}, "where")
+        inner = equals("2")
+        check = path_each_value(language, expression, compiled, inner, view="doc")
+        criterion = Criterion(name="c", postconditions=(check,))
+        evaluation = evaluate(criterion, '{"a": "first", "b": "wrong"}')
+        assert not evaluation.passed
+        obtained = dict(evaluation.subjects)["equals '2' at $.b"]
+        # The value at $.b, not the document that begins with "a".
+        assert obtained == "wrong"
+        assert "first" not in obtained
+
+    def test_a_path_that_selects_nothing_is_marked_distinctly(self) -> None:
+        from baseltest.declarative._instantiate._postconditions import _compiled_path
+        from baseltest.declarative._structured import path_each_value
+
+        language, expression, compiled, _ = _compiled_path("$.z", "doc", {"doc": "json"}, "where")
+        check = path_each_value(language, expression, compiled, equals("2"), view="doc")
+        criterion = Criterion(name="c", postconditions=(check,))
+        evaluation = evaluate(criterion, '{"a": "first"}')
+        assert not evaluation.passed
+        obtained = dict(evaluation.subjects)["equals '2' at $.z"]
+        # A missing field and a wrong extraction are different defects.
+        assert "no value at path" in obtained
+        assert "first" not in obtained
+
+
+class TestFailureAxis:
+    """The companion's diagnostic axis (§1.4.5a) is stated, not parsed.
+
+    Every trial counts in the denominator whichever axis it failed on; the
+    axis exists so a reader can see how many failures never reached a
+    postcondition at all.
+    """
+
+    def test_condition_failure_is_the_condition_axis(self) -> None:
+        criterion = Criterion(name="c", postconditions=(contains("ok"),))
+        evaluation = evaluate(criterion, "nope")
+        assert not evaluation.passed
+        assert evaluation.axis is FailureAxis.CONDITION
+
+    def test_transform_failure_is_the_no_value_axis(self) -> None:
+        criterion = Criterion(
+            name="c",
+            postconditions=(satisfies("any", lambda v: True, view="doc"),),
+        )
+        evaluation = evaluate(criterion, "not json {")
+        assert not evaluation.passed
+        assert evaluation.axis is FailureAxis.TRANSFORM_NO_VALUE
+
+    def test_a_pass_carries_no_axis(self) -> None:
+        criterion = Criterion(name="c", postconditions=(contains("ok"),))
+        assert evaluate(criterion, "ok").axis is None
+
+    def test_axis_follows_the_stated_reason_not_the_failing_site(self) -> None:
+        # A required postcondition fails on the raw response, then a later
+        # postcondition's view cannot transform. The earlier condition
+        # failure is the stated reason, so the axis must be CONDITION —
+        # reason and axis describe the same failure or they describe none.
+        criterion = Criterion(
+            name="c",
+            postconditions=(
+                contains("ok"),
+                satisfies("any", lambda v: True, view="doc"),
+            ),
+        )
+        evaluation = evaluate(criterion, "not json {")
+        assert not evaluation.passed
+        assert evaluation.reason is not None
+        assert not evaluation.reason.startswith("transform failed")
+        assert evaluation.axis is FailureAxis.CONDITION
+
+    def test_tally_records_each_reason_axis(self) -> None:
+        criterion = Criterion(
+            name="c",
+            postconditions=(satisfies("truthy", bool, view="doc"),),
+        )
+        tally = CriterionTally()
+        tally.record(evaluate(criterion, "not json"))
+        tally.record(evaluate(criterion, "0"))
+        axes = tally.failure_axes
+        assert len(axes) == 2
+        assert {
+            FailureAxis.TRANSFORM_NO_VALUE,
+            FailureAxis.CONDITION,
+        } == set(axes.values())
 
 
 class TestPerInputGating:

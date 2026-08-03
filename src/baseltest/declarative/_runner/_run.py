@@ -138,12 +138,10 @@ def run(
 
     baseline_path: str | None = None
     if run_mode is RunKind.MEASURE:
-        provenance = {
+        factor_record = {
             "taskFormat": FORMAT_IDENTIFIER,
             "runMode": run_mode.value,
-            "binding": declaration.service,
             "taskFile": contract_path.name,
-            **service_provenance,
             # Roots disclosure: the declared value and the overridden
             # flag, never a resolved override path (publication hygiene).
             # Informational — baseline matching never consults these.
@@ -151,7 +149,9 @@ def run(
         }
         record = BaselineRecord.from_run_result(
             result,
-            provenance=provenance,
+            service_name=declaration.service,
+            covariate_profile=dict(service_provenance),
+            factor_record=factor_record,
             views=descriptive_view_fingerprints(declaration, registry),
         )
         baseline_path = str(write_baseline(record, Path(baseline_dir)))

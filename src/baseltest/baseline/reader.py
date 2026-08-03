@@ -17,6 +17,7 @@ volatile keys). A near-miss is reported with the reason it did not match —
 a config drift must never silently downgrade a judged criterion.
 """
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,13 +25,12 @@ from typing import Any
 
 from baseltest.engine import LatencyBasis
 
-from .writer import SCHEMA_VERSION
+from .writer import FINGERPRINT_KEY, SCHEMA_VERSION, baseline_filename_for
 
-_READABLE_SCHEMAS = frozenset({SCHEMA_VERSION, "baseltest-baseline-1"})
+_READABLE_SCHEMAS = frozenset({SCHEMA_VERSION})
 
 # Provenance keys that legitimately differ between the measure run and a
 # later test run: they identify the run, not the thing measured.
-_VOLATILE_PROVENANCE = frozenset({"runMode", "taskFile"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,10 +62,12 @@ class StoredBaseline:
 
     path: Path
     contract_id: str
+    service_name: str
     sample_count: int
     inputs_identity: str
     generated_at: str
-    provenance: dict[str, str]
+    covariate_profile: dict[str, str]
+    factor_record: dict[str, str]
     criteria: dict[str, StoredCriterion]
     latency: StoredLatency | None = None
 
@@ -184,45 +186,79 @@ def read_baseline(path: Path) -> StoredBaseline:
             schema generation, malformed emission).
         OSError: The file cannot be read.
     """
-    data = _parse_lines(path.read_text(encoding="utf-8").splitlines())
+    text = path.read_text(encoding="utf-8")
+    data = _parse_lines(text.splitlines())
     schema = data.get("schemaVersion")
-    if schema not in _READABLE_SCHEMAS:
-        readable = ", ".join(sorted(_READABLE_SCHEMAS))
-        raise ValueError(f"{path.name}: schema {schema!r} is not one of: {readable}")
+    if schema != SCHEMA_VERSION:
+        # The whole migration experience is this sentence: what was found,
+        # what is expected, and the verb that regenerates the artefact.
+        raise ValueError(
+            f"{path.name}: schema {schema!r} is not {SCHEMA_VERSION!r}. "
+            "Baselines written by an earlier baseltest are not read: re-run "
+            "`basel measure` against this contract to regenerate it."
+        )
+    _verify_fingerprint(path, text, data)
     criteria: dict[str, StoredCriterion] = {}
     for name, body in data.get("criteria", {}).items():
         criteria[name] = StoredCriterion(
             successes=int(body["successes"]), trials=int(body["trials"])
         )
-    provenance = {str(k): str(v) for k, v in data.get("provenance", {}).items()}
+    execution = data.get("execution", {})
     return StoredBaseline(
         path=path,
-        contract_id=str(data["contractId"]),
-        sample_count=int(data["sampleCount"]),
+        contract_id=str(data["serviceContractId"]),
+        service_name=str(data["serviceName"]),
+        sample_count=int(execution["samplesExecuted"]),
         inputs_identity=str(data["inputsIdentity"]),
         generated_at=str(data.get("generatedAt", "")),
-        provenance=provenance,
+        covariate_profile={str(k): str(v) for k, v in data.get("covariateProfile", {}).items()},
+        factor_record={str(k): str(v) for k, v in data.get("factorRecord", {}).items()},
         criteria=criteria,
         latency=_parse_latency(data.get("latency")),
     )
 
 
+def _verify_fingerprint(path: Path, text: str, data: dict[str, object]) -> None:
+    """Refuse a record whose content does not match its stated fingerprint.
+
+    The fingerprint covers the document with its own line absent, which is
+    the emitted body up to that final line.
+    """
+    stated = data.get(FINGERPRINT_KEY)
+    if not stated:
+        raise ValueError(f"{path.name}: no {FINGERPRINT_KEY} — the record cannot be trusted")
+    marker = f"\n{FINGERPRINT_KEY}:"
+    body = text[: text.rindex(marker) + 1] if marker in text else text
+    actual = "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+    if actual != stated:
+        raise ValueError(
+            f"{path.name}: {FINGERPRINT_KEY} does not match the record's content "
+            "— the file has been edited or truncated since it was written"
+        )
+
+
 def resolve_baseline(
     baseline_dir: Path,
     contract_id: str,
+    service_name: str,
     inputs_identity: str,
-    provenance: dict[str, str],
+    covariate_profile: dict[str, str],
 ) -> BaselineResolution:
     """Find the baseline matching what this run would measure.
 
-    Matching is strict identity: the deterministic filename locates the
-    candidate (same contract, same inputs fingerprint), and the recorded
-    covariates — the provenance minus volatile run-identity keys — must be
-    equal. Any difference is a non-match, and the resolution says which
-    keys differed: a drifted configuration is surfaced, never silently
+    Matching is strict identity over the tuple (contract, service, inputs,
+    covariate profile). The deterministic filename locates the candidate and
+    the loaded record's own statement decides — the body is authoritative,
+    never the path. Any difference is a non-match, and the resolution says
+    which keys differed: a drifted configuration is surfaced, never silently
     treated as "no baseline".
+
+    The covariate profile is compared as stated, rather than reconstructed
+    by subtracting volatile keys from provenance: identity and provenance
+    are separate fields in the artefact, so they no longer have to be
+    separated again on the way back in.
     """
-    candidate = baseline_dir / f"{contract_id}-{inputs_identity[:12]}.yaml"
+    candidate = baseline_dir / baseline_filename_for(contract_id, service_name, inputs_identity)
     if not candidate.is_file():
         return BaselineResolution(reason=f"no baseline found (expected {candidate.as_posix()})")
     try:
@@ -231,8 +267,15 @@ def resolve_baseline(
         return BaselineResolution(reason=f"baseline {candidate.name} is unreadable: {error}")
     if stored.inputs_identity != inputs_identity:
         return BaselineResolution(reason=f"baseline {candidate.name} records different inputs")
-    theirs = {k: v for k, v in stored.provenance.items() if k not in _VOLATILE_PROVENANCE}
-    ours = {k: v for k, v in provenance.items() if k not in _VOLATILE_PROVENANCE}
+    if stored.service_name != service_name:
+        return BaselineResolution(
+            reason=(
+                f"baseline {candidate.name} records service {stored.service_name!r}, "
+                f"not {service_name!r}"
+            )
+        )
+    theirs = dict(stored.covariate_profile)
+    ours = dict(covariate_profile)
     if theirs != ours:
         differing = sorted(
             key for key in set(theirs) | set(ours) if theirs.get(key) != ours.get(key)

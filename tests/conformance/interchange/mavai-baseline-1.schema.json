@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mavai-org/mavai-R/schema/mavai-baseline-1.schema.json",
+  "title": "mavai baseline (measure) interchange artefact",
+  "description": "One document per Empirical Baseline: what a measure experiment recorded about one service contract's one service, under one covariate profile, over one input set. Framework-neutral: emitted by any mavai-family framework, read back by that framework's own resolver and consumed by shared tooling such as the report renderer. Supersedes the per-framework dialects baseltest-baseline-2, punit-baseline-3 and feotest-spec-1. This schema is the machine-checkable structural projection of the canonical format specification (MAVAI-BASELINE-FORMAT.md in the family's internal requirements catalog); it validates the parsed data model of the YAML document and never introduces a rule the specification does not state. Unlike the explore and optimize artefacts a baseline is read back to derive a regression threshold, so it carries identity that is compared rather than merely displayed: the identity tuple is (serviceContractId, serviceName, covariateProfile, inputsIdentity) and no element of it keys a record alone. Statistics are stated by the emitter; consumers never derive them. Additive evolution: emitters may add fields anywhere; consumers ignore what they do not know.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "serviceContractId",
+    "serviceName",
+    "generatedAt",
+    "confidenceLevel",
+    "inputsIdentity",
+    "covariateProfile",
+    "execution",
+    "criteria",
+    "contentFingerprint"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": {
+      "const": "mavai-baseline-1",
+      "description": "Schema identity. A baseline stating any other value is refused, not skipped: a baseline is read back, and silently ignoring one reports 'no baseline found' where the truth is 'a baseline exists and cannot be read'."
+    },
+    "serviceContractId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The measured service contract's stable identity; part of the identity tuple. Free-form — no version scheme is parsed from it.",
+      "$comment": "Replaces the legacy useCaseId wire name (punit, feotest) and baseltest's shortened contractId. Area rule 4."
+    },
+    "serviceName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The name of the service that was invoked; part of the identity tuple. A service may be the subject of more than one contract, and a contract may exercise more than one service, so neither this nor serviceContractId identifies a record alone.",
+      "$comment": "Area rule 8. punit's methodName and baseltest's provenance.binding are this field under their historical spellings."
+    },
+    "generatedAt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "ISO 8601 UTC timestamp of emission. Quote it: YAML 1.1 loaders re-type an unquoted timestamp."
+    },
+    "confidenceLevel": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1,
+      "description": "The confidence level at which every wilsonLowerBound in this document was computed. One level per record. Distinct from criteria.<name>.normativeJudgement.confidence, which is the stipulated judgement's level and need not agree."
+    },
+    "inputsIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Order-insensitive fingerprint of the input list the run drew from; part of the identity tuple. A different input set is a different Bernoulli stream."
+    },
+    "footprint": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "Derived identity over the contract identity plus the factor keys (the ontology's Footprint). Informational and recomputable: covariateProfile is authoritative and is what resolution compares."
+    },
+    "covariateProfile": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "propertyNames": { "maxLength": 256 },
+      "description": "The resolved covariate values, keyed by covariate name; part of the identity tuple.",
+      "$comment": "Area rule 6 bounds every mapping key."
+    },
+    "factorRecord": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "propertyNames": { "maxLength": 256 },
+      "description": "Run provenance — contract format, resolved service type, binding registry detail, and per-framework context. Never compared by resolution (area rule 7)."
+    },
+    "execution": {
+      "type": "object",
+      "required": ["samplesPlanned", "samplesExecuted", "terminationReason"],
+      "additionalProperties": true,
+      "properties": {
+        "samplesPlanned": { "type": "integer", "minimum": 0, "description": "Trials asked for." },
+        "samplesExecuted": { "type": "integer", "minimum": 0, "description": "Trials actually run. Replaces the dialects' sampleCount." },
+        "terminationReason": { "type": "string", "minLength": 1, "description": "COMPLETED, or the budget/abort reason. A resolver may refuse a baseline that did not complete." }
+      }
+    },
+    "criteria": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "maxLength": 256 },
+      "additionalProperties": { "$ref": "#/$defs/criterion" },
+      "description": "One entry per declared criterion, including the single-criterion case — the criterion's name is part of the result."
+    },
+    "cost": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Wall-clock and token totals and averages. Informational."
+    },
+    "latency": {
+      "type": "object",
+      "required": ["basis", "contributingSamples", "totalSamples", "sortedPassingLatenciesMs"],
+      "additionalProperties": true,
+      "properties": {
+        "basis": { "const": "passing-samples", "description": "The population the block describes." },
+        "contributingSamples": { "type": "integer", "minimum": 0 },
+        "totalSamples": { "type": "integer", "minimum": 0 },
+        "p50Ms": { "type": "number", "minimum": 0 },
+        "p90Ms": { "type": "number", "minimum": 0 },
+        "p95Ms": { "type": "number", "minimum": 0 },
+        "p99Ms": { "type": "number", "minimum": 0 },
+        "sortedPassingLatenciesMs": {
+          "type": "array",
+          "items": { "type": "number", "minimum": 0 },
+          "description": "Recorded passing-trial durations, milliseconds, ascending. This vector — not the percentiles — is what a later test consumes to derive a latency bound at its own confidence."
+        }
+      },
+      "description": "Absent as a whole when no sample passed. Each percentile is present iff the emitter's conformance-tested minimum-sample gate admits it; an absent key means 'not stateable at this sample count', never zero.",
+      "$comment": "Companion §12: latency is the one place a denominator legitimately narrows, being conditional on success."
+    },
+    "expiration": {
+      "type": "object",
+      "required": ["expiresInDays"],
+      "additionalProperties": true,
+      "properties": {
+        "expiresInDays": { "type": "integer", "minimum": 1, "description": "The declared window; authoritative." },
+        "expiresAt": { "type": "string", "description": "generatedAt + expiresInDays, derived. A reader recomputes rather than trusts it." }
+      },
+      "description": "Absent entirely when the contract declares no window."
+    },
+    "contentFingerprint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SHA-256 over the document with this field removed. Verified on load in every framework; a mismatch is refused."
+    }
+  },
+  "$defs": {
+    "criterion": {
+      "type": "object",
+      "required": ["mode", "trials", "successes"],
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "enum": ["inferential", "observational"],
+          "description": "Companion §1.5. An observational criterion estimates no proportion: it states neither observedPassRate nor wilsonLowerBound.",
+          "$comment": "Companion §1.4.5a, §412."
+        },
+        "procedure": {
+          "enum": ["REGRESSION", "COMPLIANCE"],
+          "description": "The inferential procedure. Absent for observational criteria."
+        },
+        "trials": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The rate's denominator, always the full sampling size — equal to execution.samplesExecuted. Every trial counts: a trial that produced no testable value is a FAIL like any other, distinguished by its reason and never excluded.",
+          "$comment": "Companion §1.4.5a: n_c is simply the size N of the sampling. There is no per-criterion denominator policy, no enum to choose, and no exclusion of unproducible trials (changelog entries 7 and 8, 2026-05)."
+        },
+        "successes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Trials this criterion judged a PASS. successes <= trials."
+        },
+        "observedPassRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "successes / trials, as stated. Present iff mode is inferential."
+        },
+        "wilsonLowerBound": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The one-sided Wilson lower bound over this criterion's own successes and trials at the record's confidenceLevel — a characterisation of the recorded evidence, never an acceptance threshold, and never read by a resolver or by threshold derivation. null when trials is 0. Emitted unconditionally at any trials >= 1; whether it is shown is the consumer's ruling.",
+          "$comment": "Companion §2.3.1 / §3.3 (one-sided construction, alpha-doubling). NOT the §3.4 test-time threshold: the two coincide at equal n for an ordinary baseline but not at a perfect one, where §4.3.2's two-step applies on the test side only."
+        },
+        "failureDistribution": {
+          "type": "array",
+          "description": "Failure attribution, the same entry shape as mavai-explore-1. Counts sum to trials - successes.",
+          "items": {
+            "type": "object",
+            "required": ["condition", "count"],
+            "additionalProperties": true,
+            "properties": {
+              "condition": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "The violating condition's bounded identity as the contract declares it — never embedding input or response content (area rule 6)."
+              },
+              "reason": {
+                "enum": ["condition", "transform/no-value"],
+                "description": "Why the trial failed: the postcondition was evaluated and did not hold, or no testable value could be produced. Diagnostic only — it never changes the arithmetic.",
+                "$comment": "Companion §1.4.5a mandates this breakdown: the transparent-statistics output exposes the FAILs by reason, and a high transform/no-value share is itself a signal to read before the pass rate."
+              },
+              "count": { "type": "integer", "minimum": 1 },
+              "inputIndex": { "type": "integer", "minimum": 0, "description": "Zero-based structural input reference; the input value itself is never serialised as identity." },
+              "inputExcerpt": { "type": "string", "maxLength": 256, "description": "Bounded excerpt of the driving input, for human orientation only." }
+            }
+          }
+        },
+        "normativeJudgement": {
+          "type": "object",
+          "required": ["state", "stipulatedThreshold", "confidence"],
+          "additionalProperties": true,
+          "properties": {
+            "state": { "type": "string", "minLength": 1 },
+            "stipulatedThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+            "confidence": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+            "feasibleMinimumSamples": { "type": "integer", "minimum": 0 }
+          },
+          "description": "How the recorded evidence stood against the criterion's stipulated threshold at measure time. Documentary only — no resolver and no threshold derivation reads it. Its confidence is the stipulated judgement's level and need not equal the record's confidenceLevel."
+        },
+        "standings": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The criterion's descriptive per-(input, check) postcondition standings — identical in shape to mavai-explore-1's standings block, which is its canonical definition. Counts and observed fractions only; never an interval, a threshold, or per-check verdict vocabulary."
+        }
+      }
+    }
+  }
+}

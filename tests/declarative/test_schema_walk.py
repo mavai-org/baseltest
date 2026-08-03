@@ -307,7 +307,9 @@ class TestOutputSchemaJoin:
 
 
 class TestDescriptiveRecording:
-    def test_fingerprint_lands_in_views_block_never_in_provenance(self, tmp_path: Path) -> None:
+    def test_fingerprint_lands_in_views_block_never_in_the_factor_record(
+        self, tmp_path: Path
+    ) -> None:
         bindings = Bindings()
         register_echo_service(bindings)
 
@@ -330,7 +332,7 @@ class TestDescriptiveRecording:
         assert "views:" in content
         assert '"verdict":' in content
         assert "outputSchemaFingerprint" in content
-        provenance_block = content.split("provenance:")[1].split("views:")[0]
+        provenance_block = content.split("factorRecord:")[1].split("views:")[0]
         assert "outputSchemaFingerprint" not in provenance_block
 
     def test_schema_change_is_not_drift_no_covariate_refusal(self, tmp_path: Path) -> None:
