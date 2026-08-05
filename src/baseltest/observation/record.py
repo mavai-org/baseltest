@@ -85,6 +85,9 @@ class RunObservation:
             sweep was built around — the authored base its siblings
             override. Stated in the artefact so a consumer never has to
             infer it; a balanced sweep offers nothing to infer from.
+        configuration_name: The handle the author gave this configuration,
+            or ``None``. A reader sees it beside the configuration in a
+            report; nothing resolves by it, and it never reaches identity.
         samples_planned: The per-configuration sample count asked for.
         samples_executed: The samples actually run.
         successes: Trials on which every criterion passed.
@@ -110,6 +113,7 @@ class RunObservation:
     total_tokens: int = 0
     configuration: tuple[tuple[str, Any], ...] = ()
     base_configuration: bool = False
+    configuration_name: str | None = None
     latency: LatencyBlock | None = None
     samples: tuple[SampleRecord, ...] = ()
 
@@ -125,6 +129,7 @@ class RunObservation:
         factors: Mapping[str, Any] | None = None,
         configuration: Mapping[str, Any] | None = None,
         base_configuration: bool = False,
+        configuration_name: str | None = None,
     ) -> "RunObservation":
         """Build one configuration's observation from its completed run."""
         criteria: dict[str, CriterionStatistics] = {}
@@ -144,6 +149,7 @@ class RunObservation:
             factors=tuple((factors or {}).items()),
             configuration=tuple((configuration or {}).items()),
             base_configuration=base_configuration,
+            configuration_name=configuration_name,
             samples_planned=result.plan.samples,
             samples_executed=result.plan.samples,
             successes=result.overall_successes,

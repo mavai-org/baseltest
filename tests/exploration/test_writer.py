@@ -20,11 +20,13 @@ def record(
     factors: tuple[tuple[str, object], ...] = (("temperature", 0.7),),
     successes: int = 4,
     samples: int = 5,
+    configuration_name: str | None = None,
 ) -> RunObservation:
     return RunObservation(
         contract_id="support-agent-tuning",
         generated_at=datetime(2026, 7, 7, 12, 0, 0, tzinfo=UTC),
         factors=factors,
+        configuration_name=configuration_name,
         samples_planned=samples,
         samples_executed=samples,
         successes=successes,
@@ -329,3 +331,31 @@ class TestBaseConfigurationMarker:
         text = render_exploration(record())
         assert "baseConfiguration" not in parse_yaml(text)
         assert "baseConfiguration" not in text
+
+
+class TestConfigurationName:
+    """The handle in the emitted artefact.
+
+    Stated beside the identity, never instead of it, and never in the
+    filename — a handle changing must not orphan an artefact or create a
+    second copy of one configuration.
+    """
+
+    def test_the_handle_is_stated_beside_the_identity(self) -> None:
+        document = parse_yaml(render_exploration(record(configuration_name="hot-and-loose")))
+        assert document["configurationName"] == "hot-and-loose"
+        # The identity is untouched: it still derives from the factors.
+        assert document["configuration"] == "temperature-0.7"
+
+    def test_an_unnamed_configuration_states_nothing(self) -> None:
+        # Absence means the author named nothing — never an empty name.
+        assert "configurationName" not in parse_yaml(render_exploration(record()))
+
+    def test_the_handle_never_reaches_the_filename(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        plain = write_exploration(record(), tmp_path, "temperature")
+        named = write_exploration(
+            record(configuration_name="hot-and-loose"), tmp_path, "temperature"
+        )
+        assert named == plain
+        files = list((tmp_path / "support-agent-tuning" / "temperature").glob("*.yaml"))
+        assert files == [named]

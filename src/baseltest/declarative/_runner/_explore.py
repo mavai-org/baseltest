@@ -23,14 +23,39 @@ from .._registry import Bindings
 from .._services import discover_services
 from ._shared import DEFAULT_EXPLORATIONS_DIR, _tty_progress
 
+#: What the grid's own ``configuration:`` block is called in run output.
+#: A reader locates it by its role in the sweep, not by whatever its
+#: factor values happened to spell — and every other configuration is
+#: described against it. The family's reports call it the same thing.
+BASE_LABEL = "base"
+
+
+def _display_label(base: bool, name: str | None, identity: str) -> str:
+    """What a configuration is called in this run's output.
+
+    The base by its role, then the author's handle where they gave one,
+    then the identity its factor values spell.
+    """
+    if base:
+        return BASE_LABEL
+    return name or identity
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigurationExploration:
-    """One explored configuration: its factors, its run result, its artefact."""
+    """One explored configuration: its factors, its run result, its artefact.
+
+    ``configuration_name`` is the author's handle where they gave one — what
+    the run reports call this configuration, in place of the identity its
+    factor values spell. ``base`` marks the grid's own ``configuration:``
+    block, which a reader locates by its role rather than its values.
+    """
 
     factors: dict[str, object]
     result: RunResult
     path: Path
+    configuration_name: str | None = None
+    base: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +70,8 @@ class AbortedConfiguration:
 
     factors: dict[str, object]
     diagnosis: str
+    configuration_name: str | None = None
+    base: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +159,13 @@ def explore(
     aborted: list[AbortedConfiguration] = []
     for configuration in configurations:
         stem_source = tuple(configuration.factors.items())
-        record_label = exploration_stem(stem_source)
+        # What this configuration is called while it runs, so a reader
+        # watching the run reads what the report will call it afterwards.
+        record_label = _display_label(
+            configuration.base,
+            configuration.configuration_name,
+            exploration_stem(stem_source),
+        )
         try:
             result = execute(
                 configuration.contract,
@@ -145,7 +178,12 @@ def explore(
             # lost, but every remaining configuration's is not. Record the
             # diagnosis and carry on — the run reports the partial outcome.
             aborted.append(
-                AbortedConfiguration(factors=dict(configuration.factors), diagnosis=str(defect))
+                AbortedConfiguration(
+                    factors=dict(configuration.factors),
+                    diagnosis=str(defect),
+                    configuration_name=configuration.configuration_name,
+                    base=configuration.base,
+                )
             )
             if emit:
                 print(f"note: configuration {record_label} aborted — {defect}", file=sys.stderr)
@@ -155,11 +193,16 @@ def explore(
             factors=configuration.factors,
             configuration=configuration.configuration,
             base_configuration=configuration.base,
+            configuration_name=configuration.configuration_name,
         )
         artefact = write_exploration(record, Path(explorations_dir), experiment)
         explored.append(
             ConfigurationExploration(
-                factors=dict(configuration.factors), result=result, path=artefact
+                factors=dict(configuration.factors),
+                result=result,
+                path=artefact,
+                configuration_name=configuration.configuration_name,
+                base=configuration.base,
             )
         )
 
@@ -168,10 +211,21 @@ def explore(
             render_explorations(
                 declaration.contract,
                 sizing.samples,
-                [(e.path.stem, e.result, e.path.as_posix()) for e in explored],
+                [
+                    (
+                        _display_label(e.base, e.configuration_name, e.path.stem),
+                        e.result,
+                        e.path.as_posix(),
+                    )
+                    for e in explored
+                ],
             )
         )
         for entry in aborted:
-            label = exploration_stem(tuple(entry.factors.items()))
+            label = _display_label(
+                entry.base,
+                entry.configuration_name,
+                exploration_stem(tuple(entry.factors.items())),
+            )
             print(f"  configuration {label} aborted with a defect (no artefact written)")
     return ExplorationRun(completed=tuple(explored), aborted=tuple(aborted))

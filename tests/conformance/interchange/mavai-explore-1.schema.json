@@ -30,7 +30,13 @@
     "configuration": {
       "type": "string",
       "minLength": 1,
-      "description": "The configuration's display name. Cross-document identity for consumers; filenames are never parsed."
+      "description": "The configuration's identity: the string that distinguishes it from its siblings and correlates it across documents. Emitter-derived from the configuration's factor values; filenames are never parsed. Not a display name — a consumer with no configurationName derives something showable from this, which is what a reader saw before configurationName existed."
+    },
+    "configurationName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The author's name for what this configuration is — the idea under test, stated on the grid entry rather than derived from its values. A consumer that shows a configuration to a reader shows this when present, and falls back to what it derived from `configuration` when absent — never to an empty name. Additive and stated only when authored: absence means the author named nothing. Prose, so bounded and carrying no uniqueness guarantee; it never becomes identity, and two configurations may state the same name and remain two configurations."
     },
     "baseConfiguration": {
       "type": "boolean",
