@@ -26,11 +26,17 @@ from ._shared import DEFAULT_EXPLORATIONS_DIR, _tty_progress
 
 @dataclass(frozen=True, slots=True)
 class ConfigurationExploration:
-    """One explored configuration: its factors, its run result, its artefact."""
+    """One explored configuration: its factors, its run result, its artefact.
+
+    ``configuration_name`` is the author's handle where they gave one — what
+    the run reports call this configuration, in place of the identity its
+    factor values spell.
+    """
 
     factors: dict[str, object]
     result: RunResult
     path: Path
+    configuration_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +51,7 @@ class AbortedConfiguration:
 
     factors: dict[str, object]
     diagnosis: str
+    configuration_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +139,10 @@ def explore(
     aborted: list[AbortedConfiguration] = []
     for configuration in configurations:
         stem_source = tuple(configuration.factors.items())
-        record_label = exploration_stem(stem_source)
+        # What this configuration is called while it runs: the author's
+        # handle where they gave one, so a reader watching the run reads
+        # the same name they wrote in the services file.
+        record_label = configuration.configuration_name or exploration_stem(stem_source)
         try:
             result = execute(
                 configuration.contract,
@@ -145,7 +155,11 @@ def explore(
             # lost, but every remaining configuration's is not. Record the
             # diagnosis and carry on — the run reports the partial outcome.
             aborted.append(
-                AbortedConfiguration(factors=dict(configuration.factors), diagnosis=str(defect))
+                AbortedConfiguration(
+                    factors=dict(configuration.factors),
+                    diagnosis=str(defect),
+                    configuration_name=configuration.configuration_name,
+                )
             )
             if emit:
                 print(f"note: configuration {record_label} aborted — {defect}", file=sys.stderr)
@@ -160,7 +174,10 @@ def explore(
         artefact = write_exploration(record, Path(explorations_dir), experiment)
         explored.append(
             ConfigurationExploration(
-                factors=dict(configuration.factors), result=result, path=artefact
+                factors=dict(configuration.factors),
+                result=result,
+                path=artefact,
+                configuration_name=configuration.configuration_name,
             )
         )
 
@@ -169,10 +186,13 @@ def explore(
             render_explorations(
                 declaration.contract,
                 sizing.samples,
-                [(e.path.stem, e.result, e.path.as_posix()) for e in explored],
+                [
+                    (e.configuration_name or e.path.stem, e.result, e.path.as_posix())
+                    for e in explored
+                ],
             )
         )
         for entry in aborted:
-            label = exploration_stem(tuple(entry.factors.items()))
+            label = entry.configuration_name or exploration_stem(tuple(entry.factors.items()))
             print(f"  configuration {label} aborted with a defect (no artefact written)")
     return ExplorationRun(completed=tuple(explored), aborted=tuple(aborted))

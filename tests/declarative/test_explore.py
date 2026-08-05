@@ -646,3 +646,28 @@ class TestConfigurationName:
         text = SERVICES + f"      - temperature: 0.9\n        configurationName: {'x' * 257}\n"
         with pytest.raises(ContractConfigurationError, match="over the 256"):
             parse_services(text, Registry())
+
+
+class TestConfigurationNameOnTheCommandLine:
+    """A run reports a configuration by the name its author gave it."""
+
+    def test_the_progress_line_and_summary_use_the_handle(
+        self,
+        tmp_path: Path,
+        llm_environment: list[dict[str, Any]],
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        named = SERVICES.replace(
+            "      - temperature: 0.0\n",
+            "      - temperature: 0.0\n        configurationName: deterministic\n",
+        )
+        explore(
+            write_files(tmp_path, services=named),
+            samples_per_config=2,
+            explorations_dir=tmp_path / "x",
+            emit=True,
+        )
+        printed = capsys.readouterr().out
+        assert "deterministic" in printed
+        # An unnamed point still reports its stated identity.
+        assert "temperature-0.7" in printed
