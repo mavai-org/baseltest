@@ -7,6 +7,51 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.20.0] — 2026-08-05
+
+**An author can name a configuration.**
+
+A configuration is identified by its covariate values, and its artefact is
+named from them. That is unhelpful exactly where it matters: three tuned
+system prompts share a long prefix, so the readable half of each name is
+identical by construction and only a hash separates them. A reader
+comparing them learns nothing from the name — what distinguishes the
+variants is the idea under test, which only the author can state.
+
+An exploration entry may now carry **`configurationName:`** — a handle, in
+your words, for what the variant *is*:
+
+```yaml
+explorations:
+  - temperature: 0.7
+    configurationName: hot-and-loose
+```
+
+It travels into the explore artefact as `configurationName` (published in
+`mavai-explore-1` by mavai-R 0.10.9) and reappears wherever a reader meets
+the configuration: the run's own progress and summary lines while it
+samples, and the reports afterwards.
+
+**A handle is not a covariate.** It takes no part in resolution, never
+enters the configuration's identity, never names a file, and cannot make a
+grid point: an entry declaring nothing but a handle is refused, and two
+entries differing only by their handles are still one population and
+refused as duplicates. It is prose — bounded at 256 characters, with the
+empty string refused rather than taken for absence — so it carries no
+uniqueness guarantee, and two configurations may share a handle and remain
+two configurations.
+
+**The base is reported as `base`.** The run announced each configuration by
+the identity its factor values spell, then the report of that same run
+called the base "base" — two names for one configuration, minutes apart.
+One rule now serves the progress line, the abort note, and the run
+summary: the base by its role, then the author's handle, then the stated
+identity. The artefact filename is untouched and still spells the factor
+values, which is the one place identity belongs.
+
+Nothing to do on upgrade: `configurationName:` is optional, and a services
+file without one behaves exactly as before.
+
 ## [0.19.0] — 2026-08-03
 
 **The baseline artefact becomes the family format. Breaking: regenerate your baselines.**
