@@ -584,3 +584,65 @@ class TestFingerprintLaw:
         # and the fingerprint says so.
         with pytest.raises(ContractConfigurationError, match="different configuration"):
             run(contract, mode="test", baseline_dir=tmp_path / "b", emit=False)
+
+
+class TestConfigurationName:
+    """The handle a reader sees beside a configuration.
+
+    It is not a covariate: it takes no part in resolution, in the point
+    that duplicate-refusal compares, or in the artefact's filename. The
+    tests below pin exactly that, because a handle that quietly acquired
+    identity would re-import the withdrawn named-configurations
+    mechanism the services format still forbids.
+    """
+
+    def test_a_handle_reaches_the_definition_in_entry_order(self) -> None:
+        text = SERVICES.replace(
+            "      - temperature: 0.0\n",
+            "      - temperature: 0.0\n        configurationName: deterministic\n",
+        )
+        definition = parse_services(text, Registry())["support-agent"]
+        assert definition.exploration_names == ("deterministic", None, None)
+        # Aligned with the grid, and the baseline never carries one.
+        assert definition.grid_names == (None, "deterministic", None, None)
+        assert len(definition.grid_names) == len(definition.grid)
+
+    def test_a_handle_is_not_a_covariate(self) -> None:
+        named = SERVICES.replace(
+            "      - temperature: 0.0\n",
+            "      - temperature: 0.0\n        configurationName: deterministic\n",
+        )
+        plain = parse_services(SERVICES, Registry())["support-agent"]
+        with_name = parse_services(named, Registry())["support-agent"]
+        # Neither the swept keys nor the resolved points move.
+        assert with_name.swept_keys == plain.swept_keys
+        assert "configurationName" not in with_name.swept_keys
+        provenance = with_name.type.provenance(with_name.explorations[0])
+        assert "configurationName" not in provenance
+
+    def test_entries_differing_only_by_handle_are_still_one_point(self) -> None:
+        # The handle is not identity, so it cannot make a second population
+        # out of one. Refused exactly as an unnamed restatement would be.
+        text = SERVICES + "      - temperature: 0.7\n        configurationName: also-hot\n"
+        with pytest.raises(
+            ContractConfigurationError,
+            match=r"resolves to the same configuration as exploration entry 2",
+        ):
+            parse_services(text, Registry())
+
+    def test_an_entry_of_only_a_handle_is_refused(self) -> None:
+        # A handle names a grid point; it does not make one.
+        text = SERVICES + "      - configurationName: nothing-else\n"
+        with pytest.raises(ContractConfigurationError, match="does not make one"):
+            parse_services(text, Registry())
+
+    @pytest.mark.parametrize("value", ['""', '"   "', "42", "[a, b]"])
+    def test_a_handle_that_is_not_a_readable_string_is_refused(self, value: str) -> None:
+        text = SERVICES + f"      - temperature: 0.9\n        configurationName: {value}\n"
+        with pytest.raises(ContractConfigurationError, match="non-empty string"):
+            parse_services(text, Registry())
+
+    def test_a_handle_is_bounded(self) -> None:
+        text = SERVICES + f"      - temperature: 0.9\n        configurationName: {'x' * 257}\n"
+        with pytest.raises(ContractConfigurationError, match="over the 256"):
+            parse_services(text, Registry())

@@ -128,6 +128,37 @@ def _every_mapping_key(node: Any) -> list[str]:
 
 
 class TestInterchangeConformance:
+    def test_a_named_configuration_validates_and_keeps_its_identity(
+        self, tmp_path: Path, alternating_endpoint: None
+    ) -> None:
+        # A handle rides the real emitter through to the published schema.
+        # It is stated beside the identity, never instead of it, and the
+        # unnamed points in the same grid state nothing at all.
+        named = SERVICES.replace(
+            "      - temperature: 0.7\n",
+            "      - temperature: 0.7\n        configurationName: hot-and-loose\n",
+            1,
+        )
+        (tmp_path / "mavai-services.yaml").write_text(named, encoding="utf-8")
+        contract_path = tmp_path / "contract.yaml"
+        contract_path.write_text(CONTRACT, encoding="utf-8")
+        explore(
+            contract_path,
+            samples_per_config=12,
+            explorations_dir=tmp_path / "x",
+            emit=False,
+        )
+        documents = load_artefacts(tmp_path / "x")
+        validator = Draft202012Validator(_SCHEMA)
+        for document in documents:
+            validator.validate(document)
+        by_name = {d.get("configurationName") for d in documents}
+        assert by_name == {None, "hot-and-loose"}
+        # The named point's identity still derives from its factor values.
+        named_document = next(d for d in documents if d.get("configurationName"))
+        assert named_document["configurationName"] == "hot-and-loose"
+        assert "hot-and-loose" not in named_document["configuration"]
+
     def test_mixed_run_artefacts_validate_against_the_published_schema(
         self, tmp_path: Path, alternating_endpoint: None
     ) -> None:

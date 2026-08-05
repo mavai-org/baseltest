@@ -33,12 +33,15 @@ class ExploreConfiguration:
     point runs under, recorded in its artefact. ``base`` marks the point
     the sweep was built around — the services file's own
     ``configuration:``, which the ``explorations:`` entries override.
+    ``configuration_name`` is the entry's handle for the reader, ``None``
+    where none was declared; it names nothing the run resolves.
     """
 
     parameters: Any
     factors: dict[str, Any]
     configuration: Mapping[str, Any]
     base: bool
+    configuration_name: str | None
     contract: ServiceContract[Any]
     plan: RunPlan
 
@@ -108,6 +111,7 @@ def instantiate_explore(
     # The grid states the baseline `configuration:` first, then each
     # `explorations:` entry resolved over it — so the first point IS the
     # authored base, and saying so here is the whole of the fact.
+    grid_names = definition.grid_names
     for index, parameters in enumerate(definition.grid):
         # A type's last look at its grid point (e.g. the language model's
         # structured-output degradation): announced, never silent.
@@ -135,6 +139,7 @@ def instantiate_explore(
                 factors=factor_values(definition, parameters),
                 configuration=configuration_values(definition, parameters),
                 base=index == 0,
+                configuration_name=grid_names[index],
                 contract=contract,
                 plan=plan,
             )

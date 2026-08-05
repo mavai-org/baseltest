@@ -464,9 +464,15 @@ The adapters are deliberately plain: **one request per sample, no retries, no cl
         provider: anthropic
       - thinking: adaptive                    # client configuration is an axis too
         provider: anthropic
+      - temperature: 1.0
+        configurationName: wild                # optional: a handle for the reader
 ```
 
 `explorations:` extends the baseline into a **grid**. Each entry is a non-empty mapping declaring only the values it *replaces* — its resolution is the baseline with those keys overlaid (a key with no value is refused: omit a key to keep its baseline value). The grid is the baseline plus the entries; `basel explore` consumes the whole grid, while `test` and `measure` consume exactly the baseline and behave identically with or without the section.
+
+**Naming a configuration for the reader.** A configuration is identified by its covariate values, and its artefact name derives from them — which is unhelpful when the values that differ are long and share a prefix, as three tuned system prompts usually do: the readable half is identical and only a hash tells them apart. An entry may therefore carry an optional `configurationName:` — a **handle**, in your words, for what the variant *is*. It travels into the artefact as `configurationName` and reappears in reports so a reader knows which configuration was in play.
+
+A handle is not a covariate. It takes no part in resolution, never enters the configuration's identity, never names a file, and never makes a grid point: an entry declaring nothing but a handle is refused, and two entries differing only by their handles are still one population and refused as duplicates. It is prose for a reader, bounded at 256 characters, and two configurations may carry the same handle and remain two configurations.
 
 Two entries resolving to the same covariate point — or an entry restating the baseline — are refused: one population, one grid point (and one artefact filename). The keys any entry replaces become the grid's **swept keys**, in the type's canonical order; their resolved values identify each configuration in artefact filenames and variant labels, while every artefact's `factors:` block records the point's *full* resolved configuration, so a reader of any single artefact sees the whole picture.
 

@@ -123,6 +123,36 @@ def _resolve_file_values(
     return mapping
 
 
+#: The exploration entry's one reserved, non-covariate key.
+_NAME_KEY = "configurationName"
+
+#: A handle is shown to a reader, so it is bounded like any displayed value.
+_NAME_MAX = 256
+
+
+def _configuration_name(service: str, value: Any, where: str) -> str | None:
+    """An entry's optional handle, validated.
+
+    The handle is for the reader — it reappears in reports so they know
+    which configuration was in play — and plays no part in covariate
+    space: not in resolution, not in the point, not in the filename. It
+    is therefore removed from the entry before anything else looks at it.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _fail(
+            f"service {service!r}: {where}: `{_NAME_KEY}:` is a non-empty string — the "
+            "handle a reader sees beside this configuration in reports"
+        )
+    if len(value) > _NAME_MAX:
+        raise _fail(
+            f"service {service!r}: {where}: `{_NAME_KEY}:` is {len(value)} characters, "
+            f"over the {_NAME_MAX} a displayed handle may carry"
+        )
+    return value
+
+
 def _resolved_point(
     type_contract: ServiceTypeContract, parameters: Any
 ) -> tuple[tuple[str, str], ...]:
@@ -143,7 +173,7 @@ def _parse_explorations(
     type_contract: ServiceTypeContract,
     roots: Roots,
     base_dir: Path | None,
-) -> tuple[tuple[Any, ...], tuple[str, ...]]:
+) -> tuple[tuple[Any, ...], tuple[str, ...], tuple[str | None, ...]]:
     """Resolve the ``explorations:`` entries over the baseline record.
 
     Each entry declares only deviations; its resolution is the baseline
@@ -159,10 +189,18 @@ def _parse_explorations(
     ordered: list[str] = list(baseline)
     swept: set[str] = set()
     resolved: list[Any] = []
+    names: list[str | None] = []
     for index, entry in enumerate(entries, start=1):
         where = f"exploration entry {index}"
         if not isinstance(entry, dict):
             raise _fail(f"service {name!r}: {where} must be a mapping of replacement values")
+        entry = dict(entry)
+        names.append(_configuration_name(name, entry.pop(_NAME_KEY, None), where))
+        if not entry:
+            raise _fail(
+                f"service {name!r}: {where} declares only `{_NAME_KEY}:` — a handle names "
+                "a grid point, it does not make one; state the values this entry replaces"
+            )
         for key, value in entry.items():
             if value is None:
                 raise _fail(
@@ -191,7 +229,7 @@ def _parse_explorations(
             )
         seen[point] = f"exploration entry {index}"
     swept_keys = type_contract.parameter_order(tuple(key for key in ordered if key in swept))
-    return tuple(resolved), swept_keys
+    return tuple(resolved), swept_keys, tuple(names)
 
 
 def _parse_definition(
@@ -222,8 +260,9 @@ def _parse_definition(
     parameters = type_contract.parse(name, configuration, "configuration")
     explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
+    exploration_names: tuple[str | None, ...] = ()
     if "explorations" in data:
-        explorations, swept_keys = _parse_explorations(
+        explorations, swept_keys, exploration_names = _parse_explorations(
             name, data["explorations"], configuration, type_contract, roots, base_dir
         )
     optimizations: tuple[OptimizationDeclaration, ...] = ()
@@ -237,6 +276,7 @@ def _parse_definition(
         configuration=parameters,
         explorations=explorations,
         swept_keys=swept_keys,
+        exploration_names=exploration_names,
         optimizations=optimizations,
         roots=roots.disclosures(),
     )

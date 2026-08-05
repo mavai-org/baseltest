@@ -36,6 +36,11 @@ class ServiceDefinition:
             Empty unless the definition declares an ``explorations:`` section.
         swept_keys: The configuration keys any exploration entry replaces,
             in the type's canonical order — the grid's discriminating factors.
+        exploration_names: Each exploration entry's optional handle, in the
+            same order — the name a reader sees beside that configuration in
+            a report. ``None`` where the entry declared none. A handle plays
+            no part in covariate space, so it travels beside the resolved
+            entries rather than inside them.
         optimizations: The resolved ``optimizations:`` entries, in
             declaration order — one Optimize experiment each. Only the
             ``optimize`` verb runs them; ``test`` and ``measure`` never
@@ -47,6 +52,7 @@ class ServiceDefinition:
     configuration: Any
     explorations: tuple[Any, ...] = ()
     swept_keys: tuple[str, ...] = ()
+    exploration_names: tuple[str | None, ...] = ()
     optimizations: tuple[OptimizationDeclaration, ...] = ()
     # The declaring file's roots, as provenance discloses them (declared
     # value + overridden flag — never a resolved machine-local path).
@@ -56,6 +62,15 @@ class ServiceDefinition:
     def grid(self) -> tuple[Any, ...]:
         """Every configuration an explore run samples: baseline first."""
         return (self.configuration, *self.explorations)
+
+    @property
+    def grid_names(self) -> tuple[str | None, ...]:
+        """Each grid point's handle, aligned with :attr:`grid`.
+
+        The baseline carries none: handles are declared on exploration
+        entries, and the baseline is the ``configuration:`` block.
+        """
+        return (None, *self.exploration_names)
 
 
 def factor_values(definition: ServiceDefinition, parameters: Any) -> dict[str, Any]:

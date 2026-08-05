@@ -145,6 +145,11 @@ def render_exploration(record: RunObservation) -> str:
         f"serviceContractId: {quote(record.contract_id)}",
         f"configuration: {quote(exploration_stem(record.factors))}",
     ]
+    # The author's handle for this configuration, where they gave one:
+    # what a reader is shown, beside the identity above rather than
+    # instead of it. Absent means the author named nothing.
+    if record.configuration_name is not None:
+        lines.append(f"configurationName: {quote(record.configuration_name)}")
     # Stated only on the base, and only as true: an absent marker means
     # this emitter said nothing, never "not the base".
     if record.base_configuration:
