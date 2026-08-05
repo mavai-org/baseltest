@@ -671,3 +671,9 @@ class TestConfigurationNameOnTheCommandLine:
         assert "deterministic" in printed
         # An unnamed point still reports its stated identity.
         assert "temperature-0.7" in printed
+        # The grid's own `configuration:` block is reported by its role,
+        # which is what the report of this same run will call it too.
+        assert "configuration base:" in printed
+        # Its identity still names the artefact on disk, and only that.
+        assert "configuration model-small-model_temperature-0.2:" not in printed
+        assert "model-small-model_temperature-0.2.yaml" in printed
