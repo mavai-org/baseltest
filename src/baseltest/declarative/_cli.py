@@ -4,6 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from baseltest._version import __version__
 from baseltest.engine import (
     DefectDiagnosisError,
     InfeasibleRunError,
@@ -36,6 +37,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="basel",
         description="Statistically honest testing for stochastic services.",
+    )
+    # Naming the distribution rather than the command, so this string and the
+    # one the verdict record's generator attribute carries are the same string:
+    # a reader holding an artefact can ask the tool whether it wrote it.
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"baseltest {__version__}",
+        help="print the version and exit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for verb, description in (
