@@ -121,7 +121,7 @@ contract basket-builder-returns-valid-baskets: PASS
     observed rate 1.0000; we can be 95% confident the true rate is at least 0.9505 — clears your 0.95 threshold
 ```
 
-That last line is the point of baseltest: the verdict is not "100% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a high observed rate over too few samples would honestly fail. Notice what the derived minimum means: at n = 52, only a perfect run can clear a 0.95 bar. A larger `--samples` buys slack — at n = 100, two failures still pass (the lower bound of 98/100 is 0.9530). Add `--html-report report.html` for a self-contained summary page.
+That last line is the point of baseltest: the verdict is not "100% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a high observed rate over too few samples would honestly fail. Notice what the derived minimum means: at n = 52, only a perfect run can clear a 0.95 bar. A larger `--samples` buys slack — at n = 100, two failures still pass (the lower bound of 98/100 is 0.9530). Add `--html-report report.html` to have mavai draw a self-contained summary page from the run's artefacts.
 
 The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n that can support every bar at its confidence. That minimum is the weakest admissible design (only a perfect run clears the bar): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (roughly, any bar above 0.96) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (still feasibility-checked), and `intent: smoke` gives a cheap pass with no statistical verdict. *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
 
@@ -382,7 +382,7 @@ mavai explore _baseltest/explorations -o report.html # exploration comparison
 mavai optimize _baseltest/optimizations -o report.html # optimization comparison
 ```
 
-Each report is one self-contained page (embedded CSS, no JavaScript, no external assets) that opens offline in any browser; it goes to stdout unless `-o FILE` is given, and diagnostics go to stderr. Prefer a summary in one step? `--html-report <path>` on `basel test` renders a self-contained HTML summary from the just-persisted verdict record as part of the run. The flag never changes the verb's exit code.
+Each report is one self-contained page (embedded CSS, no JavaScript, no external assets) that opens offline in any browser; it goes to stdout unless `-o FILE` is given, and diagnostics go to stderr. Prefer one step? `--html-report <path>` on `test`, `measure`, `explore` or `optimize` hands that run's artefacts to the same tool as part of the run — the report is identical either way, because it is the same renderer over the same artefacts. mavai must be on `PATH`, and a run that asks for a report it cannot draw is refused before any sample is taken. The flag never changes the verb's exit code.
 
 ## Exit codes
 

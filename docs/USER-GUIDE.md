@@ -362,7 +362,7 @@ A measurement records *every* criterion — rate, variance, failure distribution
 
 `--samples` is required: a measurement's budget is an experimental-design decision, so it must be typed. 1,000 is a solid baseline-grade count; a smaller deliberate budget is legitimate — an empirical bar derived from a smaller baseline simply widens honestly.
 
-`--assert` opts into failing *after* recording (the baseline is persisted regardless): exit 1 if a declared bar was not met, exit 3 if the sample size cannot support the judgement. `--html-report` is refused on measure — its product is the baseline artefact, not a report.
+`--assert` opts into failing *after* recording (the baseline is persisted regardless): exit 1 if a declared bar was not met, exit 3 if the sample size cannot support the judgement. `--html-report` renders the recorded baselines through mavai once the artefact is on disk.
 
 ### `basel test`
 
@@ -380,7 +380,7 @@ A test judges the contract's **declared** criteria against their thresholds and 
 
 **Before a baseline exists**, an empirical criterion is skipped with a one-line indicator pointing at `basel measure`; a test whose criteria are *all* unthresholded and baseline-less is refused — nothing to test. A baseline is resolved only when its recorded identity matches the service's currently-resolved identity; any drifted configuration key or covariate refuses the run, naming the key (see [drift](#covariates-and-drift)).
 
-**Outputs.** The composite verdict and per-criterion lines print to the console; a verdict record in the canonical XML schema is persisted to `--verdict-dir` (default `_baseltest/verdicts/`) unless `--no-verdict-xml`; `--html-report PATH` additionally renders a self-contained HTML summary inline (the flag never changes the exit code).
+**Outputs.** The composite verdict and per-criterion lines print to the console; a verdict record in the canonical XML schema is persisted to `--verdict-dir` (default `_baseltest/verdicts/`) unless `--no-verdict-xml`; `--html-report PATH` hands the persisted record to mavai, which draws the page (the flag never changes the exit code, and is refused up front alongside `--no-verdict-xml`, which suppresses the very record it renders).
 
 ### Rendering reports — the `mavai` tool
 

@@ -17,7 +17,6 @@ from ._shared import (
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_OPTIMIZATIONS_DIR,
     DEFAULT_VERDICT_DIR,
-    MAVAI_EXPLORE_POINTER,
 )
 from ._shared import _tty_progress as _tty_progress
 
@@ -26,7 +25,6 @@ __all__ = [
     "DEFAULT_EXPLORATIONS_DIR",
     "DEFAULT_OPTIMIZATIONS_DIR",
     "DEFAULT_VERDICT_DIR",
-    "MAVAI_EXPLORE_POINTER",
     "AbortedConfiguration",
     "ConfigurationExploration",
     "ExplorationRun",

@@ -12,6 +12,7 @@ import types
 from pathlib import Path
 
 from baseltest.declarative._cli import main
+from baseltest.reporting import RISK_DRIVEN_APPROACH
 from baseltest.statistics import required_samples_for_power
 
 BINDINGS = """
@@ -360,45 +361,29 @@ class TestOverReach:
         assert "declined" in capsys.readouterr().err
 
 
-class TestReportDisclosures:
-    def test_a_downsized_run_disclosures_approach_trade_and_saving(
-        self, tmp_path, monkeypatch, capsys
-    ):  # type: ignore[no-untyped-def]
-        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
-        report = tmp_path / "report.html"
-        code = main(
-            [
-                "test",
-                str(contract),
-                "--samples",
-                "50",
-                "--accept-weak-design",
-                "--html-report",
-                str(report),
-            ]
-        )
-        assert code in (0, 1)
-        html = report.read_text(encoding="utf-8")
-        assert "Run design" in html
-        assert "sample-size-first" in html
-        assert "This run executed 50 samples against a baseline measured over 200." in html
-        assert "would only catch a drop below" in html
-        assert "four times out of five" in html
-        assert "less execution time" in html and "Estimates only" in html
+class TestRecordedRunDesign:
+    """The design a run was sized under is recorded, whatever renders it.
 
-    def test_a_risk_driven_run_disclosures_the_approach_and_claims(
-        self, tmp_path, monkeypatch, capsys
-    ):  # type: ignore[no-untyped-def]
+    baseltest renders no HTML; these assert the run's own artefact, which
+    is what a reader's report is drawn from.
+    """
+
+    def _recorded(self, tmp_path: Path) -> str:
+        (verdict,) = (tmp_path / "_baseltest" / "verdicts").glob("*.xml")
+        return verdict.read_text(encoding="utf-8")
+
+    def test_a_downsized_run_records_its_approach(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
-        report = tmp_path / "report.html"
-        code = main(["test", str(contract), "--tolerate", "84", "--html-report", str(report)])
-        assert code == 0
-        html = report.read_text(encoding="utf-8")
-        assert "confidence-first (risk-driven)" in html
-        assert f"computed n {REQUIRED_FOR_MAIN_CLAIM}" in html
-        # The computed size exceeds the baseline's own 200 samples: there is
-        # no downsizing trade to disclose.
-        assert "only catch a drop below" not in html
+        code = main(["test", str(contract), "--samples", "50", "--accept-weak-design"])
+        assert code in (0, 1)
+        assert 'key="sizing-approach" value="sample-size-first"' in self._recorded(tmp_path)
+
+    def test_a_risk_driven_run_records_its_approach_and_claims(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
+        assert main(["test", str(contract), "--tolerate", "84"]) == 0
+        recorded = self._recorded(tmp_path)
+        assert RISK_DRIVEN_APPROACH in recorded
+        assert f"&quot;requiredN&quot;: {REQUIRED_FOR_MAIN_CLAIM}" in recorded
 
 
 class TestJsonMode:

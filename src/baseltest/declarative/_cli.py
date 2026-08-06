@@ -14,6 +14,7 @@ from baseltest.engine import (
 )
 from baseltest.reporting import render_infeasible
 
+from . import _report
 from ._errors import ContractConfigurationError
 from ._providers import ProviderResponseError
 from ._runner import (
@@ -21,7 +22,6 @@ from ._runner import (
     DEFAULT_EXPLORATIONS_DIR,
     DEFAULT_OPTIMIZATIONS_DIR,
     DEFAULT_VERDICT_DIR,
-    MAVAI_EXPLORE_POINTER,
     LoadedContract,
     check,
     explore,
@@ -64,7 +64,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "--html-report",
             type=Path,
             default=None,
-            help="write the probabilistic-test summary to this path (test only)",
+            help=(
+                "render the run's artefacts to this path as a self-contained HTML "
+                "report, by handing them to mavai — the family's report renderer, "
+                "which must be on PATH. Never changes the verb's exit code."
+            ),
         )
         verb_parser.add_argument(
             "--samples",
@@ -176,8 +180,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "no longer rendered here: exploration comparison reports moved to "
-            "the family's mavai tool (mavai explore <dir> -o report.html)"
+            "render the run's artefacts to this path as a self-contained HTML "
+            "report, by handing them to mavai — the family's report renderer, "
+            "which must be on PATH. Never changes the verb's exit code."
         ),
     )
     optimize_parser = subparsers.add_parser(
@@ -217,6 +222,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_OPTIMIZATIONS_DIR,
         help="directory optimization artefacts are written into (one file per run id)",
     )
+    optimize_parser.add_argument(
+        "--html-report",
+        type=Path,
+        default=None,
+        help=(
+            "render the run's artefacts to this path as a self-contained HTML "
+            "report, by handing them to mavai — the family's report renderer, "
+            "which must be on PATH. Never changes the verb's exit code."
+        ),
+    )
     check_parser = subparsers.add_parser(
         "check",
         help=(
@@ -240,6 +255,11 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Entry point: the ``test`` / ``measure`` / ``explore`` verbs over a contract file."""
     arguments = _build_parser().parse_args(argv)
+
+    refusal = _refuse_unrenderable_report(arguments)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return 2
 
     if arguments.command == "check":
         try:
@@ -274,18 +294,17 @@ def main(argv: list[str] | None = None) -> int:
                 samples_per_iteration=arguments.samples_per_iteration,
                 optimizations_dir=arguments.optimizations_dir,
             )
+            _render_report(arguments, arguments.optimizations_dir)
             # A defect stopped at least one entry's search: a partial run,
             # reported and signalled — not a silent success.
             return 1 if any(o.defect is not None for o in optimize_outcomes) else 0
         if arguments.command == "explore":
-            if arguments.html_report is not None:
-                print(MAVAI_EXPLORE_POINTER, file=sys.stderr)
-                return 2
             exploration = explore(
                 arguments.contract_file,
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
             )
+            _render_report(arguments, arguments.explorations_dir)
             # A defect contained to a configuration leaves the others' artefacts
             # written; the partial run is signalled by a non-zero exit.
             return 1 if exploration.aborted else 0
@@ -305,11 +324,17 @@ def main(argv: list[str] | None = None) -> int:
             mode=arguments.command,
             sizing_resolution=sizing,
             baseline_dir=arguments.baseline_dir,
-            html_report=arguments.html_report,
             verdict_dir=verdict_dir,
             emit=emit,
             loaded=loaded,
         )
+        # mavai groups documents by the directory beneath the one it is
+        # given. Explorations and optimizations are already written under a
+        # per-service directory; verdicts and baselines are written flat, so
+        # the renderer is handed their parent and the directory itself
+        # becomes the grouping.
+        flat = verdict_dir if arguments.command == "test" else arguments.baseline_dir
+        _render_report(arguments, Path(flat).parent if flat is not None else None)
     except SizingRefusalError as refusal:
         print(f"{refusal}", file=sys.stderr)
         return 2
@@ -349,6 +374,48 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(arguments, "assert_bars", False):
         return _assert_recorded_bars(result)
     return 0  # a plain measure run records; recording cannot fail
+
+
+def _refuse_unrenderable_report(arguments: argparse.Namespace) -> str | None:
+    """Why this invocation could not produce the report it was asked for.
+
+    Checked before the run, not after: samples cost money and time, and a
+    reader who asked for a report should not pay for one only to be told at
+    the end that nothing could render it.
+    """
+    if getattr(arguments, "html_report", None) is None:
+        return None
+    if arguments.command == "test" and arguments.no_verdict_xml:
+        return (
+            "--html-report renders the verdict record, which --no-verdict-xml "
+            "suppresses: ask for one or the other"
+        )
+    if _report.locate_renderer() is None:
+        return _report.RENDERER_MISSING
+    return None
+
+
+def _render_report(arguments: argparse.Namespace, artefacts: str | Path | None) -> None:
+    """Hand the artefacts just written to the renderer.
+
+    Never changes the verb's exit code. The run's verdict is what the caller
+    asked about; a report that could not be drawn is loud on stderr but does
+    not restate the verdict, and a passing run that failed to render is still
+    a passing run.
+    """
+    if getattr(arguments, "html_report", None) is None:
+        return
+    renderer = _report.locate_renderer()
+    if renderer is None or artefacts is None:
+        # Preflight refused both of these before any sample was drawn;
+        # reaching here means PATH changed under a running experiment.
+        print(_report.RENDERER_MISSING, file=sys.stderr)
+        return
+    failure = _report.render(
+        renderer, _report.REPORT_OF[arguments.command], Path(artefacts), arguments.html_report
+    )
+    if failure is not None:
+        print(failure, file=sys.stderr)
 
 
 def _resolve_sizing(arguments: "argparse.Namespace", loaded: LoadedContract) -> ResolvedSizing:

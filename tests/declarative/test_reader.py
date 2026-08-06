@@ -155,23 +155,6 @@ class TestRunModes:
             )
         assert "baseline-grade" in str(refusal.value)  # 1,000 recommended, visibly
 
-    def test_measure_run_refuses_html_report(self, tmp_path: Path) -> None:
-        bindings = Bindings()
-
-        @bindings.binding("greeting-service")
-        def greet(value: str) -> str:
-            return f"hello {value}"
-
-        with pytest.raises(ContractConfigurationError, match="baseline artefact"):
-            run(
-                write_contract(tmp_path, GREETING_CONTRACT),
-                mode="measure",
-                samples=10,
-                html_report=tmp_path / "r.html",
-                emit=False,
-                bindings=bindings,
-            )
-
 
 class TestValidationRefusals:
     def test_reserved_key_rejected_with_pointer(self, tmp_path: Path) -> None:

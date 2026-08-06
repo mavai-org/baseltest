@@ -14,16 +14,11 @@ from baseltest.reporting import (
     BaselineDisclosure,
     ClaimDisclosure,
     RunDesign,
-    parse_verdict_record,
     render_run,
     render_run_plan,
-    render_test_report,
-    render_verdict_record,
     write_verdict_record,
 )
 
-from .._disclosure import sizing_disclosure
-from .._errors import ContractConfigurationError
 from .._instantiate import BaselineContext, descriptive_view_fingerprints, instantiate
 from .._parser import FORMAT_IDENTIFIER
 from .._registry import Bindings
@@ -45,7 +40,6 @@ def run(
     sizing_resolution: ResolvedSizing | None = None,
     baseline_dir: str | Path = DEFAULT_BASELINE_DIR,
     verdict_dir: str | Path | None = None,
-    html_report: str | Path | None = None,
     emit: bool = True,
     bindings: Bindings | None = None,
     loaded: LoadedContract | None = None,
@@ -106,11 +100,6 @@ def run(
     design = None
     if run_mode is RunKind.TEST:
         design = _run_design(sizing_resolution, baseline_context)
-    if html_report is not None and run_mode is not RunKind.TEST:
-        raise ContractConfigurationError(
-            "the HTML report is the probabilistic-test summary and applies to test "
-            "runs only — a measure run's product is its baseline artefact"
-        )
     # A risk-driven run already opened with the sizing block, whose title
     # line states n and its provenance — no separate run-plan line.
     if emit and sizing.provenance != "risk-driven":
@@ -155,18 +144,6 @@ def run(
             views=descriptive_view_fingerprints(declaration, registry),
         )
         baseline_path = str(write_baseline(record, Path(baseline_dir)))
-
-    if html_report is not None:
-        # The one rendering path: the report is rendered from the persisted
-        # verdict record's content, so an inline report and a post-hoc
-        # `basel report test` over the same run are identical.
-        verdict_record = parse_verdict_record(render_verdict_record(result, design))
-        report_path = Path(html_report)
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
-            render_test_report([verdict_record], [sizing_disclosure(verdict_record)]),
-            encoding="utf-8",
-        )
 
     if emit:
         for name, reason in skipped:
