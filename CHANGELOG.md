@@ -7,6 +7,30 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [Unreleased]
+
+**`basel` can state its own version.**
+
+`basel --version` prints `baseltest <version>` and exits 0, with no verb and
+no contract file:
+
+```console
+$ basel --version
+baseltest 0.20.0
+```
+
+Previously it printed a usage error and exited 2, because `--version` is not
+one of the verbs the root parser requires. A checkout can disagree with
+itself about which build is installed — a version pinned in `pyproject.toml`,
+another resolved in `uv.lock`, a third actually present in the virtualenv —
+and answering that question meant reading the lock file by hand. Now the tool
+answers it.
+
+The string names the distribution, not the command, and is the same string
+the verdict record carries in its `generator` attribute. A reader holding an
+artefact and a `basel` on their path can compare the two directly and see
+whether that build wrote it.
+
 ## [0.20.0] — 2026-08-05
 
 **An author can name a configuration.**
