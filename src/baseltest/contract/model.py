@@ -46,6 +46,30 @@ class TransformError(BaseltestError):
     """
 
 
+class DeliveryCause(StrEnum):
+    """Why a delivery failed, from the family's closed vocabulary.
+
+    A message says what happened to a reader; a cause says it to a
+    consumer. The artefact carries this one, because a free-text message is
+    neither groupable — three configurations failing on three different
+    endpoints share no string — nor bounded, and an identity that
+    interpolates an endpoint is not an identity at all.
+
+    **No emitter states a cause it cannot know.** ``CLIENT_DEADLINE`` says
+    *this framework stopped waiting*, which only a framework holding a
+    deadline of its own may claim; ``PEER_TIMEOUT`` says the peer stated
+    that it did. The same elapsed seconds, and two different facts about
+    who gave up — which is why one ``timeout`` token would have been a
+    place for them to be confused.
+    """
+
+    UNREACHABLE = "unreachable"
+    CLIENT_DEADLINE = "client-deadline"
+    PEER_TIMEOUT = "peer-timeout"
+    SERVER_ERROR = "server-error"
+    UNUSABLE_RESPONSE = "unusable-response"
+
+
 class ServiceDeliveryError(BaseltestError):
     """An anticipated delivery failure: the service did not produce a response.
 
@@ -56,9 +80,18 @@ class ServiceDeliveryError(BaseltestError):
     verdict. An unreachable service is a failed service; hiding that
     behind an abort would leave the cause buried and the rate unjudged.
 
+    The optional ``cause`` is what the artefact states; the message is what
+    the reader reads. An author raising this from their own binding may
+    leave it unstated, and unstated is what the artefact then says — the
+    framework never guesses which cause a message describes.
+
     Reserve other exceptions for genuine defects (misconfiguration, a bug
     in a binding) — those still abort the run.
     """
+
+    def __init__(self, message: str, cause: DeliveryCause | None = None) -> None:
+        self.cause = cause
+        super().__init__(message)
 
 
 class MediaKind(StrEnum):

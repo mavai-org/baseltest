@@ -131,6 +131,10 @@
     }
   },
   "$defs": {
+    "deliveryCause": {
+      "enum": ["unreachable", "client-deadline", "peer-timeout", "server-error", "unusable-response"],
+      "description": "Why a delivery failed, from a closed vocabulary — no emitter states a cause it cannot know. `unreachable`: no response at all (name resolution, refused connection). `client-deadline`: the framework's own stated deadline elapsed — it stopped waiting. `peer-timeout`: the peer stated that it timed out, which is a different fact from the one above and must not be conflated with it. `server-error`: the service answered that it is failing. `unusable-response`: a delivered body carrying nothing to judge."
+    },
     "criterion": {
       "type": "object",
       "required": ["mode", "trials", "successes"],
@@ -176,12 +180,29 @@
             "type": "object",
             "required": ["condition", "count"],
             "additionalProperties": true,
+            "allOf": [
+              {
+                "$comment": "A delivery entry's condition is drawn from the closed cause vocabulary, never a free-text message: a cause that is not groupable is not countable, and one that is not bounded is not an identity.",
+                "if": {
+                  "properties": { "kind": { "const": "delivery" } },
+                  "required": ["kind"]
+                },
+                "then": {
+                  "properties": { "condition": { "$ref": "#/$defs/deliveryCause" } }
+                }
+              }
+            ],
             "properties": {
               "condition": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 256,
-                "description": "The violating condition's bounded identity as the contract declares it — never embedding input or response content (area rule 6)."
+                "description": "The violating condition's bounded identity as the contract declares it — never embedding input or response content (area rule 6). On a delivery-kind entry this is the delivery cause instead, drawn from the closed vocabulary: there is no declared condition to name when nothing was delivered to judge."
+              },
+              "kind": {
+                "enum": ["evaluated", "delivery"],
+                "description": "Whether these trials were judged and found wanting (evaluated), or never delivered a response to judge (delivery). Absent in pre-amendment emissions — a consumer renders absence as not stated, never as evaluated.",
+                "$comment": "Orthogonal to `reason`, which is the Companion's §1.4.5a diagnostic axis over trials that WERE evaluated. A delivery entry states no reason: it never reached evaluation, so neither axis value is true of it, and widening that enum instead of adding this field would have put a transport fact on a companion-owned axis."
               },
               "reason": {
                 "enum": ["condition", "transform/no-value"],

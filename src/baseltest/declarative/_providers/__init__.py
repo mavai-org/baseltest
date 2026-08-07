@@ -24,7 +24,7 @@ import urllib.request
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import BaseltestError, Reply, ServiceDeliveryError
+from baseltest.contract import BaseltestError, DeliveryCause, Reply, ServiceDeliveryError
 
 from .._errors import ContractConfigurationError
 from . import _anthropic, _apertus, _litellm, _mistral, _ollama, _openai
@@ -44,6 +44,10 @@ if TYPE_CHECKING:
     from .._services import LanguageModelParameters
 
 _VENDOR_MODULES = (_openai, _anthropic, _ollama, _mistral, _apertus, _litellm)
+# The one status in the 5xx range that is the peer stating a timeout of its
+# own rather than a failure of its own. Everything else above 500 is the
+# service answering that it is failing.
+_GATEWAY_TIMEOUT = 504
 PROVIDERS: dict[str, Provider] = {
     module.PROVIDER.name: module.PROVIDER for module in _VENDOR_MODULES
 }
@@ -218,7 +222,8 @@ def build_invoker(
             # service is unreachable": both are failed deliveries, and only
             # one of them is a statement about the service.
             raise ServiceDeliveryError(
-                f"service did not answer within the {parameters.deadline_ms}ms deadline"
+                f"service did not answer within the {parameters.deadline_ms}ms deadline",
+                DeliveryCause.CLIENT_DEADLINE,
             ) from None
         except urllib.error.HTTPError as error:
             try:
@@ -227,10 +232,16 @@ def build_invoker(
                 detail = ""
             if error.code >= 500:
                 # The service answered that it is failing: a failed
-                # delivery, counted as a failed sample with its cause.
+                # delivery, counted as a failed sample with its cause. A 504
+                # is the peer stating that *it* timed out waiting on
+                # something further upstream — a different fact from our own
+                # deadline elapsing, and stated as one.
                 raise ServiceDeliveryError(
                     f"service failed to deliver: {provider.name} answered "
-                    f"HTTP {error.code} at {endpoint}" + (f" — {detail[:200]}" if detail else "")
+                    f"HTTP {error.code} at {endpoint}" + (f" — {detail[:200]}" if detail else ""),
+                    DeliveryCause.PEER_TIMEOUT
+                    if error.code == _GATEWAY_TIMEOUT
+                    else DeliveryCause.SERVER_ERROR,
                 ) from None
             raise ProviderResponseError(provider.name, error.code, detail) from None
         except urllib.error.URLError as error:
@@ -240,10 +251,12 @@ def build_invoker(
             # fact as the branch above: this framework stopped waiting.
             if isinstance(error.reason, TimeoutError):
                 raise ServiceDeliveryError(
-                    f"service did not answer within the {parameters.deadline_ms}ms deadline"
+                    f"service did not answer within the {parameters.deadline_ms}ms deadline",
+                    DeliveryCause.CLIENT_DEADLINE,
                 ) from None
             raise ServiceDeliveryError(
-                f"service unreachable at {endpoint}: {error.reason}"
+                f"service unreachable at {endpoint}: {error.reason}",
+                DeliveryCause.UNREACHABLE,
             ) from None
         # A 2xx body that does not match the vendor's shape is still a
         # *delivered* response — the boundary is: provider rejection →
@@ -256,7 +269,8 @@ def build_invoker(
         except (KeyError, IndexError, TypeError) as error:
             raise ServiceDeliveryError(
                 f"service delivered a response body not matching the "
-                f"{provider.name} shape: {type(error).__name__}: {error}"
+                f"{provider.name} shape: {type(error).__name__}: {error}",
+                DeliveryCause.UNUSABLE_RESPONSE,
             ) from None
         # A usage-bearing Reply is the framework's own return shape and
         # passes through unchanged — the engine owns the unwrap seam, and
@@ -267,13 +281,15 @@ def build_invoker(
             if not isinstance(content.text, str):
                 raise ServiceDeliveryError(
                     f"service delivered a response with no text content "
-                    f"(the {provider.name} content field held {type(content.text).__name__})"
+                    f"(the {provider.name} content field held {type(content.text).__name__})",
+                    DeliveryCause.UNUSABLE_RESPONSE,
                 )
             return content
         if not isinstance(content, str):
             raise ServiceDeliveryError(
                 f"service delivered a response with no text content "
-                f"(the {provider.name} content field held {type(content).__name__})"
+                f"(the {provider.name} content field held {type(content).__name__})",
+                DeliveryCause.UNUSABLE_RESPONSE,
             )
         return content
 

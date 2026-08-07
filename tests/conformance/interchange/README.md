@@ -6,11 +6,13 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.10.9`.** Verified byte-identical to that release
-when recorded (2026-08-05). Only `mavai-explore-1` changed in that release,
-which added `configurationName` and redescribed `configuration` as the
-identity it always was; the optimize, baseline, and verdict copies are
-unchanged from `0.10.8` and were re-checked against the same checkout.
+**Vendored from mavai-R `0.10.10`.** Verified byte-identical to that release
+when recorded (2026-08-07). All three JSON schemas changed in it: the failure
+entry gained `kind`, and a delivery entry's `condition` is now constrained to
+the closed delivery-cause vocabulary. The verdict copy stays at `1.4` — 1.5
+adds the same distinction to the XML record, and this package's verdict
+emitter has not yet adopted it, so pinning 1.5 here would assert a conformance
+this repository does not yet owe.
 
 | file | validated by |
 |---|---|

@@ -34,6 +34,8 @@ def observation_lines(record: RunObservation, indent: str = "") -> list[str]:
         lines.append(f"{indent}  failureDistribution:")
         for entry in record.failure_distribution:
             lines.append(f"{indent}    - condition: {quote(entry.condition)}")
+            if entry.kind is not None:
+                lines.append(f"{indent}      kind: {quote(str(entry.kind))}")
             if entry.input_index is not None:
                 lines.append(f"{indent}      inputIndex: {entry.input_index}")
             if entry.input_excerpt is not None:

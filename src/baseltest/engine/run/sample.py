@@ -14,6 +14,7 @@ from typing import Any
 
 from baseltest.contract import (
     Criterion,
+    DeliveryCause,
     EvaluationContext,
     Outcome,
     ServiceContract,
@@ -62,7 +63,10 @@ def _skipped_outcomes(criterion: Criterion, input_index: int) -> tuple[tuple[str
 
 
 def _failed_delivery_record(
-    contract: ServiceContract[Any], input_index: int, duration_ms: int
+    contract: ServiceContract[Any],
+    input_index: int,
+    duration_ms: int,
+    cause: DeliveryCause | None,
 ) -> SampleRecord:
     """The per-sample record of an undelivered response: no content, all skipped."""
     outcomes: list[tuple[str, Outcome]] = []
@@ -74,6 +78,7 @@ def _failed_delivery_record(
         execution_time_ms=duration_ms,
         content="",
         passed=False,
+        delivery_cause=cause,
     )
 
 
@@ -83,20 +88,34 @@ def _failed_delivery_outcome(
     input_index: int,
     duration_ms: int,
     reason: str,
+    cause: DeliveryCause | None,
     record_samples: bool,
 ) -> _SampleOutcome:
     """An anticipated failed delivery as a sample outcome: every criterion
-    counts it a failure with the delivery cause as its reason."""
+    counts it a failure with the delivery cause as its reason.
+
+    The cause travels beside the reason rather than inside it. The reason
+    is prose for a person — it names the endpoint, the provider, the
+    elapsed deadline — and the artefact needs a bounded identity a
+    consumer can group and count, which prose is not.
+    """
     evaluations = tuple(
         (
             criterion.name,
             TrialEvaluation(
-                passed=False, reason=reason, outcomes=_skipped_outcomes(criterion, input_index)
+                passed=False,
+                reason=reason,
+                delivery_cause=cause,
+                outcomes=_skipped_outcomes(criterion, input_index),
             ),
         )
         for criterion in contract.criteria
     )
-    record = _failed_delivery_record(contract, input_index, duration_ms) if record_samples else None
+    record = (
+        _failed_delivery_record(contract, input_index, duration_ms, cause)
+        if record_samples
+        else None
+    )
     return _SampleOutcome(
         ordinal=ordinal,
         input_index=input_index,
@@ -133,7 +152,13 @@ def _run_one_sample(
         # does. Other exceptions remain defects and abort.
         duration_ms = round((time.perf_counter() - invoked_at) * 1000)
         return _failed_delivery_outcome(
-            contract, ordinal, context.index, duration_ms, str(failure), record_samples
+            contract,
+            ordinal,
+            context.index,
+            duration_ms,
+            str(failure),
+            failure.cause,
+            record_samples,
         )
     duration_ms = round((time.perf_counter() - invoked_at) * 1000)
     # The usage-bearing reply seam: the text flows on exactly as a bare

@@ -9,6 +9,40 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
+**A failed delivery says so.** Additive to every artefact this package
+writes; needs mavai-R 0.10.10 or later to validate.
+
+A trial that never received a response and a trial that received one and
+failed it are opposite findings, and the artefacts stated them identically.
+Both were a failed trial, both a `failureDistribution` entry, and the
+delivery cause travelled as free text in the same `condition` field a
+declared contract condition uses — often carrying an endpoint, which the
+family's key discipline forbids in an identity. So a run in which nothing
+was ever measured presented exactly like a run in which everything was
+measured and found wanting: four configurations at `0.000`, diagnosable
+only by reading raw YAML.
+
+Every failure entry now states **`kind`** — `delivery` or `evaluated` — and
+a delivery entry's `condition` is its **cause**, from a closed vocabulary:
+`unreachable`, `client-deadline`, `peer-timeout`, `server-error`,
+`unusable-response`. `client-deadline` says *baseltest stopped waiting*,
+which it may now say because it has a deadline of its own (below);
+`peer-timeout` says the peer stated that it did — an HTTP 504, and not the
+same fact however similar the elapsed seconds look.
+
+The arithmetic is untouched. An undelivered trial is still one failed trial
+counted against every criterion, and the entries still sum to `failures`.
+There is deliberately no separate count of delivery failures: summing the
+delivery-kind entries is a trivial aggregate over stated counts, where a
+second field would be a second source of one truth.
+
+`ServiceDeliveryError` gains an optional `cause`. An author raising it from
+their own binding may leave it unstated — the framework knows nothing about
+that transport and never guesses which cause a message describes; the entry
+then states the kind and no cause. In the baseline artefact `kind` sits
+beside the existing `reason`, and a delivery entry states no `reason` at
+all: that field is the companion's axis over trials that *were* evaluated.
+
 **baseltest now gives up.** Breaking for every existing baseline: re-run
 `basel measure`.
 

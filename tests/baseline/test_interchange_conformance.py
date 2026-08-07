@@ -23,7 +23,7 @@ from baseltest.baseline import (
     NormativeJudgement,
     write_baseline,
 )
-from baseltest.contract import FailureAxis, PostconditionStanding
+from baseltest.contract import DeliveryCause, FailureAxis, PostconditionStanding
 
 _SCHEMA_PATH = Path(__file__).parent.parent / "conformance" / "interchange"
 _SCHEMA = json.loads((_SCHEMA_PATH / "mavai-baseline-1.schema.json").read_text(encoding="utf-8"))
@@ -139,3 +139,44 @@ class TestBaselineInterchangeConformance:
         entries = document["criteria"]["extraction-matches-reviewed-values"]["failureDistribution"]
         assert entries[0]["reason"] == "condition"
         assert entries[0]["count"] == 8
+
+
+def test_a_delivery_failure_states_its_cause_and_not_its_message(tmp_path: Path) -> None:
+    """The baseline path builds entries from reasons, and a delivery reason
+    is an interpolated message. The stated cause takes its place as the
+    entry's identity — bounded, groupable, and carrying no endpoint."""
+    message = (
+        "service unreachable at https://secret-gateway.internal/v1/chat/completions: "
+        "[Errno 61] Connection refused"
+    )
+    record = _record(
+        criteria={
+            "extraction-matches-reviewed-values": CriterionCharacterisation(
+                successes=0,
+                trials=10,
+                failure_distribution={message: 10},
+                delivery_causes={message: DeliveryCause.UNREACHABLE},
+                wilson_lower_bound=0.0,
+            )
+        }
+    )
+    path = write_baseline(record, tmp_path)
+    document = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
+    Draft202012Validator(_SCHEMA).validate(document)
+
+    entries = document["criteria"]["extraction-matches-reviewed-values"]["failureDistribution"]
+    assert entries == [{"condition": "unreachable", "count": 10, "kind": "delivery"}]
+    assert "secret-gateway.internal" not in path.read_text(encoding="utf-8")
+    # No `reason:` beside it: the companion's axis describes trials that
+    # were evaluated, and these never were.
+    assert "reason" not in entries[0]
+
+
+def test_an_evaluated_failure_keeps_its_axis_and_gains_the_kind(tmp_path: Path) -> None:
+    path = write_baseline(_record(), tmp_path)
+    document = YAML(typ="safe", pure=True).load(path.read_text(encoding="utf-8"))
+    Draft202012Validator(_SCHEMA).validate(document)
+
+    entries = document["criteria"]["extraction-matches-reviewed-values"]["failureDistribution"]
+    assert entries[0]["kind"] == "evaluated"
+    assert entries[0]["reason"] == "condition"
