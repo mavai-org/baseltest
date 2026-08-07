@@ -10,7 +10,13 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from baseltest.contract import Criterion, CriterionTally, Outcome, PostconditionStanding
+from baseltest.contract import (
+    Criterion,
+    CriterionTally,
+    DeliveryCause,
+    Outcome,
+    PostconditionStanding,
+)
 from baseltest.statistics.verdict import Verdict
 
 if TYPE_CHECKING:
@@ -108,6 +114,12 @@ class SampleRecord:
         failure_reasons: ``(criterion name, reason)`` pairs for the
             criteria this sample failed with a stated reason — the raw
             material of failure exemplars.
+        delivery_cause: Why this sample's delivery failed, when it did.
+            ``None`` on a delivered sample, whether it passed or failed —
+            the field distinguishes *no response to judge* from *a
+            response that was judged*, which is the one thing an empty
+            ``content`` and an all-skipped outcome list cannot say on
+            their own: a service may legitimately answer with nothing.
     """
 
     input_index: int
@@ -116,6 +128,7 @@ class SampleRecord:
     content: str
     passed: bool
     failure_reasons: tuple[tuple[str, str], ...] = ()
+    delivery_cause: DeliveryCause | None = None
 
 
 @dataclass(frozen=True, slots=True)

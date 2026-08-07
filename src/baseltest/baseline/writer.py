@@ -96,13 +96,24 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
         # condition rather than baked into a key.
         lines.append("    failureDistribution:")
         for reason in sorted(c.failure_distribution):
+            # A delivery entry is identified by its stated cause. The reason
+            # beside it is an interpolated message — an endpoint, a provider,
+            # an elapsed deadline — which is prose for a reader and not an
+            # identity a consumer may group on.
+            cause = c.delivery_causes.get(reason)
             entry: dict[str, object] = {
-                "condition": bounded_excerpt(reason),
+                "condition": str(cause) if cause is not None else bounded_excerpt(reason),
                 "count": c.failure_distribution[reason],
             }
-            axis = c.failure_axes.get(reason)
-            if axis is not None:
-                entry["reason"] = str(axis)
+            if cause is not None:
+                # No `reason:` beside it: the companion's axis describes
+                # trials that were evaluated, and this one never was.
+                entry["kind"] = "delivery"
+            else:
+                entry["kind"] = "evaluated"
+                axis = c.failure_axes.get(reason)
+                if axis is not None:
+                    entry["reason"] = str(axis)
             lines.append("      - " + json.dumps(entry))
     if c.judgement is not None:
         lines.extend(

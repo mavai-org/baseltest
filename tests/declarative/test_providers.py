@@ -38,7 +38,7 @@ def capture(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
         "localhost:11434": {"message": {"role": "assistant", "content": "ollama says hi"}},
     }
 
-    def fake_urlopen(request: Any) -> FakeResponse:
+    def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
         calls.append(
             {
                 "url": request.full_url,
@@ -244,7 +244,7 @@ class TestErrorResponses:
         # the abort carries the provider's own explanation, not a bare 400.
         import urllib.error
 
-        def failing_urlopen(request: Any) -> Any:
+        def failing_urlopen(request: Any, **_: Any) -> Any:
             raise urllib.error.HTTPError(
                 request.full_url,
                 400,

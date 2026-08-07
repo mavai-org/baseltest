@@ -18,7 +18,7 @@ from typing import Any
 
 from baseltest.statistics import proportion_standard_error, proportion_variance
 
-from .model import Criterion, TransformError
+from .model import Criterion, DeliveryCause, TransformError
 
 _TRANSFORM_REASON_PREFIX = "transform failed"
 
@@ -158,6 +158,12 @@ class TrialEvaluation:
             ``None`` on a pass.
         axis: The :class:`FailureAxis` ``reason`` lies on; ``None`` on a
             pass. Stated, never parsed back out of ``reason``.
+        delivery_cause: On a failed delivery, why it failed — and the
+            trial then lies on *no* axis, having never reached evaluation.
+            ``None`` on a pass and on every evaluated failure. Stated
+            rather than a third axis value, because the axis is the
+            companion's (§1.4.5a) and a transport fact does not belong on
+            it; the two fields are read together, never merged.
         outcomes: Per-postcondition ``(name, status)`` pairs in
             declaration order, with the family's three-valued
             :class:`Outcome` status.
@@ -169,6 +175,7 @@ class TrialEvaluation:
     passed: bool
     reason: str | None = None
     axis: FailureAxis | None = None
+    delivery_cause: DeliveryCause | None = None
     outcomes: tuple[tuple[str, Outcome], ...] = ()
     subjects: tuple[tuple[str, str], ...] = ()
 
@@ -316,12 +323,18 @@ class CriterionTally:
             on. A reason has exactly one axis, so this is a lookup beside
             the distribution rather than a second key on it — consumers
             that only count failures are untouched.
+        delivery_causes: The :class:`DeliveryCause` of each observed
+            reason that was a failed delivery, carried the same way and
+            for the same reason. A reason is either a delivery or an
+            evaluation, so a reason appears in at most one of the two
+            lookups.
     """
 
     successes: int = 0
     trials: int = 0
     failure_reasons: Counter[str] = field(default_factory=Counter)
     failure_axes: dict[str, FailureAxis] = field(default_factory=dict)
+    delivery_causes: dict[str, DeliveryCause] = field(default_factory=dict)
 
     def record(self, evaluation: TrialEvaluation) -> None:
         """Fold one trial's evaluation into the tally."""
@@ -333,6 +346,8 @@ class CriterionTally:
             self.failure_reasons[reason] += 1
             if evaluation.axis is not None:
                 self.failure_axes[reason] = evaluation.axis
+            if evaluation.delivery_cause is not None:
+                self.delivery_causes[reason] = evaluation.delivery_cause
 
     @property
     def observed_rate(self) -> float:

@@ -11,6 +11,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from baseltest.contract import PostconditionStanding
@@ -18,6 +19,22 @@ from baseltest.engine import LatencyBlock, RunResult, SampleRecord, latency_bloc
 from baseltest.engine.naming import bounded_excerpt, bounded_key, per_input_index
 
 _DELIVERY_FAILURE_CONDITION = "service delivery failed"
+
+
+class FailureKind(StrEnum):
+    """Whether an entry's trials were judged, or never delivered anything to judge.
+
+    Stated because the two are opposite findings that the artefact used to
+    serialise identically: a configuration at 0.000 whose every sample was
+    evaluated and failed says the service is bad at its job, and one whose
+    every sample went undelivered says nothing about the service at all.
+
+    Diagnostic only — the counting rule is untouched. An undelivered trial
+    is one failed trial counted against every criterion, as it was before.
+    """
+
+    EVALUATED = "evaluated"
+    DELIVERY = "delivery"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +47,13 @@ class FailureEntry:
             content. A per-input condition carries its input's position
             in the name (``… (input 2)``); the position also travels
             structurally in ``input_index``.
+            On a delivery entry it is the delivery cause instead: nothing
+            arrived, so there is no declared condition to name.
+        kind: Whether these trials were evaluated or never delivered.
+            ``None`` where the run cannot say — an author's own
+            :class:`~baseltest.contract.ServiceDeliveryError` raised
+            without a cause is a delivery failure whose cause is unstated,
+            and unstated is what the artefact then says.
         count: Failed trials attributed to this entry — each failed
             trial to its first failing condition, so counts sum to the
             enclosing failure total.
@@ -43,6 +67,7 @@ class FailureEntry:
     count: int
     input_index: int | None = None
     input_excerpt: str | None = None
+    kind: FailureKind | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,16 +198,29 @@ def _failure_entries(result: RunResult) -> tuple[FailureEntry, ...]:
     descriptive still, but per-criterion counts, not per-trial.
     """
     if result.samples:
-        counts: Counter[tuple[str, int | None]] = Counter()
+        counts: Counter[tuple[str, int | None, FailureKind | None]] = Counter()
         for sample in result.samples:
             if sample.passed:
+                continue
+            # A failed delivery is identified by its stated cause, not by
+            # the first check that did not hold — there is none, every
+            # check having been skipped for want of anything to judge.
+            if sample.delivery_cause is not None:
+                counts[(str(sample.delivery_cause), None, FailureKind.DELIVERY)] += 1
                 continue
             condition = next(
                 (name for name, status in sample.postconditions if status == "failed"),
                 _DELIVERY_FAILURE_CONDITION,
             )
+            kind = (
+                FailureKind.EVALUATED
+                if condition != _DELIVERY_FAILURE_CONDITION
+                # A delivery whose cause the raiser did not state: the kind
+                # is knowable, the cause is not, and neither is guessed.
+                else FailureKind.DELIVERY
+            )
             input_index = per_input_index(condition)
-            counts[(bounded_key(condition), input_index)] += 1
+            counts[(bounded_key(condition), input_index, kind)] += 1
         inputs = result.plan.inputs
         entries = [
             FailureEntry(
@@ -194,15 +232,32 @@ def _failure_entries(result: RunResult) -> tuple[FailureEntry, ...]:
                     if input_index is not None and input_index < len(inputs)
                     else None
                 ),
+                kind=kind,
             )
-            for (condition, input_index), count in counts.items()
+            for (condition, input_index, kind), count in counts.items()
         ]
     else:
         distribution: Counter[str] = Counter()
+        causes: dict[str, str] = {}
         for criterion_result in result.criterion_results:
             distribution.update(criterion_result.tally.failure_reasons)
+            causes.update(
+                {
+                    reason: str(cause)
+                    for reason, cause in criterion_result.tally.delivery_causes.items()
+                }
+            )
+        # Without per-sample records the reasons are all this path has, and
+        # a delivery reason is an interpolated message — an endpoint, a
+        # provider name, an elapsed deadline. The stated cause replaces it
+        # as the entry's identity, which is what keeps this path inside the
+        # area's key discipline rather than merely under its length bound.
         entries = [
-            FailureEntry(condition=bounded_key(reason), count=count)
+            FailureEntry(
+                condition=causes.get(reason) or bounded_key(reason),
+                count=count,
+                kind=FailureKind.DELIVERY if reason in causes else FailureKind.EVALUATED,
+            )
             for reason, count in distribution.items()
         ]
     return tuple(

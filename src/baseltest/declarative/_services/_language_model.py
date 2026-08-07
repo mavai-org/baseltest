@@ -40,6 +40,7 @@ _CONFIGURATION_KEYS = {
     "prompt-caching",
     "response-schema",
     "max-tokens",
+    "deadline-ms",
 }
 # Canonical parameter order: stems and factor blocks list swept covariates
 # in this order so artefacts from one grid stay field-for-field diffable.
@@ -54,6 +55,7 @@ _PARAMETER_ORDER = (
     "prompt-caching",
     "response-schema",
     "max-tokens",
+    "deadline-ms",
 )
 
 _THINKING_VALUES = ("adaptive", "none")
@@ -70,6 +72,23 @@ DEFAULT_MAX_TOKENS = 4096
 MAX_TOKENS_CEILING = 16000
 _THINKING_MIN_MAX_TOKENS = 1024
 
+# How long this framework is willing to wait for one response, in whole
+# milliseconds. Like the output ceiling, it is resolved-and-recorded rather
+# than a hidden constant — and unlike it, the value it replaces was not a
+# smaller number but *no bound at all*: Python's `urlopen` defaults to
+# waiting forever, and a run has been observed blocking for 94 minutes on a
+# peer that accepted the request and then went silent.
+#
+# The default is deliberately generous. It is not a service-level
+# expectation — a contract states those as latency ceilings, judged — but
+# the point past which the framework stops believing an answer is coming.
+# Ten minutes is an order of magnitude above what a non-streaming completion
+# at the 16000-token ceiling takes even on the slowest 397B-class
+# configurations in use, so it manufactures no failures, and an order of
+# magnitude below the hang it exists to end. An author measuring less
+# patience states it.
+DEFAULT_DEADLINE_MS = 600_000
+
 
 @dataclass(frozen=True, slots=True)
 class LanguageModelParameters:
@@ -85,6 +104,7 @@ class LanguageModelParameters:
     prompt_caching: bool | None = None
     response_schema: dict[str, Any] | None = None
     max_tokens: int = DEFAULT_MAX_TOKENS
+    deadline_ms: int = DEFAULT_DEADLINE_MS
 
 
 def _validate_configuration(
@@ -147,6 +167,7 @@ def _validate_configuration(
             "reasoning consumes the whole budget and the answer is truncated to nothing. "
             "Raise the ceiling or set `thinking: none`."
         )
+    deadline_ms = _validate_deadline(name, configuration)
     return LanguageModelParameters(
         system_prompt=system_prompt,
         provider=provider_name,
@@ -158,7 +179,23 @@ def _validate_configuration(
         prompt_caching=prompt_caching,
         response_schema=response_schema,
         max_tokens=max_tokens,
+        deadline_ms=deadline_ms,
     )
+
+
+def _validate_deadline(name: str, configuration: dict[str, Any]) -> int:
+    """The declared wait, in whole milliseconds, or the recorded default."""
+    deadline = configuration.get("deadline-ms", DEFAULT_DEADLINE_MS)
+    if isinstance(deadline, bool) or not isinstance(deadline, int) or deadline < 1:
+        raise _fail(
+            f"service {name!r}: `deadline-ms:` must be a whole number of milliseconds "
+            "greater than zero — how long this framework waits for one response before "
+            "recording a failed delivery. It bounds the whole exchange, not just the "
+            f"connection. Unstated, it defaults to {DEFAULT_DEADLINE_MS} and is recorded "
+            "as such; it is part of the service's identity, so a baseline measured "
+            "under one deadline does not resolve a test run under another."
+        )
+    return deadline
 
 
 def _parse_capabilities(
@@ -233,6 +270,13 @@ def resolved_provenance(parameters: LanguageModelParameters) -> dict[str, str]:
     # different ceiling is a different population, and a later test refuses
     # against it, naming the drifted key.
     entries["maxTokens"] = str(parameters.max_tokens)
+    # How long the framework was willing to wait moves the boundary between a
+    # delivered slow response and a failed delivery, so it changes the stream
+    # being sampled: a run measured under one deadline is not a run measured
+    # under another, and a baseline taken before this key existed was taken
+    # under no bound at all. Recorded even when defaulted — an unstated
+    # default is exactly the hidden constant this key exists to abolish.
+    entries["deadlineMs"] = str(parameters.deadline_ms)
     return entries
 
 
@@ -248,6 +292,7 @@ def _resolved_values(parameters: LanguageModelParameters) -> dict[str, Any]:
         "prompt-caching": parameters.prompt_caching,
         "response-schema": parameters.response_schema,
         "max-tokens": parameters.max_tokens,
+        "deadline-ms": parameters.deadline_ms,
     }
 
 

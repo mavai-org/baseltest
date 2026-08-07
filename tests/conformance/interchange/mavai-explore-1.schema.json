@@ -307,12 +307,41 @@
           "count"
         ],
         "additionalProperties": true,
+        "allOf": [
+          {
+            "$comment": "A delivery entry's condition is drawn from the closed cause vocabulary, never a free-text message: a cause that is not groupable is not countable, and one that is not bounded is not an identity.",
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "delivery"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "condition": {
+                  "$ref": "#/$defs/deliveryCause"
+                }
+              }
+            }
+          }
+        ],
         "properties": {
           "condition": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "The violating condition's bounded identity, as the contract declares it \u2014 never embedding input or response content. A per-input condition's identity is the condition name alone; the input travels structurally in inputIndex."
+            "description": "The violating condition's bounded identity, as the contract declares it \u2014 never embedding input or response content. A per-input condition's identity is the condition name alone; the input travels structurally in inputIndex. On a delivery-kind entry this is the delivery cause instead, drawn from the closed vocabulary: there is no declared condition to name when nothing was delivered to judge."
+          },
+          "kind": {
+            "enum": [
+              "evaluated",
+              "delivery"
+            ],
+            "description": "Whether these trials were judged and found wanting (evaluated), or never delivered a response to judge (delivery). Absent in pre-amendment emissions \u2014 a consumer renders absence as not stated, never as evaluated. Diagnostic only: a failed delivery is a failed trial on the same counting rule, and this states what kind of failure it was, not how much it counts."
           },
           "count": {
             "type": "integer",
@@ -331,6 +360,17 @@
           }
         }
       }
+    },
+    "deliveryCause": {
+      "enum": [
+        "unreachable",
+        "client-deadline",
+        "peer-timeout",
+        "server-error",
+        "unusable-response"
+      ],
+      "description": "Why a delivery failed, from a closed vocabulary — no emitter states a cause it cannot know. `unreachable`: no response at all (name resolution, refused connection). `client-deadline`: the framework's own stated deadline elapsed — it stopped waiting. `peer-timeout`: the peer stated that it timed out, which is a different fact from the one above and must not be conflated with it. `server-error`: the service answered that it is failing. `unusable-response`: a delivered body carrying nothing to judge.",
+      "$comment": "The two timeout senses are separate tokens deliberately. Before DIR-FAM-TIMEOUT-client-deadline no framework in the family set a deadline, so `we stopped waiting` was unsayable and any observed cut-off was the peer's; a single `timeout` token would have let a later emitter blur the two the moment deadlines arrived."
     },
     "cost": {
       "type": "object",

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from types import MappingProxyType
 
-from baseltest.contract import FailureAxis, PostconditionStanding
+from baseltest.contract import DeliveryCause, FailureAxis, PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, latency_block
 from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL, wilson_lower_bound
 
@@ -69,6 +69,10 @@ class CriterionCharacterisation:
         trials: Total trials.
         failure_distribution: Failure reasons and their counts; empty when
             every trial passed.
+        failure_axes: The companion's diagnostic axis per observed reason.
+        delivery_causes: The delivery cause per observed reason that was a
+            failed delivery — what the artefact states as that entry's
+            identity, since the reason itself is an interpolated message.
         judgement: The measurement-time judgement, when the criterion
             declared a threshold; ``None`` otherwise.
         standings: The criterion's descriptive per-postcondition tally —
@@ -85,6 +89,7 @@ class CriterionCharacterisation:
     trials: int
     failure_distribution: Mapping[str, int] = field(default_factory=dict)
     failure_axes: Mapping[str, FailureAxis] = field(default_factory=dict)
+    delivery_causes: Mapping[str, DeliveryCause] = field(default_factory=dict)
     judgement: NormativeJudgement | None = None
     standings: tuple[PostconditionStanding, ...] = ()
     optional_slack: str | None = None
@@ -97,6 +102,7 @@ class CriterionCharacterisation:
             self, "failure_distribution", MappingProxyType(dict(self.failure_distribution))
         )
         object.__setattr__(self, "failure_axes", MappingProxyType(dict(self.failure_axes)))
+        object.__setattr__(self, "delivery_causes", MappingProxyType(dict(self.delivery_causes)))
 
     @property
     def observed_rate(self) -> float:
@@ -197,6 +203,7 @@ class BaselineRecord:
                 trials=tally.trials,
                 failure_distribution=dict(tally.failure_reasons),
                 failure_axes=dict(tally.failure_axes),
+                delivery_causes=dict(tally.delivery_causes),
                 judgement=judgement,
                 standings=criterion_result.standings,
                 optional_slack=slack.declared if slack is not None else None,

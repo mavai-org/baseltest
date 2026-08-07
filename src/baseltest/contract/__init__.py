@@ -35,6 +35,7 @@ from .evaluation import (
 from .model import (
     PERCENTILE_LEVELS,
     Criterion,
+    DeliveryCause,
     FileInput,
     LatencyBar,
     LatencyBound,
@@ -92,6 +93,7 @@ __all__ = [
     "ObservedValue",
     "PostconditionStanding",
     "ServiceContract",
+    "DeliveryCause",
     "ServiceDeliveryError",
     "ThresholdProvenance",
     "TransformError",

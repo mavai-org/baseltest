@@ -69,7 +69,7 @@ def poison_one_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
         def __exit__(self, *args: object) -> None:
             self.close()
 
-    def fake_urlopen(request: Any) -> FakeResponse:
+    def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
         payload = json.loads(request.data.decode("utf-8"))
         content = "POISON" if payload["model"] == "other-model" else '{"ok": true}'
         reply = {"choices": [{"message": {"content": content}}]}
@@ -246,7 +246,7 @@ services:
             def __exit__(self, *args: object) -> None:
                 self.close()
 
-        def fake_urlopen(request: Any) -> FakeResponse:
+        def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
             payload = json.loads(request.data.decode("utf-8"))
             content = '{"ok": true}' if payload["temperature"] == 0.0 else "POISON"
             reply = {"choices": [{"message": {"content": content}}]}
@@ -288,7 +288,7 @@ services:
             def __exit__(self, *args: object) -> None:
                 self.close()
 
-        def fake_urlopen(request: Any) -> FakeResponse:
+        def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
             reply = {"choices": [{"message": {"content": "POISON"}}]}
             return FakeResponse(json.dumps(reply).encode("utf-8"))
 

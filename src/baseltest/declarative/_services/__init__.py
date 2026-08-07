@@ -23,6 +23,7 @@ model and grid projection (`_model`), the built-in ``language-model`` type
 """
 
 from ._language_model import (
+    DEFAULT_DEADLINE_MS,
     DEFAULT_MAX_TOKENS,
     MAX_TOKENS_CEILING,
     LanguageModelParameters,
@@ -35,6 +36,7 @@ from ._parse import _resolved_point as _resolved_point
 from ._parse import discover_services, parse_services
 
 __all__ = [
+    "DEFAULT_DEADLINE_MS",
     "DEFAULT_MAX_TOKENS",
     "MAX_TOKENS_CEILING",
     "LanguageModelParameters",
