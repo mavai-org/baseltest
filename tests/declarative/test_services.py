@@ -52,7 +52,7 @@ def llm_environment(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped
         def __exit__(self, *args: object) -> None:
             self.close()
 
-    def fake_urlopen(request: Any) -> FakeResponse:
+    def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
         payload = json.loads(request.data.decode("utf-8"))
         captured.append(payload)
         reply = {"choices": [{"message": {"content": f"hello from {payload['model']}"}}]}

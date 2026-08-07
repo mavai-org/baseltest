@@ -83,7 +83,7 @@ def scripted_endpoint(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[dic
     def install(respond: Callable[[dict[str, Any]], str]) -> list[dict[str, Any]]:
         captured: list[dict[str, Any]] = []
 
-        def fake_urlopen(request: Any) -> FakeResponse:
+        def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
             payload = json.loads(request.data.decode("utf-8"))
             captured.append(payload)
             reply = {"choices": [{"message": {"content": respond(payload)}}]}
@@ -981,7 +981,7 @@ class TestPromptEngineer:
         # sampled service's responses are judged by their text, and the
         # meta model's proposal is the reply's text — never a failed
         # delivery, never a crash on the usage envelope.
-        def fake_urlopen(request: Any) -> FakeResponse:
+        def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
             payload = json.loads(request.data.decode("utf-8"))
             system = payload["messages"][0]["content"]
             if META_MARKER in system:

@@ -9,6 +9,40 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
+**baseltest now gives up.** Breaking for every existing baseline: re-run
+`basel measure`.
+
+Until now this package invoked a service with no deadline at all.
+Python's `urlopen` defaults to waiting forever, nothing here overrode it,
+and there was no flag, key, or environment variable that could. A run was
+observed blocked for 94 minutes on 0.9 seconds of CPU, every sample
+waiting on the HTTP status line of a peer that had accepted the request
+and then gone silent. Nothing failed and nothing warned, because from the
+framework's point of view nothing had happened yet.
+
+The `language-model` service now takes `deadline-ms:` — how long baseltest
+waits for one response before recording a failed delivery. It bounds the
+whole exchange rather than the connection, which is what the observed
+failure requires: the connection succeeded. Unstated, it resolves to
+`600000` (ten minutes) and is **recorded as resolved**, because a default
+nobody can see is the hidden constant this key exists to abolish. Ten
+minutes is far above what a non-streaming completion at the token ceiling
+takes on the slowest configurations in use, so it manufactures no
+failures; state a smaller one where less patience is the point.
+
+The deadline is **identity**. A shorter deadline converts slow-but-delivered
+responses into failed deliveries, so two runs at different deadlines are
+not measuring the same thing and a baseline taken under one does not
+resolve a test run under another. This is why every existing baseline
+drifts on upgrade: it was measured under no deadline at all, which is not
+the same population as ten minutes. `basel test` says so, naming
+`deadlineMs` as the differing key; `basel measure` writes a current one.
+
+A timed-out sample is a **failed delivery**, counted like any other — one
+failed sample, every postcondition skipped, the run completing to a
+verdict. It is never retried: a re-attempted sample is a resampled trial
+and would bias the observed rate.
+
 **The baseline states its standings in the family's shape.** Breaking for
 anything that reads a baseline artefact's standings block.
 
@@ -28,6 +62,7 @@ The declared budget moves inside the block, beside the rows it governs.
 Baselines written by earlier versions are not read by this one — the format
 was a clean break already. Re-run `basel measure` to write current
 artefacts.
+
 **`basel` can state its own version.**
 
 `basel --version` prints `baseltest <version>` and exits 0, with no verb and

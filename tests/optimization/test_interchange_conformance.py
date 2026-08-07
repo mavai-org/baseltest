@@ -71,7 +71,7 @@ def alternating_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
         def __exit__(self, *args: object) -> None:
             self.close()
 
-    def fake_urlopen(request: Any) -> FakeResponse:
+    def fake_urlopen(request: Any, **_: Any) -> FakeResponse:
         calls["count"] += 1
         content = "hello there" if calls["count"] % 2 else "goodbye"
         reply = {"choices": [{"message": {"content": content}}]}

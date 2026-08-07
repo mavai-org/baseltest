@@ -194,6 +194,10 @@ def build_invoker(
             "service configuration or set the environment default"
         )
     headers = provider.headers(_api_key(provider))
+    # Seconds at the socket, milliseconds in the authoring surface and the
+    # artefact: the family states durations in whole milliseconds, and this
+    # is the one place that has to speak the transport's unit.
+    deadline = parameters.deadline_ms / 1000
 
     def invoke(user_input: Any) -> str | Reply:
         request = urllib.request.Request(
@@ -203,8 +207,19 @@ def build_invoker(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request) as response:  # noqa: S310
+            with urllib.request.urlopen(request, timeout=deadline) as response:  # noqa: S310
                 payload = json.loads(response.read().decode("utf-8"))
+        except TimeoutError:
+            # The deadline this framework set, elapsed. A socket timeout
+            # reaches here rather than through URLError when it strikes on
+            # the read — which is the shape observed in the field, a peer
+            # that accepts the request and then never answers. Stating the
+            # deadline is what separates "we stopped waiting" from "the
+            # service is unreachable": both are failed deliveries, and only
+            # one of them is a statement about the service.
+            raise ServiceDeliveryError(
+                f"service did not answer within the {parameters.deadline_ms}ms deadline"
+            ) from None
         except urllib.error.HTTPError as error:
             try:
                 detail = error.read().decode("utf-8", "replace")[:2000]
@@ -219,8 +234,14 @@ def build_invoker(
                 ) from None
             raise ProviderResponseError(provider.name, error.code, detail) from None
         except urllib.error.URLError as error:
-            # No response at all — DNS, refused connection, timeout: the
-            # service is unreachable, which is a failed delivery too.
+            # No response at all — DNS, refused connection: the service is
+            # unreachable, which is a failed delivery too. A deadline that
+            # strikes while connecting arrives here wrapped, and is the same
+            # fact as the branch above: this framework stopped waiting.
+            if isinstance(error.reason, TimeoutError):
+                raise ServiceDeliveryError(
+                    f"service did not answer within the {parameters.deadline_ms}ms deadline"
+                ) from None
             raise ServiceDeliveryError(
                 f"service unreachable at {endpoint}: {error.reason}"
             ) from None
