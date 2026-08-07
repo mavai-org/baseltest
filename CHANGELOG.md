@@ -7,6 +7,28 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [Unreleased]
+
+**The baseline states its standings in the family's shape.** Breaking for
+anything that reads a baseline artefact's standings block.
+
+`mavai-baseline-1` defines the standings block once, as the exploration and
+optimization artefacts already state it: a `standings:` mapping carrying the
+declared `optionalSlack` and a `rows:` list, one row per (input, check).
+This package kept emitting the earlier `postconditionStandings:` shape — a
+mapping of input index to check to tally — so a baseline it wrote was a
+dialect of the format it claimed, and the family's report renderer, reading
+the format as specified, drew no standings for a baseltest run at all.
+
+The block now takes the family shape. Each row is one JSON object per line,
+which is a YAML flow mapping in any parser and a single scalar line for this
+package's own reader, so nothing changed about how a baseline reads back.
+The declared budget moves inside the block, beside the rows it governs.
+
+Baselines written by earlier versions are not read by this one — the format
+was a clean break already. Re-run `basel measure` to write current
+artefacts.
+
 ## [0.20.0] — 2026-08-05
 
 **An author can name a configuration.**

@@ -1,31 +1,38 @@
 """The single writer: serialising a baseline record to the artefact schema.
 
-Schema ``baseltest-baseline-2`` (draft), emitted deterministically with no
-third-party dependency: the schema is this package's own, every emitted
-string is JSON-quoted (a JSON string is a valid YAML flow scalar), and key
-order is fixed, so identical records produce identical bytes. Version 2
-adds the ``latency:`` block — field-compatible with punit's baseline
-latency block — to a version-1 body that is otherwise unchanged.
+Schema ``mavai-baseline-1``, the family's one baseline format — emitted
+deterministically with no third-party dependency: every emitted string is
+JSON-quoted (a JSON string is a valid YAML flow scalar) and key order is
+fixed, so identical records produce identical bytes.
 
 Illustrative artefact:
 
 .. code-block:: yaml
 
-    schemaVersion: "baseltest-baseline-2"
-    contractId: "refund-confirmation"
+    schemaVersion: "mavai-baseline-1"
+    serviceContractId: "refund-confirmation"
+    serviceName: "refund-service"
     generatedAt: "2026-07-06T12:00:00+00:00"
-    sampleCount: 300
+    confidenceLevel: 0.95
     inputsIdentity: "3fd0..."
-    provenance:
+    covariateProfile:
+      model: "mistral-small-4"
+    factorRecord:
       taskFormat: "mavai-contract/1"
-      binding: "refund-service"
+    execution:
+      samplesPlanned: 300
+      samplesExecuted: 300
+      terminationReason: "COMPLETED"
     criteria:
       "relevant":
-        observedPassRate: 0.98
-        successes: 294
+        mode: "inferential"
+        procedure: "REGRESSION"
         trials: 300
+        successes: 294
+        observedPassRate: 0.98
+        wilsonLowerBound: 0.958
         failureDistribution:
-          "response does not contain 'refund'": 6
+          - {"condition": "response does not contain 'refund'", "count": 6}
         normativeJudgement:
           state: "met"
           stipulatedThreshold: 0.95
@@ -106,57 +113,46 @@ def _criterion_lines(name: str, c: CriterionCharacterisation) -> list[str]:
                 f"      confidence: {c.judgement.confidence}",
             ]
         )
-    if c.optional_slack is not None:
-        # The declared optional-check failure budget, verbatim as authored;
-        # absent when undeclared — never "0". Additive in schema 2.
-        lines.append(f"    optionalSlack: {quote(c.optional_slack)}")
     if c.standings:
         # Descriptive triage only — counts and the observed fraction; the
         # block never carries an interval, threshold, or per-check verdict.
-        # Nested mappings (input index, then check), never a mapping list —
-        # the reader's line parser takes list items as scalars only. Each
-        # check states its optional flag beside the tallies (additive).
-        lines.append("    postconditionStandings:")
-        current_input: int | None = None
+        # One shape for the whole family: the same block the exploration and
+        # optimization artefacts state, so a consumer reads standings once
+        # rather than once per artefact. The declared slack sits inside it,
+        # verbatim as authored and only when declared — never "0".
+        lines.append("    standings:")
+        if c.optional_slack is not None:
+            lines.append(f"      optionalSlack: {quote(c.optional_slack)}")
+        lines.append("      rows:")
         for row in c.standings:
-            if row.input_index != current_input:
-                lines.append(f"      {quote(str(row.input_index))}:")
-                current_input = row.input_index
-            lines.extend(
-                [
-                    f"        {quote(bounded_key(row.postcondition))}:",
-                    f"          optional: {'true' if row.optional else 'false'}",
-                    f"          passed: {row.passed}",
-                    f"          failed: {row.failed}",
-                    f"          skipped: {row.skipped}",
-                    f"          observedFraction: {row.observed_fraction:.6f}",
-                ]
-            )
-            # Structured-row amendment: the check's stated structure and
-            # obtained-value exemplars, additive in schema 2.
+            # One JSON object per row: a JSON object is a valid YAML flow
+            # mapping, so the row reads as a mapping in any parser while
+            # staying a single scalar line for this artefact's own reader —
+            # the same grammar the failure entries and the exemplars use.
+            stated: dict[str, object] = {
+                "inputIndex": row.input_index,
+                "check": bounded_key(row.postcondition),
+                "optional": row.optional,
+                "passed": row.passed,
+                "failed": row.failed,
+                "skipped": row.skipped,
+                "observedFraction": round(row.observed_fraction, 6),
+            }
+            # The check's stated structure and obtained-value exemplars:
+            # content travels in values only.
             if row.path is not None:
-                lines.append(f"          path: {quote(bounded_excerpt(row.path))}")
+                stated["path"] = bounded_excerpt(row.path)
             if row.form is not None:
-                lines.append(f"          form: {quote(bounded_excerpt(row.form))}")
+                stated["form"] = bounded_excerpt(row.form)
             if row.expected is not None:
-                lines.append(f"          expected: {quote(bounded_excerpt(row.expected))}")
+                stated["expected"] = bounded_excerpt(row.expected)
             if row.observed:
-                # List items are scalars in this artefact's grammar (the
-                # reader json-loads each line): one JSON object per exemplar.
-                lines.append("          observed:")
-                for exemplar in row.observed:
-                    lines.append(
-                        "            - "
-                        + json.dumps(
-                            {
-                                "excerpt": exemplar.excerpt,
-                                "count": exemplar.count,
-                                "held": exemplar.held,
-                            }
-                        )
-                    )
+                stated["observed"] = [
+                    {"excerpt": e.excerpt, "count": e.count, "held": e.held} for e in row.observed
+                ]
             if row.elided:
-                lines.append(f"          elided: {row.elided}")
+                stated["elided"] = row.elided
+            lines.append("        - " + json.dumps(stated))
     return lines
 
 
