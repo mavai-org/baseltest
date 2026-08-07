@@ -1,5 +1,7 @@
 """The CLI verbs: exit-code semantics, sample sizing, the derivation gate."""
 
+import pytest
+
 from baseltest.declarative._cli import main
 
 
@@ -208,6 +210,35 @@ class TestSingleParse:
 
         assert main(["test", str(contract), "--samples", "60"]) == 0
         assert counts == {"contract": 1, "registrations": 1, "services": 1}
+
+
+class TestVersionFlag:
+    """``basel --version`` states the build, with no contract and no verb."""
+
+    def test_it_prints_the_version_and_exits_zero(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from baseltest._version import __version__
+
+        with pytest.raises(SystemExit) as exit_:
+            main(["--version"])
+
+        assert exit_.value.code == 0
+        assert capsys.readouterr().out == f"baseltest {__version__}\n"
+
+    def test_it_says_what_the_verdict_record_says(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A reader holding a verdict compares two identical strings."""
+        from baseltest.reporting.verdict_xml import _generator
+
+        with pytest.raises(SystemExit):
+            main(["--version"])
+
+        assert capsys.readouterr().out.rstrip("\n") == _generator()
+
+    def test_a_verb_still_wants_its_contract(self) -> None:
+        """The flag short-circuits the root parser; it does not relax any verb."""
+        with pytest.raises(SystemExit) as exit_:
+            main([])
+
+        assert exit_.value.code == 2
 
 
 def test_the_command_is_basel() -> None:
