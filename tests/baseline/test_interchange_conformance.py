@@ -23,7 +23,7 @@ from baseltest.baseline import (
     NormativeJudgement,
     write_baseline,
 )
-from baseltest.contract import FailureAxis
+from baseltest.contract import FailureAxis, PostconditionStanding
 
 _SCHEMA_PATH = Path(__file__).parent.parent / "conformance" / "interchange"
 _SCHEMA = json.loads((_SCHEMA_PATH / "mavai-baseline-1.schema.json").read_text(encoding="utf-8"))
@@ -48,6 +48,20 @@ def _record(**overrides: object) -> BaselineRecord:
                     state="failed", stipulated_threshold=0.95, confidence=0.95
                 ),
                 wilson_lower_bound=0.0686,
+                optional_slack="1",
+                standings=(
+                    PostconditionStanding(
+                        input_index=0,
+                        postcondition="buildingSumInsured matches the reviewed value",
+                        passed=0,
+                        failed=1,
+                        skipped=0,
+                        optional=False,
+                        path="$.buildingSumInsured.amount",
+                        form="equals",
+                        expected="1970300.00",
+                    ),
+                ),
             )
         },
         "covariate_profile": {"model": "mistral-small-4", "temperature": "0.0"},
@@ -103,6 +117,22 @@ class TestBaselineInterchangeConformance:
         # The rate is not stateable at zero trials, and 0.0 would assert one
         # from the same non-evidence that makes the bound null.
         assert "observedPassRate" not in criterion
+
+    def test_the_standings_state_the_family_shape_not_a_dialect_of_it(self, tmp_path: Path) -> None:
+        # One standings shape across the family: the block the exploration
+        # and optimization artefacts state, so a consumer reads standings
+        # once rather than once per artefact.
+        document = _emitted(_record(), tmp_path)
+        criterion = document["criteria"]["extraction-matches-reviewed-values"]
+        assert "postconditionStandings" not in criterion
+        standings = criterion["standings"]
+        assert standings["optionalSlack"] == "1"
+        row = standings["rows"][0]
+        assert row["inputIndex"] == 0
+        assert row["check"] == "buildingSumInsured matches the reviewed value"
+        assert row["optional"] is False
+        assert row["path"] == "$.buildingSumInsured.amount"
+        assert (row["passed"], row["failed"], row["skipped"]) == (0, 1, 0)
 
     def test_the_failure_axis_travels_with_each_entry(self, tmp_path: Path) -> None:
         document = _emitted(_record(), tmp_path)

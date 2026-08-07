@@ -116,9 +116,12 @@ class TestPersistence:
 
     def test_the_baseline_artefact_carries_the_standings_block(self) -> None:
         artefact = render_baseline(BaselineRecord.from_run_result(run(), "svc"))
-        assert "postconditionStandings:" in artefact
+        # The family's one standings shape, the same the exploration and
+        # optimization artefacts state.
+        assert "    standings:\n      rows:\n" in artefact
+        assert '        - {"inputIndex": 0' in artefact
         assert '"contains \\"a\\""' in artefact or 'contains \\"a\\"' in artefact
-        assert "observedFraction: 0.000000" in artefact
+        assert '"observedFraction": 0.0' in artefact
 
     def test_the_baseline_reader_tolerates_the_standings_block(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
         from baseltest.baseline import read_baseline, write_baseline
@@ -168,8 +171,8 @@ class TestPartialCreditFacts:
 
         artefact = render_baseline(BaselineRecord.from_run_result(result, "svc"))
         assert 'optionalSlack: "20%"' in artefact
-        assert "optional: true" in artefact
-        assert "optional: false" in artefact
+        assert '"optional": true' in artefact
+        assert '"optional": false' in artefact
 
         observation = "\n".join(observation_lines(RunObservation.from_run_result(result)))
         assert 'optionalSlack: "20%"' in observation
@@ -259,7 +262,7 @@ class TestStructuredRows:
         assert 'form: "contains"' in observation
         assert "observed:" in observation
         artefact = render_baseline(BaselineRecord.from_run_result(result, "svc"))
-        assert 'form: "contains"' in artefact
+        assert '"form": "contains"' in artefact
         assert '"held": false' in artefact
 
     def test_the_baseline_reader_tolerates_structured_rows(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
