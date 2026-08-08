@@ -237,3 +237,86 @@ def test_no_endpoint_reaches_the_artefact_as_an_identity(tmp_path: Path, monkeyp
         for entry in document["statistics"]["failureDistribution"]:
             assert "secret-gateway.internal" not in entry["condition"]
             assert entry["condition"] in {cause.value for cause in DeliveryCause}
+
+
+# ── the verdict record ───────────────────────────────────────────────────────
+
+
+def _verdict_documents(verdicts_dir: Path) -> list[Any]:
+    from xml.etree import ElementTree
+
+    return [ElementTree.parse(path).getroot() for path in sorted(verdicts_dir.rglob("*.xml"))]
+
+
+def _run_test(tmp_path: Path, samples: int = 4) -> Path:
+    from baseltest.declarative import run
+
+    contract = _write_files(tmp_path)
+    run(contract, "measure", samples=samples, baseline_dir=tmp_path / "baselines")
+    run(
+        contract,
+        "test",
+        samples=samples,
+        baseline_dir=tmp_path / "baselines",
+        verdict_dir=tmp_path / "verdicts",
+    )
+    return tmp_path / "verdicts"
+
+
+def test_a_verdict_states_the_run_failure_attribution(tmp_path: Path, monkeypatch: Any) -> None:
+    """The element that was missing entirely: a test run's own attribution,
+    per trial, with the kind that says what sort of failure it was."""
+    calls = {"count": 0}
+
+    def urlopen(request: Any, *args: Any, **kwargs: Any) -> Any:
+        calls["count"] += 1
+        if calls["count"] % 2:
+            raise urllib.error.URLError("connection refused")
+        reply = {"choices": [{"message": {"content": "goodbye"}}]}
+        return FakeResponse(json.dumps(reply).encode("utf-8"))
+
+    monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+    monkeypatch.setenv(ENV_MODEL, "env-default-model")
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+    verdicts = _run_test(tmp_path)
+    ns = "{http://mavai.org/verdict/1.0}"
+    roots = _verdict_documents(verdicts)
+    assert roots
+    for root in roots:
+        assert root.get("version") == "1.5"
+        functional = root.find(f"{ns}functional")
+        assert functional is not None
+        checks = functional.findall(f"{ns}failure-distribution/{ns}check")
+        assert checks, "the run stated no attribution at all"
+        kinds = {check.get("kind") for check in checks}
+        assert "delivery" in kinds
+        delivery = [check for check in checks if check.get("kind") == "delivery"]
+        assert {check.get("name") for check in delivery} == {"unreachable"}
+        # Trials, not check-evaluations: the counts sum to the run's own
+        # stated failure count. Summing per-criterion tallies instead would
+        # multiply each undelivered trial by the width of the contract.
+        stated = sum(int(check.get("count") or 0) for check in checks)
+        assert stated == int(functional.get("failures") or 0)
+
+
+def test_an_undelivered_test_run_attributes_every_trial_to_its_cause(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    def urlopen(request: Any, *args: Any, **kwargs: Any) -> Any:
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setenv(ENV_ENDPOINT, "https://example.invalid/v1/chat/completions")
+    monkeypatch.setenv(ENV_MODEL, "env-default-model")
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+
+    verdicts = _run_test(tmp_path)
+    ns = "{http://mavai.org/verdict/1.0}"
+    for root in _verdict_documents(verdicts):
+        functional = root.find(f"{ns}functional")
+        assert functional is not None
+        assert functional.get("successes") == "0"
+        checks = functional.findall(f"{ns}failure-distribution/{ns}check")
+        assert [(c.get("name"), c.get("kind"), c.get("count")) for c in checks] == [
+            ("unreachable", "delivery", functional.get("failures"))
+        ]

@@ -10,7 +10,8 @@ carry breaking changes; each says so in its first line.
 ## [Unreleased]
 
 **A failed delivery says so.** Additive to every artefact this package
-writes; needs mavai-R 0.10.10 or later to validate.
+writes; needs mavai-R 0.10.10 or later to validate. **Verdict records move
+to `verdict-1.5`.**
 
 A trial that never received a response and a trial that received one and
 failed it are opposite findings, and the artefacts stated them identically.
@@ -35,6 +36,21 @@ counted against every criterion, and the entries still sum to `failures`.
 There is deliberately no separate count of delivery failures: summing the
 delivery-kind entries is a trivial aggregate over stated counts, where a
 second field would be a second source of one truth.
+
+**The verdict record states its failure attribution at all.** It never
+had a `functional` element: a test run stated per-criterion outcomes and
+postcondition clauses, and nothing that said what the run as a whole failed
+on. It now states `functional` with the run's attribution — one `check` per
+bounded identity, with its `kind` — so a test against a service that never
+answered reads as one, instead of as a `FAIL` on every criterion at a rate
+of zero.
+
+The attribution is **per trial**, computed in the sampling fold rather than
+summed from the per-criterion tallies. A trial that fails two criteria
+appears in both of those tallies, and an undelivered trial fails every one
+of them, so summing would multiply a single incident by the width of the
+contract — the same defect, in a new place, that the explore leaderboard's
+`no result for 19/200` was. The counts sum to the run's stated failures.
 
 `ServiceDeliveryError` gains an optional `cause`. An author raising it from
 their own binding may leave it unstated — the framework knows nothing about

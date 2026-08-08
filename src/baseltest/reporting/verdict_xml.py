@@ -1,11 +1,14 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
 Test runs emit their results in the mavai family's verdict XML
-(``verdict-1.4.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+(``verdict-1.5.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
 every framework's results are readable by the same tooling. baseltest
 emits the subset it has data for; every emitted element conforms.
-``version="1.4"``: the per-criterion decomposition is always populated,
-and the descriptive postcondition standings travel in the first-class
+``version="1.5"``: the run's failure attribution travels in the
+``functional`` element, one ``check`` per bounded identity with the kind
+that says whether those trials were judged or never delivered anything to
+judge. The per-criterion decomposition is always populated, and the
+descriptive postcondition standings travel in the first-class
 ``postcondition-standings`` element — counts, the observed fraction, the
 per-row optional flag, and the declared slack verbatim; never an interval
 or a per-check verdict. The transitional environment-entry carriage some
@@ -23,7 +26,7 @@ from baseltest.engine.naming import bounded_excerpt, bounded_key
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.4"
+_FORMAT_VERSION = "1.5"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -162,6 +165,23 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
                     }
                 ),
             )
+
+    # The run's failure attribution: per trial, each counted once against
+    # the first thing that failed it, with the bounded identity and the
+    # kind. This is what lets a consumer tell a run that measured nothing
+    # from a run that measured everything and found it wanting — the two
+    # states this record used to spell identically.
+    functional = child(root, "functional")
+    functional.set("successes", str(result.overall_successes))
+    functional.set("failures", str(result.plan.samples - result.overall_successes))
+    functional.set("pass-rate", str(result.observed_rate))
+    if result.failure_attribution:
+        distribution = child(functional, "failure-distribution")
+        for attribution in result.failure_attribution:
+            check = child(distribution, "check")
+            check.set("name", attribution.condition)
+            check.set("count", str(attribution.count))
+            check.set("kind", str(attribution.kind))
 
     reasons: dict[str, int] = {}
     for criterion_result in judged:
