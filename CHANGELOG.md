@@ -7,7 +7,7 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
-## [Unreleased]
+## [0.21.0] — 2026-08-09
 
 **A failed delivery says so.** Additive to every artefact this package
 writes; needs mavai-R 0.10.10 or later to validate. **Verdict records move
