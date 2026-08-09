@@ -302,3 +302,54 @@ class TestMultiPartInputs:
         assert base == fp("hello", "a.png", "2.yaml")  # deterministic
         assert base != fp("HELLO", "a.png", "3.yaml")  # text content matters
         assert base != fp("hello", "b.png", "4.yaml")  # media content matters
+
+
+class TestHowAFileInputPresentsItself:
+    """What a file input looks like where a reader meets it.
+
+    Its excerpt travels into published artefacts — read by this framework's
+    own reports and by punit's and feotest's, on machines that are not the
+    one that ran it. So the presentation is part of the wire surface, not a
+    debugging convenience.
+    """
+
+    def _file_input(self, tmp_path: Path) -> FileInput:
+        document = tmp_path / "corpus" / "EM-LS-1page_5pos.pdf"
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_bytes(b"%PDF-1.4 fixture")
+        return FileInput(
+            path=document,
+            kind=MediaKind.DOCUMENT,
+            data=document.read_bytes(),
+            content_hash=hashlib.sha256(document.read_bytes()).hexdigest(),
+        )
+
+    def test_it_presents_as_the_document_name(self, tmp_path: Path) -> None:
+        assert str(self._file_input(tmp_path)) == "EM-LS-1page_5pos.pdf"
+
+    def test_it_never_presents_the_machine_local_path(self, tmp_path: Path) -> None:
+        """The defect this replaced: an artefact carrying an author's home
+        directory, and a Python type name, into a language-agnostic
+        document."""
+        shown = str(self._file_input(tmp_path))
+
+        assert str(tmp_path) not in shown
+        assert "PosixPath" not in shown
+        assert "FileInput" not in shown
+
+    def test_dropping_the_path_costs_no_identity(self, tmp_path: Path) -> None:
+        """Safe precisely because the path was never identity: the content
+        hash is, so two files that differ still differ."""
+        one = self._file_input(tmp_path)
+        elsewhere = tmp_path / "other" / "EM-LS-1page_5pos.pdf"
+        elsewhere.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere.write_bytes(b"%PDF-1.4 different bytes")
+        two = FileInput(
+            path=elsewhere,
+            kind=MediaKind.DOCUMENT,
+            data=elsewhere.read_bytes(),
+            content_hash=hashlib.sha256(elsewhere.read_bytes()).hexdigest(),
+        )
+
+        assert str(one) == str(two)
+        assert one.identity() != two.identity()
