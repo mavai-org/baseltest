@@ -11,30 +11,13 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import StrEnum
 from typing import Any
 
-from baseltest.contract import PostconditionStanding
+from baseltest.contract import FailureKind, PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, SampleRecord, latency_block
 from baseltest.engine.naming import bounded_excerpt, bounded_key, per_input_index
 
 _DELIVERY_FAILURE_CONDITION = "service delivery failed"
-
-
-class FailureKind(StrEnum):
-    """Whether an entry's trials were judged, or never delivered anything to judge.
-
-    Stated because the two are opposite findings that the artefact used to
-    serialise identically: a configuration at 0.000 whose every sample was
-    evaluated and failed says the service is bad at its job, and one whose
-    every sample went undelivered says nothing about the service at all.
-
-    Diagnostic only — the counting rule is untouched. An undelivered trial
-    is one failed trial counted against every criterion, as it was before.
-    """
-
-    EVALUATED = "evaluated"
-    DELIVERY = "delivery"
 
 
 @dataclass(frozen=True, slots=True)

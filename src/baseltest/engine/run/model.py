@@ -14,6 +14,7 @@ from baseltest.contract import (
     Criterion,
     CriterionTally,
     DeliveryCause,
+    FailureKind,
     Outcome,
     PostconditionStanding,
 )
@@ -132,6 +133,26 @@ class SampleRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class FailureAttribution:
+    """One bounded failure identity and the trials attributed to it.
+
+    Run-level and per *trial*, not per criterion: each failed trial counts
+    once, against the first check that did not hold — or, where nothing was
+    delivered, against the delivery cause. Summing per-criterion tallies
+    instead would count a trial once per criterion it failed, which for an
+    undelivered trial (it fails every criterion) multiplies one incident by
+    the width of the contract.
+
+    Computed for every run, including those that keep no per-sample
+    records: a test run states its attribution without carrying payloads.
+    """
+
+    condition: str
+    count: int
+    kind: FailureKind
+
+
+@dataclass(frozen=True, slots=True)
 class RunResult:
     """Everything a run produced; consumers render or persist, never recompute.
 
@@ -167,6 +188,9 @@ class RunResult:
     # Reported token usage summed over the run's samples; 0 when no
     # service reply carried usage (cost blocks then state no tokens).
     total_tokens: int = 0
+    # Per-trial first-failure attribution over the whole run, in a
+    # deterministic order; empty when every trial passed.
+    failure_attribution: tuple[FailureAttribution, ...] = ()
     latency: "LatencyEvaluation | None" = None
 
     @property

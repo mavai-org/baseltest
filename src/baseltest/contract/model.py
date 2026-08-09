@@ -46,6 +46,22 @@ class TransformError(BaseltestError):
     """
 
 
+class FailureKind(StrEnum):
+    """Whether a failure's trials were judged, or never delivered anything to judge.
+
+    Stated because the two are opposite findings that the artefacts used to
+    serialise identically: a run at 0.000 whose every sample was evaluated
+    and failed says the service is bad at its job, and one whose every
+    sample went undelivered says nothing about the service at all.
+
+    Diagnostic only — the counting rule is untouched. An undelivered trial
+    is one failed trial counted against every criterion, as it was before.
+    """
+
+    EVALUATED = "evaluated"
+    DELIVERY = "delivery"
+
+
 class DeliveryCause(StrEnum):
     """Why a delivery failed, from the family's closed vocabulary.
 

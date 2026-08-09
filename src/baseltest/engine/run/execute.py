@@ -11,12 +11,14 @@ either. The value model, feasibility, identity, and judgement it composes live
 in sibling modules.
 """
 
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
 from baseltest.contract import (
     CriterionTally,
+    FailureKind,
     ObservedValue,
     Outcome,
     Postcondition,
@@ -26,10 +28,17 @@ from baseltest.contract import (
 from baseltest.statistics.verdict import Verdict
 
 from ..latency import evaluate_latency
+from ..naming import bounded_key
 from .feasibility import _preflight
 from .identity import inputs_fingerprint
 from .judge import _judge
-from .model import CriterionResult, RunPlan, RunResult, SampleRecord
+from .model import (
+    CriterionResult,
+    FailureAttribution,
+    RunPlan,
+    RunResult,
+    SampleRecord,
+)
 from .sample import _run_one_sample, _SampleOutcome
 
 
@@ -52,6 +61,65 @@ def _run_samples(
         if on_sample is not None:
             on_sample(ordinal + 1, plan.samples)
     return outcomes
+
+
+# A failed trial the run can attribute to nothing it stated: no failing
+# check, and no delivery cause because the raiser gave none. The kind is
+# still knowable — nothing was judged — so it is stated as a delivery with
+# an identity that says exactly that and claims nothing further.
+_UNATTRIBUTED_FAILURE = "undelivered"
+
+
+def _attribute_failures(outcomes: list[_SampleOutcome]) -> tuple[FailureAttribution, ...]:
+    """Attribute each failed trial once, to the first thing that failed it.
+
+    Pure and order-independent, folded over the same outcomes the tallies
+    are: a trial that never delivered is attributed to its stated cause,
+    and any other failed trial to the first check that did not hold, in
+    the contract's own order. Trials, not check-evaluations — the unit the
+    reader authored and the one every other count on the page is in.
+
+    Deliberately not derived from the per-criterion tallies. A trial that
+    fails two criteria appears in both, and an undelivered trial fails
+    every one of them, so summing those tallies would multiply a single
+    incident by the width of the contract.
+    """
+    counts: Counter[tuple[str, FailureKind]] = Counter()
+    for outcome in sorted(outcomes, key=lambda o: o.ordinal):
+        if outcome.trial_passed:
+            continue
+        cause = next(
+            (
+                evaluation.delivery_cause
+                for _, evaluation in outcome.evaluations
+                if evaluation.delivery_cause is not None
+            ),
+            None,
+        )
+        if cause is not None:
+            counts[(str(cause), FailureKind.DELIVERY)] += 1
+            continue
+        check = next(
+            (
+                name
+                for _, evaluation in outcome.evaluations
+                for name, status in evaluation.outcomes
+                if status is Outcome.FAILED
+            ),
+            None,
+        )
+        # A failed trial with no failing check and no stated cause: an
+        # author's own delivery failure, or a transform that yielded
+        # nothing. The kind is knowable, the identity is not, and neither
+        # is invented.
+        if check is None:
+            counts[(_UNATTRIBUTED_FAILURE, FailureKind.DELIVERY)] += 1
+        else:
+            counts[(bounded_key(check), FailureKind.EVALUATED)] += 1
+    return tuple(
+        FailureAttribution(condition=condition, count=count, kind=kind)
+        for (condition, kind), count in sorted(counts.items())
+    )
 
 
 def _reduce_samples(
@@ -247,4 +315,5 @@ def execute(
         overall_successes=overall_successes,
         samples=sample_records,
         total_tokens=total_tokens,
+        failure_attribution=_attribute_failures(outcomes),
     )

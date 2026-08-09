@@ -60,7 +60,7 @@ class TestVerdictRecord:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.4"
+        assert root.get("version") == "1.5"
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
         identity = root.find(f"{NS}identity")
@@ -128,7 +128,7 @@ class TestVerdictRecord:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.4.xsd"
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.5.xsd"
         assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
         if xmllint is None:
             pytest.skip("xmllint not available on this machine")
@@ -174,7 +174,7 @@ class TestRunDesignRecording:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.4.xsd"
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.5.xsd"
         assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
         if xmllint is None:
             pytest.skip("xmllint not available on this machine")

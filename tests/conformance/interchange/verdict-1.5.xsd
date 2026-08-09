@@ -47,12 +47,19 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", or "1.4". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", or "1.5". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
          the <postcondition-standings> element is available (emitted
          whenever the run produced standings). -->
+    <!-- 1.5 addition: a failure-distribution <check> may state its kind —
+         whether those trials were judged and found wanting, or never
+         delivered a response to judge — and a delivery-kind check names
+         its cause from the closed vocabulary. Optional: a 1.4-shaped
+         check is a valid 1.5 check, and absence means not stated, never
+         "evaluated". The counting rule is untouched: a failed delivery is
+         a failed trial, as it always was. -->
     <!-- 1.4 addition: standings rows may state structure — path, form,
          a bounded expected excerpt, and <observed> obtained-value
          exemplars (failing first, capped, with an elided remainder) —
@@ -160,7 +167,35 @@
   <xs:complexType name="CheckType">
     <xs:attribute name="name"  type="xs:string" use="required"/>
     <xs:attribute name="count" type="xs:int"    use="required"/>
+    <!-- 1.5: on a delivery-kind check, @name carries the delivery cause
+         rather than a declared check identity — nothing was delivered, so
+         there is no check that did not hold. -->
+    <xs:attribute name="kind"  type="tns:FailureKindType" use="optional"/>
   </xs:complexType>
+
+  <xs:simpleType name="FailureKindType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="evaluated"/>
+      <xs:enumeration value="delivery"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- The delivery causes @name may carry when @kind is "delivery":
+       unreachable | client-deadline | peer-timeout | server-error |
+       unusable-response. No emitter states a cause it cannot know —
+       `client-deadline` says this framework stopped waiting, which only a
+       framework holding its own deadline may claim, and `peer-timeout`
+       says the peer stated that it did; two facts one `timeout` token
+       would have blurred.
+
+       The vocabulary is not expressed as a type here because the
+       constraint is conditional on @kind, and XSD 1.0 cannot state a
+       co-occurrence constraint. A simpleType nothing referenced would
+       imply an enforcement this schema does not perform. The JSON
+       Schemas enforce it structurally for the interchange artefacts;
+       here it binds through the format specification and the conformance
+       corpus. -->
+
 
   <!-- ===================================================================
        Latency dimension
