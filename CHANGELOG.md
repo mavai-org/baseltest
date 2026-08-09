@@ -9,6 +9,44 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
+**Installing baseltest installs the renderer it delegates to.**
+
+The previous change made every report mavai's to draw. That was right for
+the reports and wrong for the reader, who now installed a framework that
+could run an experiment and not show it until they had separately found,
+downloaded and unpacked a second tool — for a binary whose only purpose is
+to draw what baseltest just wrote.
+
+`pip install baseltest` now brings it. Each supported platform gets a wheel
+carrying that platform's renderer, installed as `mavai` in the environment's
+scripts directory, so it is on your path for direct use:
+
+```console
+$ pip install baseltest
+$ mavai explore _baseltest/explorations -o comparison.html   # no framework involved
+```
+
+`basel --version` names the renderer this installation would use — the one
+it carries, one it found on `PATH`, or none. It prints on stderr, leaving
+the version string on stdout byte-identical to the `generator` a verdict
+record carries, which is what makes the two comparable.
+
+`MAVAI_BIN` names a renderer to use instead: the escape hatch for a local
+build. A stated override that does not resolve is refused rather than
+quietly replaced by a different renderer.
+
+**What changed for you**
+
+- Nothing, if you already had `mavai` on your `PATH` — an installation's own
+  renderer is preferred, but PATH still answers where there is none.
+- On a platform with no published wheel, or installing from source, you get
+  the pure wheel: a complete framework that runs experiments and writes
+  artefacts, and refuses a report request before the run with a message
+  naming both ways to fix it. Nothing renders differently; there is simply
+  nothing to render with.
+- The renderer version a wheel carries is pinned at build time and stated by
+  `basel --version`. It does not float between releases.
+
 **baseltest renders no HTML. mavai does — for the whole family.**
 
 Reports were rendered in two places: `basel test --html-report` drew its own

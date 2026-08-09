@@ -233,6 +233,22 @@ class TestVersionFlag:
 
         assert capsys.readouterr().out.rstrip("\n") == _generator()
 
+    def test_the_renderer_is_disclosed_without_disturbing_that_string(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Which renderer this installation carries is a diagnostic, not the answer.
+
+        It belongs on stderr: stdout is compared byte-for-byte against a
+        verdict record's generator attribute, and a second line there would
+        break that comparison.
+        """
+        with pytest.raises(SystemExit):
+            main(["--version"])
+
+        printed = capsys.readouterr()
+        assert "report renderer:" not in printed.out
+        assert "report renderer:" in printed.err
+
     def test_a_verb_still_wants_its_contract(self) -> None:
         """The flag short-circuits the root parser; it does not relax any verb."""
         with pytest.raises(SystemExit) as exit_:

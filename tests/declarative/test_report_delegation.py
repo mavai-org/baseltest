@@ -33,7 +33,11 @@ class TestPreflight:
         code = main(["test", str(contract), "--samples", "60", "--html-report", "r.html"])
 
         assert code == 2
-        assert "not on PATH" in capsys.readouterr().err
+        refusal = capsys.readouterr().err
+        # Both routes to a renderer are named, because either would fix it.
+        assert "does not carry one" in refusal
+        assert "platform wheel" in refusal
+        assert "github.com/mavai-org/mavai/releases" in refusal
         # The refusal precedes the run: nothing was invoked, nothing written.
         assert not (tmp_path / "_baseltest").exists()
 
@@ -117,6 +121,141 @@ class TestExitCode:
 
         assert code == 0
         assert "no report was written" in capsys.readouterr().err
+
+
+def _fake_executable(path: Path) -> Path:
+    """A file that passes the executable test, standing in for the renderer."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+class TestRendererResolution:
+    """Which renderer an installation uses, and in what order it looks.
+
+    An installation may carry its own renderer (a platform wheel bundles
+    one), or find the family's on PATH, or have none at all. The order is
+    the precedence, and the override answers to nobody.
+    """
+
+    def test_the_override_wins_over_everything_else(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        stated = _fake_executable(tmp_path / "elsewhere" / "mavai")
+        monkeypatch.setattr(_report, "bundled_renderer", lambda: str(tmp_path / "bundled"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: str(tmp_path / "on-path"))
+        monkeypatch.setenv(_report.RENDERER_OVERRIDE, str(stated))
+
+        assert _report.locate_renderer() == str(stated)
+
+    def test_an_override_naming_nothing_is_not_a_silent_fall_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller who names a renderer must not quietly get a different one."""
+        monkeypatch.setattr(_report, "bundled_renderer", lambda: str(tmp_path / "bundled"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: str(tmp_path / "on-path"))
+        monkeypatch.setenv(_report.RENDERER_OVERRIDE, str(tmp_path / "absent"))
+
+        assert _report.locate_renderer() is None
+
+    def test_the_bundled_renderer_is_preferred_to_one_on_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bundled = _fake_executable(tmp_path / "scripts" / _report.RENDERER)
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "scripts"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: "/somewhere/else/mavai")
+
+        assert _report.locate_renderer() == str(bundled)
+
+    def test_without_a_bundled_renderer_path_still_answers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The route every installation had before wheels carried a renderer."""
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "empty"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: "/usr/local/bin/mavai")
+
+        assert _report.locate_renderer() == "/usr/local/bin/mavai"
+
+    def test_an_installation_carrying_none_says_so(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "empty"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: None)
+
+        assert _report.locate_renderer() is None
+        assert "does not carry one" in _report.RENDERER_MISSING
+
+    def test_a_directory_is_not_a_renderer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The scripts directory exists on every installation; the file need not."""
+        (tmp_path / "scripts" / _report.RENDERER).mkdir(parents=True)
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "scripts"))
+
+        assert _report.bundled_renderer() is None
+
+
+class TestRendererDisclosure:
+    """``basel --version`` states the renderer this build would use."""
+
+    def test_a_bundled_renderer_is_named_as_bundled(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bundled = _fake_executable(tmp_path / "scripts" / _report.RENDERER)
+
+        class Stated:
+            returncode = 0
+            stdout = "mavai 9.9.9\n"
+
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(bundled.parent))
+        monkeypatch.setattr(_report.subprocess, "run", lambda *a, **k: Stated())
+
+        assert _report.renderer_disclosure() == "mavai 9.9.9 (bundled)"
+
+    def test_one_found_on_path_is_named_by_its_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Stated:
+            returncode = 0
+            stdout = "mavai 9.9.9\n"
+
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "empty"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: "/usr/local/bin/mavai")
+        monkeypatch.setattr(_report.subprocess, "run", lambda *a, **k: Stated())
+
+        assert _report.renderer_disclosure() == "mavai 9.9.9 (/usr/local/bin/mavai)"
+
+    def test_a_renderer_that_will_not_state_its_version_is_still_disclosed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Naming what will be run matters more than the version string."""
+
+        class Stated:
+            returncode = 1
+            stdout = ""
+
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "empty"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: "/usr/local/bin/mavai")
+        monkeypatch.setattr(_report.subprocess, "run", lambda *a, **k: Stated())
+
+        assert "version unstated" in _report.renderer_disclosure()
+
+    def test_no_renderer_is_disclosed_as_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(_report.RENDERER_OVERRIDE, raising=False)
+        monkeypatch.setattr(_report.sysconfig, "get_path", lambda _: str(tmp_path / "empty"))
+        monkeypatch.setattr(_report.shutil, "which", lambda _: None)
+
+        assert _report.renderer_disclosure() == "no mavai report renderer (see --html-report)"
 
 
 class TestRendererInvocation:

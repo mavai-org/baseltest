@@ -32,6 +32,37 @@ from ._runner import (
 from ._sizing import ResolvedSizing, SizingRefusalError, resolve_test_sizing
 
 
+class _StateVersions(argparse.Action):
+    """``--version``: this build on stdout, the renderer it carries on stderr.
+
+    Two installations answer a report request differently — one carrying a
+    bundled renderer, one finding the family's on PATH, one carrying none —
+    and the difference is otherwise invisible until a report is asked for.
+
+    Which stream each goes to is not cosmetic. The version string on stdout
+    is byte-identical to the verdict record's ``generator`` attribute, so a
+    reader holding an artefact can compare the two directly; a second line
+    there would break that comparison for every existing caller. The
+    renderer line is a diagnostic about this environment, so it goes where
+    the family puts diagnostics.
+
+    The renderer is named here rather than at parser construction because
+    naming it costs a subprocess, which every invocation of every other verb
+    would otherwise pay.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        print(f"baseltest {__version__}")
+        print(f"report renderer: {_report.renderer_disclosure()}", file=sys.stderr)
+        parser.exit()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the ``basel`` argument parser: the verbs and their flags."""
     parser = argparse.ArgumentParser(
@@ -43,9 +74,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # a reader holding an artefact can ask the tool whether it wrote it.
     parser.add_argument(
         "--version",
-        action="version",
-        version=f"baseltest {__version__}",
-        help="print the version and exit",
+        action=_StateVersions,
+        nargs=0,
+        help="print the version and the report renderer, and exit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for verb, description in (

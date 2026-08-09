@@ -382,7 +382,7 @@ mavai explore _baseltest/explorations -o report.html # exploration comparison
 mavai optimize _baseltest/optimizations -o report.html # optimization comparison
 ```
 
-Each report is one self-contained page (embedded CSS, no JavaScript, no external assets) that opens offline in any browser; it goes to stdout unless `-o FILE` is given, and diagnostics go to stderr. Prefer one step? `--html-report <path>` on `test`, `measure`, `explore` or `optimize` hands that run's artefacts to the same tool as part of the run — the report is identical either way, because it is the same renderer over the same artefacts. mavai must be on `PATH`, and a run that asks for a report it cannot draw is refused before any sample is taken. The flag never changes the verb's exit code.
+Each report is one self-contained page (embedded CSS, no JavaScript, no external assets) that opens offline in any browser; it goes to stdout unless `-o FILE` is given, and diagnostics go to stderr. Prefer one step? `--html-report <path>` on `test`, `measure`, `explore` or `optimize` hands that run's artefacts to the same tool as part of the run — the report is identical either way, because it is the same renderer over the same artefacts. You do not install mavai separately on a supported platform: `pip install baseltest` fetches a wheel that carries it, which is also how `mavai` came to be on your path for the three commands above. `basel --version` names the renderer this installation would use — the bundled one, one it found on `PATH`, or none. Where there is none (an unsupported platform, or an install from source), a run that asks for a report it cannot draw is refused before any sample is taken. The flag never changes the verb's exit code.
 
 ## Exit codes
 
