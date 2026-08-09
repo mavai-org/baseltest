@@ -19,15 +19,6 @@ DEFAULT_VERDICT_DIR = ARTEFACT_ROOT / "verdicts"
 DEFAULT_EXPLORATIONS_DIR = ARTEFACT_ROOT / "explorations"
 DEFAULT_OPTIMIZATIONS_DIR = ARTEFACT_ROOT / "optimizations"
 
-# Rendering exploration comparisons is the shared family tool's job; this
-# framework's half of that split is emitting the canonical artefacts. The
-# pointer below is what any request for the old built-in renderer gets.
-MAVAI_EXPLORE_POINTER = (
-    "exploration comparison reports are rendered by the family's mavai tool: "
-    "mavai explore <dir> [-o report.html] — public binaries: "
-    "https://github.com/mavai-org/mavai/releases"
-)
-
 
 def _tty_progress(label: str) -> "Callable[[int, int], None] | None":
     """A stderr progress line — only when stderr is a terminal.

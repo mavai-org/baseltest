@@ -7,6 +7,59 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [Unreleased]
+
+**baseltest renders no HTML. mavai does — for the whole family.**
+
+Reports were rendered in two places: `basel test --html-report` drew its own
+page in Python, while exploration comparisons had already moved to
+[mavai](https://github.com/mavai-org/mavai/releases), the family's shared
+renderer. Two renderers meant two answers to the same question, drifting
+apart, and punit and feotest each carried a third and a fourth. There is now
+one, and this framework's half of the split is what it was always meant to
+be: emitting the canonical artefacts.
+
+**`--html-report PATH` now works on every verb that writes artefacts** —
+`test`, `measure`, `explore` and `optimize` — and each hands its run's
+artefacts to mavai, which must be on `PATH`:
+
+```console
+$ basel explore contract.yaml --html-report comparison.html
+$ basel test contract.yaml --samples 200 --html-report verdict.html
+```
+
+Rendering separately still works exactly as before, and produces the same
+page, because it is the same renderer over the same artefacts:
+
+```console
+$ basel test contract.yaml --samples 200
+$ mavai verdict _baseltest -o verdict.html
+```
+
+The flag is **refused before the run** when it cannot be honoured — mavai
+not on `PATH`, or `--no-verdict-xml` suppressing the very record the report
+draws from — so a run never costs samples for a report that was never going
+to appear. It **never changes the verb's exit code**: a passing run whose
+report failed to draw is still a passing run, and the failure is loud on
+stderr.
+
+**What changed for you**
+
+- `--html-report` on `test` produces mavai's verdict report, not the page
+  baseltest used to draw. **The run-design and sizing-transparency block is
+  not in it** — the approach, the risk-driven claims, and the disclosed
+  detectable rate and time saved. The verdict record still *records* the
+  declared design; no renderer reads it yet. Restoring it is tracked as a
+  family-level follow-up and needs the computed disclosures to travel in the
+  artefact, since mavai computes nothing.
+- `--html-report` is **no longer refused on `measure`**. It needs mavai
+  0.16.0 or later, which reads `mavai-baseline-1` — the format baseltest has
+  written since 0.19.0.
+- `--html-report` on `explore` **no longer refuses with a pointer** to run
+  mavai yourself; it runs it.
+- Removed: `baseltest.reporting.render_test_report` and the
+  `reporting.report_html` / `reporting.test_report` modules.
+
 ## [0.21.0] — 2026-08-09
 
 **A failed delivery says so.** Additive to every artefact this package

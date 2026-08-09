@@ -7,7 +7,7 @@ Ready-to-run declarative authoring, from zero. Each folder holds **one contract 
 - `basel measure <contract-file> --samples N` — a measure experiment: **every** criterion is recorded (thresholded ones are judged too), and a baseline artefact is persisted into `_baseltest/baselines/` — the durable record of what was observed. The sample count is required: a measurement's budget is an experimental-design decision (1000 is a solid baseline-grade count; smaller deliberate budgets are legitimate).
 - `basel test <contract-file>` — a probabilistic test: the thresholded criteria are judged (a criterion without a bar is skipped, with a notice). Produces a verdict, written as a verdict record into `_baseltest/verdicts/`; no baseline is persisted.
 
-HTML reports are rendered from the persisted artefacts by the [mavai](https://github.com/mavai-org/mavai-report) tool (see that project's `README.md` for installation): `mavai verdict _baseltest -o report.html` for test-run verdicts, `mavai explore _baseltest/explorations -o report.html` for exploration comparisons. `basel test` can additionally render a self-contained HTML summary inline with `--html-report <path>`.
+HTML reports are rendered from the persisted artefacts by the [mavai](https://github.com/mavai-org/mavai-report) tool (see that project's `README.md` for installation): `mavai verdict _baseltest -o report.html` for test-run verdicts, `mavai explore _baseltest/explorations -o report.html` for exploration comparisons. Any run-producing verb can invoke that same tool as part of the run with `--html-report <path>`.
 
 Everything a run generates lands under `_baseltest/` — one entry to gitignore, one directory to delete for a clean slate. Every run opens with a **run-plan line** stating its n and where the value came from (derived from the declared bar, set via a flag, or the verb's default) — no sample ever runs on a number you can't see.
 
@@ -40,7 +40,7 @@ mavai verdict _baseltest -o report.html   # renders the persisted verdict record
 open report.html                          # macOS; xdg-open on Linux
 ```
 
-One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer an inline summary as part of the run? `basel test fortune-teller.yaml --samples 100 --html-report report.html`.)
+One self-contained page — summary stats, a colour-coded verdict table, per-criterion drill-down — that opens offline from anywhere: attach it to a PR or archive it with the build. (Prefer it in one step? `basel test fortune-teller.yaml --samples 100 --html-report report.html`.)
 
 ## `rule-driven-service/` — factors and covariates: configuration citizenship for your own service
 

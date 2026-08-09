@@ -63,7 +63,7 @@ The `baseltest` package ships one command, `basel`, with five verbs. The contrac
 
 HTML reports are rendered by the **`mavai`** tool — `mavai verdict|measure|explore|optimize <dir> [-o report.html]` over the persisted artefacts. It is developed in the [mavai-report](https://github.com/mavai-org/mavai-report) project; obtain it from there, and see that project's `README.md` for installation instructions.
 
-Frequently reached-for flags: `--html-report <path>` on `test` renders a self-contained HTML summary inline as part of the run; `--baseline-dir`, `--verdict-dir`, `--explorations-dir`, and `--optimizations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
+Frequently reached-for flags: `--html-report <path>` on any run-producing verb hands that run's artefacts to [mavai](https://github.com/mavai-org/mavai/releases), the family's report renderer, which must be on `PATH`; `--baseline-dir`, `--verdict-dir`, `--explorations-dir`, and `--optimizations-dir` relocate the artefact directories. Everything a run generates lands under `_baseltest/`.
 
 Exit codes are contractual, made for CI: `0` success · `1` judgement failure (a declared bar or latency bound was breached) · `2` refusal (the service was never invoked: malformed file, unsupportable configuration) · `3` unsupportable (the evidence cannot carry the assertion in either direction). The [getting-started guide](docs/GETTING-STARTED.md) walks through all of it, and the [user guide](docs/USER-GUIDE.md) is the complete reference — every verb, every file, every option.
 
