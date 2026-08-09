@@ -12,6 +12,7 @@ import pytest
 
 from baseltest.declarative import _report
 from baseltest.declarative._cli import main
+from baseltest.declarative._parser import load_contract
 
 from .test_cli import write_contract
 
@@ -120,7 +121,167 @@ class TestExitCode:
         code = main(["test", str(contract), "--samples", "60", "--html-report", "r.html"])
 
         assert code == 0
-        assert "no report was written" in capsys.readouterr().err
+        diagnostic = capsys.readouterr().err
+        assert "no report was written" in diagnostic
+        # Said where a run happened, so the reader is not left wondering
+        # whether their samples were wasted along with the page.
+        assert "the run itself is unaffected" in diagnostic
+
+
+class TestReportVerb:
+    """``basel report <kind> [contract]``: the second stage, on its own.
+
+    A reader does not always want the page at the moment the samples are
+    drawn. Asking later must produce what asking during the run would have,
+    over the same artefacts, without invoking anything.
+    """
+
+    @pytest.fixture
+    def rendered(self, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        """Records the argument vectors handed to the renderer."""
+        vectors: list[list[str]] = []
+
+        class Completed:
+            returncode = 0
+
+        def fake_run(vector: list[str], **_: object) -> Completed:
+            vectors.append(vector)
+            return Completed()
+
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+        monkeypatch.setattr(_report.subprocess, "run", fake_run)
+        return vectors
+
+    def test_it_reports_over_the_directory_the_run_wrote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+
+        assert main(["report", "explore"]) == 0
+
+        assert rendered == [["mavai", "explore", str(Path("_baseltest/explorations"))]]
+
+    def test_without_an_output_the_report_goes_to_stdout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        """Pipeable, like everything else the family prints."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+
+        main(["report", "explore"])
+
+        assert "-o" not in rendered[0]
+
+    def test_an_output_is_passed_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+
+        main(["report", "explore", "-o", "page.html"])
+
+        assert rendered[0][-2:] == ["-o", "page.html"]
+
+    def test_the_report_type_follows_the_kind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        """The same mapping the run verbs use — one vocabulary, not two."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        (tmp_path / "_baseltest" / "optimizations").mkdir(parents=True)
+
+        main(["report", "explore"])
+        main(["report", "optimize"])
+        main(["report", "test"])
+        main(["report", "measure"])
+
+        assert [vector[1] for vector in rendered] == ["explore", "optimize", "verdict", "measure"]
+
+    def test_a_flat_kind_is_reported_over_the_directory_that_groups_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        """Verdicts are written flat, so their directory is the grouping."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "verdicts").mkdir(parents=True)
+
+        main(["report", "test"])
+
+        assert rendered[0][2] == str(Path("_baseltest"))
+
+    def test_nothing_written_is_not_a_report_that_failed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+
+        code = main(["report", "explore"])
+
+        refused = capsys.readouterr().err
+        assert code == 2
+        assert "no explore artefacts" in refused
+        # The command that would fill it, so the reader is not left guessing.
+        assert "basel explore" in refused
+
+    def test_a_contract_narrows_a_kind_written_per_contract(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_contract(tmp_path)
+        # The directory the writer would have made: the contract's own id,
+        # read from the file rather than assumed by the caller.
+        identity = load_contract(contract).contract
+        (tmp_path / "_baseltest" / "explorations" / identity).mkdir(parents=True)
+
+        assert main(["report", "explore", str(contract)]) == 0
+
+        assert rendered[0][2] == str(Path("_baseltest/explorations") / identity)
+
+    def test_a_contract_cannot_narrow_a_flat_kind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Refused, never ignored.
+
+        Verdicts carry the contract in the filename, and selecting them by
+        that would mean reading a naming convention. A reader who named a
+        contract and silently got every contract would believe a report that
+        is not about what they asked for.
+        """
+        monkeypatch.chdir(tmp_path)
+        contract = write_contract(tmp_path)
+        (tmp_path / "_baseltest" / "verdicts").mkdir(parents=True)
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+
+        code = main(["report", "test", str(contract)])
+
+        assert code == 2
+        assert "cannot narrow this report" in capsys.readouterr().err
+
+    def test_no_renderer_refuses_before_reading_anything(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(_report, "locate_renderer", lambda: None)
+
+        code = main(["report", "explore"])
+
+        assert code == 2
+        assert "does not carry one" in capsys.readouterr().err
+
+    def test_a_failed_render_is_the_verb_failing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unlike a run, drawing the report IS what this verb was asked to do."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+
+        class Completed:
+            returncode = 3
+
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+        monkeypatch.setattr(_report.subprocess, "run", lambda *a, **k: Completed())
+
+        assert main(["report", "explore"]) == 1
 
 
 def _fake_executable(path: Path) -> Path:
@@ -303,4 +464,20 @@ class TestRendererInvocation:
 
         assert failure is not None
         assert "exited 1" in failure
-        assert "the run itself is unaffected" in failure
+        assert "no report was written to" in failure
+        # The run-safety clause belongs to the run path, which knows there
+        # was a run; `basel report` has no run to leave unaffected.
+        assert "the run itself is unaffected" not in failure
+
+    def test_a_report_drawn_to_stdout_names_no_destination(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Completed:
+            returncode = 2
+
+        monkeypatch.setattr(_report.subprocess, "run", lambda *a, **k: Completed())
+
+        failure = _report.render("mavai", "explore", tmp_path, None)
+
+        assert failure is not None
+        assert "no report was drawn" in failure

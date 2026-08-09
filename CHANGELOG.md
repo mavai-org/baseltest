@@ -9,6 +9,40 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
+**`basel report` draws the page without running the experiment again.**
+
+Every verb that writes artefacts has two stages: producing them, which
+costs samples and touches a service, and drawing them, which costs nothing
+and touches nothing. `--html-report` does both at once. This does the
+second alone, over what a previous run already wrote:
+
+```console
+$ basel explore contract.yaml            # yesterday, no report asked for
+$ basel report explore -o comparison.html
+```
+
+The verb names the stage and its first argument names the kind, so the four
+kinds baseltest runs are the four it reports on — `test`, `measure`,
+`explore`, `optimize`. With no `-o`, the report goes to stdout, so it pipes
+like everything else here.
+
+**Asking later gives exactly what asking during the run would have.**
+`basel <kind> <contract> --html-report R` and `basel <kind> <contract>`
+followed by `basel report <kind> -o R` produce the same bytes: it is the
+same renderer over the same artefacts.
+
+A contract narrows the report to that contract's artefacts, for the kinds
+written one directory per contract — `explore` and `optimize`. Verdicts and
+baselines are written one file per run, carrying the contract in the
+filename, and no reader here selects artefacts by parsing a filename; so a
+contract given to `basel report test` or `basel report measure` is
+**refused**, naming why, rather than silently reporting on everything.
+
+Asking for a report of something never written names the directory it
+looked in and the run that would fill it, which is a different answer from
+a report that failed to draw. And unlike the flag on a run, this verb's
+exit code *is* the report's: drawing it is what it was asked to do.
+
 **Installing baseltest installs the renderer it delegates to.**
 
 The previous change made every report mavai's to draw. That was right for

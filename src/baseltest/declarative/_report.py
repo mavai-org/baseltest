@@ -100,20 +100,32 @@ def renderer_disclosure() -> str:
     return f"{version} ({origin})"
 
 
-def render(renderer: str, report: str, artefacts: Path, output: Path) -> str | None:
-    """Render ``artefacts`` to ``output``, returning a diagnostic on failure.
+#: Which verbs write their artefacts under a directory per contract, and so
+#: can have a report narrowed to one. Verdicts and baselines are written
+#: flat, carrying the contract in the filename — and selecting them by that
+#: would mean reading a naming convention, which no consumer in this family
+#: does.
+SCOPED_BY_CONTRACT = frozenset({"explore", "optimize"})
+
+
+def render(renderer: str, report: str, artefacts: Path, output: Path | None) -> str | None:
+    """Render ``artefacts``, returning a diagnostic on failure.
+
+    ``output`` names a file, or is ``None`` for the renderer's own default of
+    stdout — so a report can be piped, as everything else in the family can.
 
     The renderer's own stdout and stderr are inherited, so its diagnostics
     reach the reader as it wrote them rather than paraphrased here.
     """
-    output.parent.mkdir(parents=True, exist_ok=True)
+    destination = []
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        destination = ["-o", str(output)]
     completed = subprocess.run(  # noqa: S603 - a fixed argument vector, never a shell
-        [renderer, report, str(artefacts), "-o", str(output)],
+        [renderer, report, str(artefacts), *destination],
         check=False,
     )
     if completed.returncode != 0:
-        return (
-            f"{RENDERER} {report} exited {completed.returncode}: no report was written to "
-            f"{output.as_posix()} (the run itself is unaffected)"
-        )
+        wrote = f"no report was written to {output.as_posix()}" if output else "no report was drawn"
+        return f"{RENDERER} {report} exited {completed.returncode}: {wrote}"
     return None
