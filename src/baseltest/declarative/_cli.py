@@ -16,6 +16,7 @@ from baseltest.reporting import render_infeasible
 
 from . import _report
 from ._errors import ContractConfigurationError
+from ._parser import load_contract
 from ._providers import ProviderResponseError
 from ._runner import (
     DEFAULT_BASELINE_DIR,
@@ -32,6 +33,37 @@ from ._runner import (
 from ._sizing import ResolvedSizing, SizingRefusalError, resolve_test_sizing
 
 
+class _StateVersions(argparse.Action):
+    """``--version``: this build on stdout, the renderer it carries on stderr.
+
+    Two installations answer a report request differently — one carrying a
+    bundled renderer, one finding the family's on PATH, one carrying none —
+    and the difference is otherwise invisible until a report is asked for.
+
+    Which stream each goes to is not cosmetic. The version string on stdout
+    is byte-identical to the verdict record's ``generator`` attribute, so a
+    reader holding an artefact can compare the two directly; a second line
+    there would break that comparison for every existing caller. The
+    renderer line is a diagnostic about this environment, so it goes where
+    the family puts diagnostics.
+
+    The renderer is named here rather than at parser construction because
+    naming it costs a subprocess, which every invocation of every other verb
+    would otherwise pay.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        print(f"baseltest {__version__}")
+        print(f"report renderer: {_report.renderer_disclosure()}", file=sys.stderr)
+        parser.exit()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the ``basel`` argument parser: the verbs and their flags."""
     parser = argparse.ArgumentParser(
@@ -43,9 +75,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # a reader holding an artefact can ask the tool whether it wrote it.
     parser.add_argument(
         "--version",
-        action="version",
-        version=f"baseltest {__version__}",
-        help="print the version and exit",
+        action=_StateVersions,
+        nargs=0,
+        help="print the version and the report renderer, and exit",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for verb, description in (
@@ -232,6 +264,55 @@ def _build_parser() -> argparse.ArgumentParser:
             "which must be on PATH. Never changes the verb's exit code."
         ),
     )
+    # Rendering is the second stage of every verb that writes artefacts, and
+    # a reader does not always want it at the moment the samples are drawn.
+    # The verb names the stage; its first argument names the kind, so the
+    # four the framework runs stay the four it reports on.
+    report_parser = subparsers.add_parser(
+        "report",
+        help=(
+            "render artefacts a previous run wrote — the same report "
+            "--html-report draws, without paying for the run again"
+        ),
+    )
+    report_parser.add_argument(
+        "kind",
+        choices=sorted(_report.REPORT_OF),
+        help="which run's artefacts to report on",
+    )
+    report_parser.add_argument(
+        "contract_file",
+        type=Path,
+        nargs="?",
+        default=None,
+        help=(
+            "narrow the report to one contract's artefacts (explore and "
+            "optimize only — verdicts and baselines are not written per "
+            "contract); omitted, every contract in the directory is reported"
+        ),
+    )
+    report_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="write the report here; omitted, it goes to stdout",
+    )
+    # Every directory flag, because the kind is an argument rather than four
+    # verbs: whichever kind is named reads the one that holds its artefacts,
+    # spelled exactly as the run that wrote them spelled it.
+    report_parser.add_argument(
+        "--baseline-dir", type=Path, default=DEFAULT_BASELINE_DIR, help=argparse.SUPPRESS
+    )
+    report_parser.add_argument(
+        "--verdict-dir", type=Path, default=DEFAULT_VERDICT_DIR, help=argparse.SUPPRESS
+    )
+    report_parser.add_argument(
+        "--explorations-dir", type=Path, default=DEFAULT_EXPLORATIONS_DIR, help=argparse.SUPPRESS
+    )
+    report_parser.add_argument(
+        "--optimizations-dir", type=Path, default=DEFAULT_OPTIMIZATIONS_DIR, help=argparse.SUPPRESS
+    )
     check_parser = subparsers.add_parser(
         "check",
         help=(
@@ -260,6 +341,9 @@ def main(argv: list[str] | None = None) -> int:
     if refusal is not None:
         print(refusal, file=sys.stderr)
         return 2
+
+    if arguments.command == "report":
+        return _render_written_artefacts(arguments)
 
     if arguments.command == "check":
         try:
@@ -304,7 +388,17 @@ def main(argv: list[str] | None = None) -> int:
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
             )
-            _render_report(arguments, arguments.explorations_dir)
+            # This run's own contract directory, not the explorations root:
+            # an exploration groups its artefacts by the keys it sweeps, so
+            # its documents sit one level deeper than every other kind's and
+            # the root has nothing directly beneath it to render.
+            _render_report(
+                arguments,
+                _explored_contract_directory(
+                    Path(arguments.explorations_dir),
+                    load_contract(arguments.contract_file).contract,
+                ),
+            )
             # A defect contained to a configuration leaves the others' artefacts
             # written; the partial run is signalled by a non-zero exit.
             return 1 if exploration.aborted else 0
@@ -376,6 +470,125 @@ def main(argv: list[str] | None = None) -> int:
     return 0  # a plain measure run records; recording cannot fail
 
 
+def _explored_contract_directory(explorations_dir: Path, contract_id: str) -> Path:
+    """The directory an exploration of ``contract_id`` wrote its grid into.
+
+    One level below the explorations directory, because an exploration
+    groups its artefacts by the keys it sweeps — so the directory mavai is
+    given is the contract's, and the swept-key directories beneath it are
+    what it groups.
+    """
+    return explorations_dir / contract_id
+
+
+def _sole_explored_contract(explorations_dir: Path) -> Path | str:
+    """The one contract explored here, or why that question has no answer.
+
+    Naming the contract is how an explore report finds its directory. Where
+    exactly one has been explored the answer is not in doubt, and asking for
+    it would be ceremony; where several have, guessing would draw a report
+    about a contract the reader did not ask for.
+    """
+    explored = sorted(p for p in explorations_dir.iterdir() if p.is_dir())
+    if len(explored) == 1:
+        return explored[0]
+    if not explored:
+        return (
+            f"no explore artefacts under {explorations_dir.as_posix()}\n"
+            f"  run: basel explore <contract>"
+        )
+    names = "\n".join(f"    {p.name}" for p in explored)
+    return (
+        f"{len(explored)} contracts have been explored under "
+        f"{explorations_dir.as_posix()}, and a report is drawn over one:\n"
+        f"{names}\n"
+        f"  name the contract file whose report you want"
+    )
+
+
+def _artefact_directory(arguments: argparse.Namespace) -> Path:
+    """Where a non-explore kind's artefacts were written.
+
+    The same directories the run verbs hand the renderer, and for the same
+    reason where a parent is handed instead: mavai groups documents by the
+    directory beneath the one it is given, and verdicts and baselines are
+    written flat, so the directory holding them is itself the grouping.
+    """
+    if arguments.kind == "optimize":
+        return Path(arguments.optimizations_dir)
+    flat = arguments.verdict_dir if arguments.kind == "test" else arguments.baseline_dir
+    return Path(flat).parent
+
+
+def _render_written_artefacts(arguments: argparse.Namespace) -> int:
+    """``basel report <kind> [contract]``: draw what a previous run wrote.
+
+    No service is invoked and no sample is drawn. This is the second stage
+    of a run, on its own — and asking for it later must produce exactly what
+    asking for it during the run would have.
+    """
+    renderer = _report.locate_renderer()
+    if renderer is None:
+        print(_report.RENDERER_MISSING, file=sys.stderr)
+        return 2
+
+    if arguments.kind == _report.CONTRACT_SCOPED:
+        explorations = Path(arguments.explorations_dir)
+        if arguments.contract_file is not None:
+            try:
+                declared = load_contract(arguments.contract_file)
+            except ContractConfigurationError as refusal:
+                print(f"contract {arguments.contract_file}: cannot be read", file=sys.stderr)
+                print(f"  {refusal}", file=sys.stderr)
+                return 2
+            artefacts = _explored_contract_directory(explorations, declared.contract)
+        elif not explorations.is_dir():
+            print(
+                f"no explore artefacts under {explorations.as_posix()}\n"
+                f"  run: basel explore <contract>",
+                file=sys.stderr,
+            )
+            return 2
+        else:
+            inferred = _sole_explored_contract(explorations)
+            if isinstance(inferred, str):
+                print(inferred, file=sys.stderr)
+                return 2
+            artefacts = inferred
+    else:
+        if arguments.contract_file is not None:
+            # Refused rather than ignored: a reader who named a contract and
+            # silently got every contract would believe a report that is not
+            # about what they asked for.
+            print(
+                f"report {arguments.kind}: a contract cannot narrow this report — "
+                f"every {arguments.kind} run written so far is drawn together\n"
+                f"  drop the contract",
+                file=sys.stderr,
+            )
+            return 2
+        artefacts = _artefact_directory(arguments)
+
+    if not artefacts.is_dir():
+        # Naming the run that would fill it: the reader asked for a report of
+        # something that was never written, which is a different thing from a
+        # report that failed to draw.
+        print(
+            f"no {arguments.kind} artefacts under {artefacts.as_posix()}\n"
+            f"  run: basel {arguments.kind} <contract>",
+            file=sys.stderr,
+        )
+        return 2
+
+    failure = _report.render(
+        renderer, _report.REPORT_OF[arguments.kind], artefacts, arguments.output
+    )
+    if failure is not None:
+        print(failure, file=sys.stderr)
+        return 1
+    return 0
+
+
 def _refuse_unrenderable_report(arguments: argparse.Namespace) -> str | None:
     """Why this invocation could not produce the report it was asked for.
 
@@ -415,7 +628,9 @@ def _render_report(arguments: argparse.Namespace, artefacts: str | Path | None) 
         renderer, _report.REPORT_OF[arguments.command], Path(artefacts), arguments.html_report
     )
     if failure is not None:
-        print(failure, file=sys.stderr)
+        # The run's own outcome is stated separately and stands: this is the
+        # report failing, not the experiment.
+        print(f"{failure} (the run itself is unaffected)", file=sys.stderr)
 
 
 def _resolve_sizing(arguments: "argparse.Namespace", loaded: LoadedContract) -> ResolvedSizing:

@@ -52,6 +52,12 @@ basel = "baseltest.declarative._cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/baseltest"]
 
+# Carries the mavai renderer into a platform wheel; a no-op without the two
+# environment variables it documents, which is what makes the ordinary
+# pure-Python wheel and the sdist come out unchanged.
+[tool.hatch.build.targets.wheel.hooks.custom]
+path = "hatch_build.py"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=baseltest --cov-report=term-missing"

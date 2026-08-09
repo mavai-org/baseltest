@@ -50,7 +50,7 @@ jobs:
             exit 1
           fi
           echo "tag ${GITHUB_REF_NAME} matches packaged version ${pkg}"
-      - name: Build sdist and wheel
+      - name: Build sdist and pure wheel
         run: pipx run build
       - name: Check distribution metadata
         run: pipx run twine check dist/*
@@ -60,9 +60,78 @@ jobs:
           name: dist
           path: dist/
 
+  # One wheel per platform, each carrying the mavai renderer for that
+  # platform, so that installing baseltest installs the reporter it
+  # delegates to. The pure wheel and the sdist from `build` above are kept
+  # and published alongside: an unsupported platform installs a complete
+  # framework that renders nothing and says so, and a source distribution
+  # never carries a binary for a platform it cannot name.
+  #
+  # The renderer's version is pinned here, not floated. A wheel states which
+  # renderer it was built with, and a release that quietly picked up a newer
+  # one would change what the reader sees without changing anything they can
+  # point at.
+  #
+  # GATE: MAVAI_VERSION must name a mavai release that publishes
+  # `fetch-binary.sh` as an asset. 0.16.0 does not — the helper ships from
+  # the release after it — so this job cannot succeed until MAVAI_VERSION is
+  # bumped to one that does. Bump it before tagging a baseltest release.
+  bundle:
+    name: Wheel carrying the renderer (${{ matrix.platform }})
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      MAVAI_VERSION: "0.16.0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu,  platform: manylinux_2_17_x86_64 }
+          - { target: aarch64-unknown-linux-gnu, platform: manylinux_2_17_aarch64 }
+          - { target: aarch64-apple-darwin,      platform: macosx_11_0_arm64 }
+          - { target: x86_64-apple-darwin,       platform: macosx_10_12_x86_64 }
+          - { target: x86_64-pc-windows-msvc,    platform: win_amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The helper ships as an asset of the release it fetches from: the
+      # renderer's source repository is private, so this public job cannot
+      # read the script from there. Fetching it keeps the download-and-verify
+      # step in one place across the family instead of once per ecosystem.
+      - name: Fetch the renderer, verified
+        run: |
+          curl --fail --silent --show-error --location --remote-name \
+            "https://github.com/mavai-org/mavai/releases/download/v${MAVAI_VERSION}/fetch-binary.sh"
+          sh fetch-binary.sh \
+            --version "${MAVAI_VERSION}" \
+            --target "${{ matrix.target }}" \
+            --output build/mavai
+
+      - name: Build the platform wheel
+        env:
+          MAVAI_BINARY: build/mavai
+          MAVAI_WHEEL_PLATFORM: ${{ matrix.platform }}
+        run: pipx run build --wheel
+
+      - name: Check distribution metadata
+        run: pipx run twine check dist/*
+
+      - name: Upload the platform wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*.whl
+          if-no-files-found: error
+
   publish:
     name: Publish to PyPI
-    needs: build
+    # Every wheel or none: a release that published the sdist and four of
+    # five platforms would leave the fifth platform's readers silently
+    # installing the pure wheel and losing their reports.
+    needs: [build, bundle]
     runs-on: ubuntu-latest
     # Trusted Publishing authenticates via this OIDC token; the `pypi`
     # environment name must match the trusted-publisher config on PyPI.
@@ -75,7 +144,11 @@ jobs:
       - name: Download the built distributions
         uses: actions/download-artifact@v4
         with:
-          name: dist
+          # The sdist and pure wheel from `build`, plus one wheel per
+          # platform from `bundle`; pip picks the most specific match for
+          # the installing platform and falls back to the pure wheel.
+          pattern: dist*
+          merge-multiple: true
           path: dist/
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
