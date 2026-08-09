@@ -388,7 +388,17 @@ def main(argv: list[str] | None = None) -> int:
                 samples_per_config=arguments.samples_per_config,
                 explorations_dir=arguments.explorations_dir,
             )
-            _render_report(arguments, arguments.explorations_dir)
+            # This run's own contract directory, not the explorations root:
+            # an exploration groups its artefacts by the keys it sweeps, so
+            # its documents sit one level deeper than every other kind's and
+            # the root has nothing directly beneath it to render.
+            _render_report(
+                arguments,
+                _explored_contract_directory(
+                    Path(arguments.explorations_dir),
+                    load_contract(arguments.contract_file).contract,
+                ),
+            )
             # A defect contained to a configuration leaves the others' artefacts
             # written; the partial run is signalled by a non-zero exit.
             return 1 if exploration.aborted else 0
@@ -460,16 +470,50 @@ def main(argv: list[str] | None = None) -> int:
     return 0  # a plain measure run records; recording cannot fail
 
 
+def _explored_contract_directory(explorations_dir: Path, contract_id: str) -> Path:
+    """The directory an exploration of ``contract_id`` wrote its grid into.
+
+    One level below the explorations directory, because an exploration
+    groups its artefacts by the keys it sweeps — so the directory mavai is
+    given is the contract's, and the swept-key directories beneath it are
+    what it groups.
+    """
+    return explorations_dir / contract_id
+
+
+def _sole_explored_contract(explorations_dir: Path) -> Path | str:
+    """The one contract explored here, or why that question has no answer.
+
+    Naming the contract is how an explore report finds its directory. Where
+    exactly one has been explored the answer is not in doubt, and asking for
+    it would be ceremony; where several have, guessing would draw a report
+    about a contract the reader did not ask for.
+    """
+    explored = sorted(p for p in explorations_dir.iterdir() if p.is_dir())
+    if len(explored) == 1:
+        return explored[0]
+    if not explored:
+        return (
+            f"no explore artefacts under {explorations_dir.as_posix()}\n"
+            f"  run: basel explore <contract>"
+        )
+    names = "\n".join(f"    {p.name}" for p in explored)
+    return (
+        f"{len(explored)} contracts have been explored under "
+        f"{explorations_dir.as_posix()}, and a report is drawn over one:\n"
+        f"{names}\n"
+        f"  name the contract file whose report you want"
+    )
+
+
 def _artefact_directory(arguments: argparse.Namespace) -> Path:
-    """Where the named kind's artefacts were written.
+    """Where a non-explore kind's artefacts were written.
 
     The same directories the run verbs hand the renderer, and for the same
     reason where a parent is handed instead: mavai groups documents by the
     directory beneath the one it is given, and verdicts and baselines are
     written flat, so the directory holding them is itself the grouping.
     """
-    if arguments.kind == "explore":
-        return Path(arguments.explorations_dir)
     if arguments.kind == "optimize":
         return Path(arguments.optimizations_dir)
     flat = arguments.verdict_dir if arguments.kind == "test" else arguments.baseline_dir
@@ -488,28 +532,42 @@ def _render_written_artefacts(arguments: argparse.Namespace) -> int:
         print(_report.RENDERER_MISSING, file=sys.stderr)
         return 2
 
-    artefacts = _artefact_directory(arguments)
-
-    if arguments.contract_file is not None:
-        if arguments.kind not in _report.SCOPED_BY_CONTRACT:
+    if arguments.kind == _report.CONTRACT_SCOPED:
+        explorations = Path(arguments.explorations_dir)
+        if arguments.contract_file is not None:
+            try:
+                declared = load_contract(arguments.contract_file)
+            except ContractConfigurationError as refusal:
+                print(f"contract {arguments.contract_file}: cannot be read", file=sys.stderr)
+                print(f"  {refusal}", file=sys.stderr)
+                return 2
+            artefacts = _explored_contract_directory(explorations, declared.contract)
+        elif not explorations.is_dir():
+            print(
+                f"no explore artefacts under {explorations.as_posix()}\n"
+                f"  run: basel explore <contract>",
+                file=sys.stderr,
+            )
+            return 2
+        else:
+            inferred = _sole_explored_contract(explorations)
+            if isinstance(inferred, str):
+                print(inferred, file=sys.stderr)
+                return 2
+            artefacts = inferred
+    else:
+        if arguments.contract_file is not None:
             # Refused rather than ignored: a reader who named a contract and
             # silently got every contract would believe a report that is not
             # about what they asked for.
             print(
                 f"report {arguments.kind}: a contract cannot narrow this report — "
-                f"{arguments.kind} artefacts are written one file per run rather "
-                f"than one directory per contract\n"
-                f"  drop the contract to report on every {arguments.kind} run written so far",
+                f"every {arguments.kind} run written so far is drawn together\n"
+                f"  drop the contract",
                 file=sys.stderr,
             )
             return 2
-        try:
-            declared = load_contract(arguments.contract_file)
-        except ContractConfigurationError as refusal:
-            print(f"contract {arguments.contract_file}: cannot be read", file=sys.stderr)
-            print(f"  {refusal}", file=sys.stderr)
-            return 2
-        artefacts = artefacts / declared.contract
+        artefacts = _artefact_directory(arguments)
 
     if not artefacts.is_dir():
         # Naming the run that would fill it: the reader asked for a report of

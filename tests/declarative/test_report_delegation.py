@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from baseltest.declarative import _report
+from baseltest.declarative import _cli, _report
 from baseltest.declarative._cli import main
 from baseltest.declarative._parser import load_contract
 
@@ -88,6 +88,37 @@ class TestDelegation:
         # groups by the directory beneath the one it is given — gets its parent.
         assert seen == [("verdict", "_baseltest", "r.html")]
 
+    def test_an_explore_run_asks_over_its_own_contract_directory(
+        self, contract: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Not the explorations root, which has no documents directly beneath it.
+
+        The regression a real project found: the root was handed over, so
+        every exploration report failed with nothing renderable.
+        """
+        argv: list[str] = []
+
+        class Completed:
+            returncode = 0
+
+        class Explored:
+            aborted = ()
+
+        # The grid itself is not what is under test — where its artefacts are
+        # then looked for is.
+        monkeypatch.setattr(_cli, "explore", lambda *a, **k: Explored())
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+        monkeypatch.setattr(
+            _report.subprocess,
+            "run",
+            lambda vector, **_: (argv.extend(vector), Completed())[1],
+        )
+
+        main(["explore", str(contract), "--samples-per-config", "1", "--html-report", "r.html"])
+
+        identity = load_contract(contract).contract
+        assert argv[2] == str(Path("_baseltest/explorations") / identity)
+
     def test_a_measure_run_asks_for_the_measure_report(
         self, contract: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -128,6 +159,76 @@ class TestExitCode:
         assert "the run itself is unaffected" in diagnostic
 
 
+def _explored(root: Path, contract: str) -> Path:
+    """The tree an exploration of ``contract`` leaves: grid beneath contract."""
+    swept = root / "_baseltest" / "explorations" / contract / "model"
+    swept.mkdir(parents=True)
+    (swept / "model-one.yaml").touch()
+    return swept.parent
+
+
+class TestRenderableDepth:
+    """The renderer is given a directory whose GRANDCHILDREN are documents.
+
+    mavai reads ``<dir>/<group>/*`` — documents exactly two levels below the
+    directory it is handed. Every kind must satisfy that, and each writes at
+    a different depth, so the directory chosen differs per kind. Asserting
+    the vectors alone cannot catch this: those tests agree with each other
+    while every one of them names a directory nothing can be rendered from,
+    which is how a broken explore report reached a real project.
+    """
+
+    #: Where each kind's writer puts a document, relative to the artefact
+    #: root, and what the run hands the renderer. Kept beside each other so a
+    #: writer that moves cannot quietly leave the renderer behind.
+    LAYOUTS = {
+        "measure": ("_baseltest/baselines/contract.service-abc.yaml", "_baseltest"),
+        "test": ("_baseltest/verdicts/contract-abc.xml", "_baseltest"),
+        "optimize": ("_baseltest/optimizations/a-contract/run.yaml", "_baseltest/optimizations"),
+        "explore": (
+            "_baseltest/explorations/a-contract/model/model-one.yaml",
+            "_baseltest/explorations/a-contract",
+        ),
+    }
+
+    @pytest.mark.parametrize("kind", sorted(LAYOUTS))
+    def test_documents_sit_two_levels_below_what_the_renderer_is_given(self, kind: str) -> None:
+        document, handed = self.LAYOUTS[kind]
+        beneath = Path(document).relative_to(handed)
+
+        assert len(beneath.parts) == 2, (
+            f"{kind}: documents sit {len(beneath.parts)} level(s) below {handed}, "
+            f"and mavai reads exactly two"
+        )
+
+    @pytest.mark.parametrize("kind", sorted(LAYOUTS))
+    def test_the_report_verb_names_that_directory(
+        self, kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What `basel report <kind>` hands over is the renderable directory."""
+        document, handed = self.LAYOUTS[kind]
+        monkeypatch.chdir(tmp_path)
+        written = tmp_path / document
+        written.parent.mkdir(parents=True)
+        written.touch()
+
+        vectors: list[list[str]] = []
+
+        class Completed:
+            returncode = 0
+
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+        monkeypatch.setattr(
+            _report.subprocess,
+            "run",
+            lambda vector, **_: (vectors.append(vector), Completed())[1],
+        )
+
+        assert main(["report", kind]) == 0
+
+        assert vectors[0][2] == str(Path(handed))
+
+
 class TestReportVerb:
     """``basel report <kind> [contract]``: the second stage, on its own.
 
@@ -156,18 +257,20 @@ class TestReportVerb:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        _explored(tmp_path, "a-contract")
 
         assert main(["report", "explore"]) == 0
 
-        assert rendered == [["mavai", "explore", str(Path("_baseltest/explorations"))]]
+        # The sole explored contract's directory, inferred: naming it would
+        # be ceremony where there is nothing else it could mean.
+        assert rendered == [["mavai", "explore", str(Path("_baseltest/explorations/a-contract"))]]
 
     def test_without_an_output_the_report_goes_to_stdout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
     ) -> None:
         """Pipeable, like everything else the family prints."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        _explored(tmp_path, "a-contract")
 
         main(["report", "explore"])
 
@@ -177,7 +280,7 @@ class TestReportVerb:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        _explored(tmp_path, "a-contract")
 
         main(["report", "explore", "-o", "page.html"])
 
@@ -188,7 +291,7 @@ class TestReportVerb:
     ) -> None:
         """The same mapping the run verbs use — one vocabulary, not two."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        _explored(tmp_path, "a-contract")
         (tmp_path / "_baseltest" / "optimizations").mkdir(parents=True)
 
         main(["report", "explore"])
@@ -237,6 +340,48 @@ class TestReportVerb:
 
         assert rendered[0][2] == str(Path("_baseltest/explorations") / identity)
 
+    def test_several_explored_contracts_are_not_guessed_between(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Inference is for the case with one answer, not for picking one."""
+        monkeypatch.chdir(tmp_path)
+        _explored(tmp_path, "first-contract")
+        _explored(tmp_path, "second-contract")
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+
+        code = main(["report", "explore"])
+
+        refusal = capsys.readouterr().err
+        assert code == 2
+        # Both named, so the reader can choose rather than go looking.
+        assert "first-contract" in refusal
+        assert "second-contract" in refusal
+        assert "name the contract file" in refusal
+
+    def test_an_optimize_report_covers_every_contract(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rendered: list[list[str]]
+    ) -> None:
+        """Its contract directories ARE the grouping; descending is the error."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "_baseltest" / "optimizations" / "a-contract").mkdir(parents=True)
+
+        assert main(["report", "optimize"]) == 0
+
+        assert rendered[0][2] == str(Path("_baseltest/optimizations"))
+
+    def test_a_contract_cannot_narrow_an_optimize_report(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_contract(tmp_path)
+        (tmp_path / "_baseltest" / "optimizations" / "a-contract").mkdir(parents=True)
+        monkeypatch.setattr(_report, "locate_renderer", lambda: "mavai")
+
+        code = main(["report", "optimize", str(contract)])
+
+        assert code == 2
+        assert "cannot narrow this report" in capsys.readouterr().err
+
     def test_a_contract_cannot_narrow_a_flat_kind(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -273,7 +418,7 @@ class TestReportVerb:
     ) -> None:
         """Unlike a run, drawing the report IS what this verb was asked to do."""
         monkeypatch.chdir(tmp_path)
-        (tmp_path / "_baseltest" / "explorations").mkdir(parents=True)
+        _explored(tmp_path, "a-contract")
 
         class Completed:
             returncode = 3

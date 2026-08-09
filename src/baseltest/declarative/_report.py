@@ -100,12 +100,23 @@ def renderer_disclosure() -> str:
     return f"{version} ({origin})"
 
 
-#: Which verbs write their artefacts under a directory per contract, and so
-#: can have a report narrowed to one. Verdicts and baselines are written
-#: flat, carrying the contract in the filename — and selecting them by that
-#: would mean reading a naming convention, which no consumer in this family
-#: does.
-SCOPED_BY_CONTRACT = frozenset({"explore", "optimize"})
+#: The one kind whose report is a contract's own.
+#:
+#: mavai reads one directory of grouped documents — ``<dir>/<group>/*.yaml``
+#: — and the four kinds sit at different depths beneath their directories.
+#: An exploration writes ``<dir>/<contract>/<experiment>/*.yaml``, one level
+#: deeper than the rest, because its grid is grouped by the keys it sweeps.
+#: So an explore report is drawn over ONE contract's directory, and naming
+#: the contract is how that directory is found.
+#:
+#: The others are drawn over the whole directory and cannot be narrowed. An
+#: optimization writes ``<dir>/<contract>/*.yaml``, so its contract
+#: directories are already the grouping mavai reads; descending into one
+#: would leave nothing beneath it to group. Verdicts and baselines are
+#: written flat, carrying the contract in the filename, and selecting them
+#: by that would mean reading a naming convention, which no consumer in this
+#: family does.
+CONTRACT_SCOPED = "explore"
 
 
 def render(renderer: str, report: str, artefacts: Path, output: Path | None) -> str | None:
