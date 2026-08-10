@@ -35,6 +35,7 @@
       <xs:element name="latency"      type="tns:LatencyType"      minOccurs="0"/>
       <xs:element name="statistics"   type="tns:StatisticsType"   minOccurs="0"/>
       <xs:element name="covariates"   type="tns:CovariatesType"/>
+      <xs:element name="inputs"       type="tns:InputsType"       minOccurs="0"/>
       <xs:element name="provenance"   type="tns:ProvenanceType"   minOccurs="0"/>
       <xs:element name="baseline"     type="tns:BaselineType"     minOccurs="0"/>
       <xs:element name="termination"  type="tns:TerminationType"/>
@@ -47,13 +48,39 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", "1.4", or "1.5". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", or "1.6". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
          the <postcondition-standings> element is available (emitted
          whenever the run produced standings). -->
-    <!-- 1.5 addition: a failure-distribution <check> may state its kind —
+    <!-- 1.6 additions, both additive and both optional, so a 1.5-shaped
+         record is a valid 1.6 record:
+
+         <inputs> — how each input the run drove presents itself. Every
+         other interchange format has carried this for some time; a verdict
+         record could not, so a verdict report named the document a failure
+         came from by its index and nothing else. Stated for every input,
+         not only the ones that failed: a report naming the rows that
+         misbehaved and leaving the rest blank names some rows and not
+         others.
+
+         @provenance on a standings row — which declaration stated the
+         postcondition. A criterion states postconditions the response must
+         satisfy whatever input drove it; an input states what the response
+         is expected to contain for that input alone. Both are
+         postconditions, and their denominators differ by construction, so
+         a consumer listing them together shows one figure out of six
+         beside another out of twelve with nothing to explain it. Absence
+         means "criterion", which is what every earlier record means.
+
+         Note on the word: this record already carries a <provenance>
+         element, which describes the run. The attribute describes a
+         postcondition. They sit at different positions and answer the same
+         question of different subjects — where did this stated thing come
+         from — which is why the family spells both the same way.
+
+         1.5 addition: a failure-distribution <check> may state its kind —
          whether those trials were judged and found wanting, or never
          delivered a response to judge — and a delivery-kind check names
          its cause from the closed vocabulary. Optional: a 1.4-shaped
@@ -172,6 +199,28 @@
          there is no check that did not hold. -->
     <xs:attribute name="kind"  type="tns:FailureKindType" use="optional"/>
   </xs:complexType>
+
+  <!-- 1.6: how each input the run drove presents itself. The index is the
+       structural reference every other element already uses; the excerpt is
+       for human orientation only and is never identity. -->
+  <xs:complexType name="InputsType">
+    <xs:sequence>
+      <xs:element name="input" type="tns:InputPresentationType"
+                  minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="InputPresentationType">
+    <xs:attribute name="index"   type="xs:int"                  use="required"/>
+    <xs:attribute name="excerpt" type="tns:BoundedIdentityType" use="required"/>
+  </xs:complexType>
+
+  <xs:simpleType name="PostconditionProvenanceType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="criterion"/>
+      <xs:enumeration value="input"/>
+    </xs:restriction>
+  </xs:simpleType>
 
   <xs:simpleType name="FailureKindType">
     <xs:restriction base="xs:string">
@@ -579,6 +628,9 @@
                   minOccurs="0" maxOccurs="unbounded"/>
     </xs:sequence>
     <xs:attribute name="input-index"       type="xs:int"                    use="required"/>
+    <!-- 1.6: absence means "criterion". A consumer meeting an unknown
+         value reads it as "criterion" and renders it without comment. -->
+    <xs:attribute name="provenance"        type="tns:PostconditionProvenanceType" use="optional"/>
     <xs:attribute name="check"             type="tns:BoundedIdentityType"   use="required"/>
     <xs:attribute name="optional"          type="xs:boolean"                use="required"/>
     <xs:attribute name="passed"            type="xs:int"                    use="required"/>

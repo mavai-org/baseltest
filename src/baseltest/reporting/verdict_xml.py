@@ -26,7 +26,7 @@ from baseltest.engine.naming import bounded_excerpt, bounded_key
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.5"
+_FORMAT_VERSION = "1.6"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -115,6 +115,18 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
 
     covariates = child(root, "covariates")
     covariates.set("aligned", "true")  # a mismatched baseline never judges (skip w/ reason)
+
+    # How each input the run drove presents itself (1.6). Every input is
+    # named, not only the ones a failure came from: a report naming the
+    # rows that misbehaved and leaving the rest blank names some rows and
+    # not others. The excerpt is for orientation and is never identity —
+    # that stays the inputs fingerprint.
+    if result.plan.inputs:
+        inputs = child(root, "inputs")
+        for index, value in enumerate(result.plan.inputs):
+            presentation = child(inputs, "input")
+            presentation.set("index", str(index))
+            presentation.set("excerpt", bounded_excerpt(str(value)))
 
     origins = {_origin(r) for r in judged}
     provenance = child(root, "provenance")
@@ -227,6 +239,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
                 row = child(block, "row")
                 row.set("input-index", str(standing.input_index))
                 row.set("check", bounded_key(standing.postcondition))
+                row.set("provenance", standing.provenance)
                 row.set("optional", "true" if standing.optional else "false")
                 row.set("passed", str(standing.passed))
                 row.set("failed", str(standing.failed))

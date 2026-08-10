@@ -90,6 +90,12 @@ def observation_lines(record: RunObservation, indent: str = "") -> list[str]:
                     [
                         f"{indent}          - inputIndex: {row.input_index}",
                         f"{indent}            check: {quote(bounded_key(row.postcondition))}",
+                        # Who stated the check (amendment 2026-08-10). Stated
+                        # on every row rather than only the input ones: a
+                        # consumer reading absence as "criterion" is reading a
+                        # default, and a default is worth less than a fact
+                        # when the two kinds sit in one list.
+                        f"{indent}            provenance: {quote(row.provenance)}",
                         f"{indent}            optional: {'true' if row.optional else 'false'}",
                         f"{indent}            passed: {row.passed}",
                         f"{indent}            failed: {row.failed}",

@@ -60,11 +60,20 @@ class TestVerdictRecord:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.5"
+        assert root.get("version") == "1.6"
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
         identity = root.find(f"{NS}identity")
         assert identity is not None and identity.get("use-case-id") == "refund-confirmation"
+
+        # Every input the run drove is named, not only one a failure came
+        # from: a record naming the inputs that misbehaved and leaving the
+        # rest anonymous names some rows and not others.
+        inputs = root.find(f"{NS}inputs")
+        assert inputs is not None
+        assert [
+            (entry.get("index"), entry.get("excerpt")) for entry in inputs.findall(f"{NS}input")
+        ] == [("0", "a"), ("1", "b")]
 
         execution = root.find(f"{NS}execution")
         assert execution is not None
@@ -128,7 +137,7 @@ class TestVerdictRecord:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.5.xsd"
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.6.xsd"
         assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
         if xmllint is None:
             pytest.skip("xmllint not available on this machine")
@@ -174,7 +183,7 @@ class TestRunDesignRecording:
         import pytest
 
         xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.5.xsd"
+        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.6.xsd"
         assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
         if xmllint is None:
             pytest.skip("xmllint not available on this machine")
