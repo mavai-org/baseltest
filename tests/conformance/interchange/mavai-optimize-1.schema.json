@@ -36,6 +36,18 @@
       "format": "date-time",
       "description": "ISO 8601 UTC timestamp of emission."
     },
+    "inputs": {
+      "type": "array",
+      "description": "Informational: how each input the run drove presents itself \u2014 a file input's document name, a text input's bounded excerpt \u2014 for human orientation only. Stated for every input, not only for those that failed: naming some rows and leaving others blank is the asymmetry this block exists to remove. Consumers correlate via inputIndex and must render a document that omits it; nothing here is identity, which stays the inputs fingerprint.",
+      "items": {
+        "type": "object",
+        "required": ["inputIndex", "inputExcerpt"],
+        "properties": {
+          "inputIndex": { "type": "integer", "minimum": 0, "description": "Zero-based index into the inputs list \u2014 the structural input reference, the same one failureDistribution entries carry." },
+          "inputExcerpt": { "type": "string", "maxLength": 256, "description": "Informational bounded excerpt of the input, for human orientation only \u2014 consumers correlate via inputIndex." }
+        }
+      }
+    },
     "iterations": {
       "type": "array",
       "minItems": 1,
