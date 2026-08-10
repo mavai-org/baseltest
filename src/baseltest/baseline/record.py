@@ -8,6 +8,7 @@ from types import MappingProxyType
 
 from baseltest.contract import DeliveryCause, FailureAxis, PostconditionStanding
 from baseltest.engine import LatencyBlock, RunResult, latency_block
+from baseltest.engine.naming import bounded_excerpt
 from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL, wilson_lower_bound
 
 
@@ -158,6 +159,9 @@ class BaselineRecord:
     termination_reason: str = "COMPLETED"
     covariate_profile: Mapping[str, str] = field(default_factory=dict)
     factor_record: Mapping[str, str] = field(default_factory=dict)
+    #: How each input the measurement drove presents itself, in input
+    #: order. Informational: identity stays ``inputs_identity``.
+    inputs: tuple[str, ...] = ()
     latency: LatencyBlock | None = None
     views: Mapping[str, str] = field(default_factory=dict)
 
@@ -229,6 +233,7 @@ class BaselineRecord:
             criteria=criteria,
             covariate_profile=dict(covariate_profile or {}),
             factor_record=dict(factor_record or {}),
+            inputs=tuple(bounded_excerpt(str(v)) for v in result.plan.inputs),
             latency=latency_block(result.samples),
             views=dict(views or {}),
         )

@@ -124,6 +124,12 @@ class RunObservation:
     configuration_name: str | None = None
     latency: LatencyBlock | None = None
     samples: tuple[SampleRecord, ...] = ()
+    #: How each input the run drove presents itself, in input order. Stated
+    #: for every input, not only for those that failed — a report that names
+    #: one row and leaves the rest blank reads as missing data rather than as
+    #: a fact about which inputs failed. Informational: identity remains the
+    #: inputs fingerprint.
+    inputs: tuple[str, ...] = ()
 
     @property
     def observed_rate(self) -> float:
@@ -167,6 +173,7 @@ class RunObservation:
             total_tokens=result.total_tokens,
             latency=latency_block(result.samples),
             samples=result.samples,
+            inputs=tuple(bounded_excerpt(str(value)) for value in result.plan.inputs),
         )
 
 

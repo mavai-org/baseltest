@@ -8,11 +8,36 @@ each embed it in their own schema.
 """
 
 import hashlib
+import json
 
 from baseltest.engine.artefact import latency_lines, quote
 from baseltest.engine.naming import bounded_excerpt, bounded_key
 
 from .record import RunObservation
+
+
+def input_lines(inputs: tuple[str, ...], indent: str = "") -> list[str]:
+    """The ``inputs`` block: what each input the run drove presents as.
+
+    A document-level block rather than part of the observation, because an
+    optimize document embeds many observations and they all drove the same
+    inputs — stating them per iteration would repeat one fact as many times
+    as the search ran.
+
+    Correlates by index with the ``inputIndex`` a failure entry carries, so
+    a consumer that reads failure entries needs nothing new to read this.
+    """
+    if not inputs:
+        return []
+    # One JSON object per line — a YAML flow mapping to any parser, and a
+    # single scalar line to this package's own baseline reader, whose
+    # grammar reads a list item with json.loads. The standings block states
+    # its rows the same way, for the same reason.
+    lines = [f"{indent}inputs:"]
+    for index, excerpt in enumerate(inputs):
+        entry = json.dumps({"inputIndex": index, "inputExcerpt": excerpt}, ensure_ascii=False)
+        lines.append(f"{indent}  - {entry}")
+    return lines
 
 
 def observation_lines(record: RunObservation, indent: str = "") -> list[str]:

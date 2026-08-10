@@ -8,12 +8,13 @@ optimize run one per iteration), so the record and its emitter live here, below
 both, and neither experiment depends on the other.
 """
 
-from .emit import observation_lines
+from .emit import input_lines, observation_lines
 from .record import CriterionStatistics, FailureEntry, RunObservation
 
 __all__ = [
     "CriterionStatistics",
     "FailureEntry",
     "RunObservation",
+    "input_lines",
     "observation_lines",
 ]

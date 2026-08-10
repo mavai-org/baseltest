@@ -353,3 +353,66 @@ class TestHowAFileInputPresentsItself:
 
         assert str(one) == str(two)
         assert one.identity() != two.identity()
+
+
+class TestEveryInputIsNamed:
+    """The artefact states what each input is, not only the ones that failed.
+
+    `inputExcerpt` rides on failure entries, so before this an input that
+    behaved had nowhere to say what it was, and a report named one row and
+    left the rest blank.
+    """
+
+    def test_a_baseline_states_every_input(self, tmp_path: Path) -> None:
+        import yaml
+
+        from baseltest.baseline import BaselineRecord, write_baseline
+        from baseltest.declarative import run
+
+        contract = write_contract(
+            tmp_path,
+            """
+format: mavai-contract/1
+contract: named-inputs
+service: teller
+criteria:
+  - name: answers
+    threshold: 0.5
+    contains: "a"
+inputs:
+  - "Alice"
+  - "Bob"
+""".strip(),
+        )
+        bindings = Bindings()
+
+        @bindings.binding("teller")
+        def teller(name: str) -> str:
+            return f"a fortune for {name}"
+
+        result = run(contract, samples=4, bindings=bindings, emit=False)
+        record = BaselineRecord.from_run_result(result, service_name="teller")
+        written = write_baseline(record, tmp_path)
+        document = yaml.safe_load(written.read_text())
+
+        assert document["inputs"] == [
+            {"inputIndex": 0, "inputExcerpt": "Alice"},
+            {"inputIndex": 1, "inputExcerpt": "Bob"},
+        ]
+
+    def test_the_block_is_one_flow_mapping_per_line(self, tmp_path: Path) -> None:
+        """The grammar this package's own baseline reader parses, and the one
+        the standings rows already use."""
+        from baseltest.observation import input_lines
+
+        assert input_lines(("Alice", "Bob")) == [
+            "inputs:",
+            '  - {"inputIndex": 0, "inputExcerpt": "Alice"}',
+            '  - {"inputIndex": 1, "inputExcerpt": "Bob"}',
+        ]
+
+    def test_no_inputs_states_no_block(self) -> None:
+        """Absent, not empty: a consumer reads absence as not stated."""
+        from baseltest.observation import input_lines
+
+        assert input_lines(()) == []
