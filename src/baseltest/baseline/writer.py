@@ -64,6 +64,7 @@ from pathlib import Path
 
 from baseltest.engine.artefact import latency_lines, quote
 from baseltest.engine.naming import bounded_excerpt, bounded_key
+from baseltest.observation import input_lines
 
 from .record import BaselineRecord, CriterionCharacterisation, CriterionMode
 
@@ -176,6 +177,7 @@ def render_baseline(record: BaselineRecord) -> str:
         f"generatedAt: {quote(record.generated_at.isoformat())}",
         f"confidenceLevel: {record.confidence_level}",
         f"inputsIdentity: {quote(record.inputs_identity)}",
+        *input_lines(record.inputs),
     ]
     lines.append("covariateProfile:" if record.covariate_profile else "covariateProfile: {}")
     for key in sorted(record.covariate_profile):

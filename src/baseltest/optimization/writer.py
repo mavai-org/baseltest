@@ -13,7 +13,7 @@ from pathlib import Path
 # strings are valid YAML flow scalars, numbers keep their native YAML type);
 # the per-iteration observation blocks are the exploration artefact's, reused.
 from baseltest.engine.artefact import factor_lines, quote, scalar
-from baseltest.observation import observation_lines
+from baseltest.observation import input_lines, observation_lines
 
 from .record import OptimizationRecord
 
@@ -57,6 +57,9 @@ def render_optimization(record: OptimizationRecord) -> str:
         for key, value in record.stepper:
             lines.append(f"  {quote(key)}: {scalar(value)}")
     lines.append(f"termination: {quote(record.termination)}")
+    # Every iteration of a search drives the same inputs, so the block is
+    # the document's and not each iteration's.
+    lines.extend(input_lines(record.iterations[0].observation.inputs))
     lines.append("iterations:")
     for iteration in record.iterations:
         lines.append(f"  - iteration: {iteration.index}")

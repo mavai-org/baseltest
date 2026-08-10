@@ -149,6 +149,19 @@ class FileInput:
     data: bytes = field(repr=False)
     content_hash: str
 
+    def __str__(self) -> str:
+        """The document's name — what a reader calls this input.
+
+        A text input's excerpt is its text, so a file input's must be
+        something a reader recognises too, and the dataclass repr is not:
+        it spells a Python type into artefacts that punit and feotest also
+        write, and it carries the authoring machine's absolute path into a
+        document meant to be published and compared elsewhere. The name is
+        what a reader points at; identity remains the content hash, which
+        is why dropping the path costs nothing (see ``identity``).
+        """
+        return self.path.name
+
     def identity(self) -> dict[str, str]:
         """The canonical identity fragment folded into a baseline's inputs
         identity: content hash and kind, never the path."""

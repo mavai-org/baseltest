@@ -79,7 +79,7 @@ from pathlib import Path
 from typing import Any
 
 from baseltest.engine.artefact import factor_lines, quote
-from baseltest.observation import RunObservation, observation_lines
+from baseltest.observation import RunObservation, input_lines, observation_lines
 
 SCHEMA_VERSION = "mavai-explore-1"
 
@@ -159,6 +159,7 @@ def render_exploration(record: RunObservation) -> str:
     # included) so one artefact tells the whole story; the filename
     # stem still derives from the discriminating factors alone.
     lines.extend(factor_lines(record.configuration or record.factors))
+    lines.extend(input_lines(record.inputs))
     lines.extend(observation_lines(record))
     return "\n".join(lines) + "\n"
 
