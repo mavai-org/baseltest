@@ -72,16 +72,15 @@ jobs:
   # one would change what the reader sees without changing anything they can
   # point at.
   #
-  # GATE: MAVAI_VERSION must name a mavai release that publishes
-  # `fetch-binary.sh` as an asset. 0.16.0 does not — the helper ships from
-  # the release after it — so this job cannot succeed until MAVAI_VERSION is
-  # bumped to one that does. Bump it before tagging a baseltest release.
+  # It must also name a release that publishes `fetch-binary.sh`, which this
+  # job downloads before it downloads anything else: the helper ships from
+  # 0.17.0 onwards.
   bundle:
     name: Wheel carrying the renderer (${{ matrix.platform }})
     needs: test
     runs-on: ubuntu-latest
     env:
-      MAVAI_VERSION: "0.16.0"
+      MAVAI_VERSION: "0.17.0"
     strategy:
       fail-fast: false
       matrix:

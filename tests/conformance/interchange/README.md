@@ -6,20 +6,25 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.10.10`.** Verified byte-identical to that release
-when recorded (2026-08-07). All three JSON schemas changed in it: the failure
-entry gained `kind`, and a delivery entry's `condition` is now constrained to
-the closed delivery-cause vocabulary. The verdict copy stays at `1.4` — 1.5
-adds the same distinction to the XML record, and this package's verdict
-emitter has not yet adopted it, so pinning 1.5 here would assert a conformance
-this repository does not yet owe.
+**Vendored from mavai-R `0.10.11`.** Verified byte-identical to the
+`interchange-v0.10.11.zip` release asset when recorded (2026-08-10). All
+three JSON schemas changed in it: each gained an optional `inputs` block
+stating how every input a run drove presents itself, so an artefact can name
+an input that behaved and not only one that failed.
+
+Two corrections to what this file used to say. The `0.10.10` note claimed all
+three schemas were byte-identical to that release; `mavai-baseline-1` was
+never in that asset at all — it had been absent from the interchange bundle
+since it was introduced, and the copy here came from the repository. Fixed
+upstream in mavai-R 0.10.11, which also refuses to publish a bundle missing a
+schema. And the verdict copy is `1.5`, not the `1.4` the prose claimed.
 
 | file | validated by |
 |---|---|
 | `mavai-explore-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-optimize-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-baseline-1.schema.json` | `tests/baseline/test_interchange_conformance.py` |
-| `verdict-1.4.xsd` | the verdict emitter's suite |
+| `verdict-1.5.xsd` | the verdict emitter's suite |
 
 ## Why the version is written down
 
@@ -32,8 +37,9 @@ the date it was checked.
 
 ## Re-vendoring
 
-Copy the files from a mavai-R checkout at the intended release, update the
-version above and the date, then run the suites named in the table. A schema
+Take the files from the release's `interchange-*.zip` asset — not from a
+mavai-R checkout, so the copies are what consumers actually receive — update
+the version above and the date, then run the suites named in the table. A schema
 change that the emitter does not satisfy is the point of the exercise — it
 should fail here, loudly, in this repository, and not in a consumer.
 
