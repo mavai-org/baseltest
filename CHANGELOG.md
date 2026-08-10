@@ -7,7 +7,69 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
-## [Unreleased]
+## [0.22.0] — 2026-08-10
+
+**Breaking: this package renders no HTML, and `baseltest.reporting.render_test_report`
+is gone.** In exchange, installing it installs the renderer that draws the
+reports instead, so what used to be two installations is one.
+
+Reports were rendered in two places: `basel test --html-report` drew its own
+page in Python, while exploration comparisons had already moved to
+[mavai](https://github.com/mavai-org/mavai/releases), the family's shared
+renderer. Two renderers meant two answers to the same question, drifting
+apart, and punit and feotest each carried a third and a fourth. There is now
+one, and this framework's half of the split is what it was always meant to
+be: emitting the canonical artefacts.
+
+**`--html-report PATH` now works on every verb that writes artefacts** —
+`test`, `measure`, `explore` and `optimize` — and each hands its run's
+artefacts to mavai, which the platform wheels carry:
+
+```console
+$ basel explore contract.yaml --html-report comparison.html
+$ basel test contract.yaml --samples 200 --html-report verdict.html
+```
+
+Rendering separately still works exactly as before, and produces the same
+page, because it is the same renderer over the same artefacts:
+
+```console
+$ basel test contract.yaml --samples 200
+$ mavai verdict _baseltest -o verdict.html
+```
+
+The flag is **refused before the run** when it cannot be honoured — mavai
+not on `PATH`, or `--no-verdict-xml` suppressing the very record the report
+draws from — so a run never costs samples for a report that was never going
+to appear. It **never changes the verb's exit code**: a passing run whose
+report failed to draw is still a passing run, and the failure is loud on
+stderr.
+
+**Installing baseltest installs the renderer it delegates to.**
+
+The previous change made every report mavai's to draw. That was right for
+the reports and wrong for the reader, who now installed a framework that
+could run an experiment and not show it until they had separately found,
+downloaded and unpacked a second tool — for a binary whose only purpose is
+to draw what baseltest just wrote.
+
+`pip install baseltest` now brings it. Each supported platform gets a wheel
+carrying that platform's renderer, installed as `mavai` in the environment's
+scripts directory, so it is on your path for direct use:
+
+```console
+$ pip install baseltest
+$ mavai explore _baseltest/explorations -o comparison.html   # no framework involved
+```
+
+`basel --version` names the renderer this installation would use — the one
+it carries, one it found on `PATH`, or none. It prints on stderr, leaving
+the version string on stdout byte-identical to the `generator` a verdict
+record carries, which is what makes the two comparable.
+
+`MAVAI_BIN` names a renderer to use instead: the escape hatch for a local
+build. A stated override that does not resolve is refused rather than
+quietly replaced by a different renderer.
 
 **`basel report` draws the page without running the experiment again.**
 
@@ -43,80 +105,40 @@ looked in and the run that would fill it, which is a different answer from
 a report that failed to draw. And unlike the flag on a run, this verb's
 exit code *is* the report's: drawing it is what it was asked to do.
 
-**Installing baseltest installs the renderer it delegates to.**
+**Fixed: `basel explore --html-report` produced no report at all.** It handed
+the renderer the explorations root, and mavai reads documents exactly two
+directories down. An exploration writes one level deeper than every other
+kind — `explorations/<contract>/<swept keys>/*.yaml`, because its grid is
+grouped by the keys it sweeps — so the root had directories beneath it and
+nothing renderable beneath those. Every exploration report since the
+delegation landed was empty. The other three kinds were checked rather than
+assumed and already sat at the right depth.
 
-The previous change made every report mavai's to draw. That was right for
-the reports and wrong for the reader, who now installed a framework that
-could run an experiment and not show it until they had separately found,
-downloaded and unpacked a second tool — for a binary whose only purpose is
-to draw what baseltest just wrote.
+**An artefact says what its inputs are.** Each descriptive artefact now
+states an `inputs` block: one entry per input the run drove, carrying the
+`inputIndex` failure entries already use and a bounded excerpt. Before it,
+an excerpt rode on failure entries alone, so an input that behaved had
+nowhere to say what it was and a report named one row and left the rest
+blank — which reads as missing data rather than as a fact about which inputs
+failed. Optional in the format (mavai-R 0.10.11), so an older document is
+unaffected, and a consumer that has not adopted it renders as it did.
 
-`pip install baseltest` now brings it. Each supported platform gets a wheel
-carrying that platform's renderer, installed as `mavai` in the environment's
-scripts directory, so it is on your path for direct use:
-
-```console
-$ pip install baseltest
-$ mavai explore _baseltest/explorations -o comparison.html   # no framework involved
-```
-
-`basel --version` names the renderer this installation would use — the one
-it carries, one it found on `PATH`, or none. It prints on stderr, leaving
-the version string on stdout byte-identical to the `generator` a verdict
-record carries, which is what makes the two comparable.
-
-`MAVAI_BIN` names a renderer to use instead: the escape hatch for a local
-build. A stated override that does not resolve is refused rather than
-quietly replaced by a different renderer.
-
-**What changed for you**
-
-- Nothing, if you already had `mavai` on your `PATH` — an installation's own
-  renderer is preferred, but PATH still answers where there is none.
-- On a platform with no published wheel, or installing from source, you get
-  the pure wheel: a complete framework that runs experiments and writes
-  artefacts, and refuses a report request before the run with a message
-  naming both ways to fix it. Nothing renders differently; there is simply
-  nothing to render with.
-- The renderer version a wheel carries is pinned at build time and stated by
-  `basel --version`. It does not float between releases.
-
-**baseltest renders no HTML. mavai does — for the whole family.**
-
-Reports were rendered in two places: `basel test --html-report` drew its own
-page in Python, while exploration comparisons had already moved to
-[mavai](https://github.com/mavai-org/mavai/releases), the family's shared
-renderer. Two renderers meant two answers to the same question, drifting
-apart, and punit and feotest each carried a third and a fourth. There is now
-one, and this framework's half of the split is what it was always meant to
-be: emitting the canonical artefacts.
-
-**`--html-report PATH` now works on every verb that writes artefacts** —
-`test`, `measure`, `explore` and `optimize` — and each hands its run's
-artefacts to mavai, which must be on `PATH`:
-
-```console
-$ basel explore contract.yaml --html-report comparison.html
-$ basel test contract.yaml --samples 200 --html-report verdict.html
-```
-
-Rendering separately still works exactly as before, and produces the same
-page, because it is the same renderer over the same artefacts:
-
-```console
-$ basel test contract.yaml --samples 200
-$ mavai verdict _baseltest -o verdict.html
-```
-
-The flag is **refused before the run** when it cannot be honoured — mavai
-not on `PATH`, or `--no-verdict-xml` suppressing the very record the report
-draws from — so a run never costs samples for a report that was never going
-to appear. It **never changes the verb's exit code**: a passing run whose
-report failed to draw is still a passing run, and the failure is loud on
-stderr.
+**A file input says its name, not its repr.** Every run whose failing input
+came from a file used to publish
+`FileInput(path=PosixPath('/home/you/corpus/note.pdf'), kind=…, content_hash=…)`
+as its excerpt — a Python spelling in a document punit and feotest also
+write, carrying the authoring machine's absolute path into a file meant to
+be published and read elsewhere. It presents as the document's name now.
+Dropping the path costs no identity, which is why it is safe: identity has
+always been the content hash and never the path.
 
 **What changed for you**
 
+- **Re-run `basel explore … --html-report` if it has been producing nothing.**
+  Every exploration report since the delegation landed was empty, and nothing
+  about your contract was wrong.
+- **Nothing, if you already had `mavai` on your `PATH`.** An installation's
+  own renderer is preferred, but PATH still answers where there is none.
 - `--html-report` on `test` produces mavai's verdict report, not the page
   baseltest used to draw. **The run-design and sizing-transparency block is
   not in it** — the approach, the risk-driven claims, and the disclosed
@@ -124,13 +146,20 @@ stderr.
   declared design; no renderer reads it yet. Restoring it is tracked as a
   family-level follow-up and needs the computed disclosures to travel in the
   artefact, since mavai computes nothing.
-- `--html-report` is **no longer refused on `measure`**. It needs mavai
-  0.16.0 or later, which reads `mavai-baseline-1` — the format baseltest has
-  written since 0.19.0.
-- `--html-report` on `explore` **no longer refuses with a pointer** to run
-  mavai yourself; it runs it.
-- Removed: `baseltest.reporting.render_test_report` and the
+- `--html-report` is **no longer refused on `measure`**, and on `explore` it
+  **no longer refuses with a pointer** to run mavai yourself; it runs it.
+- **Removed:** `baseltest.reporting.render_test_report` and the
   `reporting.report_html` / `reporting.test_report` modules.
+- On a platform with no published wheel, or installing from source, you get
+  the pure wheel: a complete framework that runs experiments and writes
+  artefacts, and refuses a report request before the run with a message
+  naming both ways to fix it. Nothing renders differently; there is simply
+  nothing to render with.
+- Artefacts written by this release carry one more block. Nothing reads it as
+  identity, and a reader that does not know it ignores it.
+- Reports are drawn by **mavai 0.17.0 or later**, which the platform wheels
+  carry and whose version `basel --version` states. It is pinned at build
+  time and does not float between releases.
 
 ## [0.21.0] — 2026-08-09
 
