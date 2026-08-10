@@ -364,7 +364,7 @@ class TestEveryInputIsNamed:
     """
 
     def test_a_baseline_states_every_input(self, tmp_path: Path) -> None:
-        import yaml
+        import json
 
         from baseltest.baseline import BaselineRecord, write_baseline
         from baseltest.declarative import run
@@ -393,9 +393,20 @@ inputs:
         result = run(contract, samples=4, bindings=bindings, emit=False)
         record = BaselineRecord.from_run_result(result, service_name="teller")
         written = write_baseline(record, tmp_path)
-        document = yaml.safe_load(written.read_text())
 
-        assert document["inputs"] == [
+        # Read the block as it sits on disk rather than through a YAML
+        # parser: the grammar is what this package's own baseline reader
+        # parses, and a parser would hide a shape it cannot read. (It also
+        # keeps the suite off PyYAML, which is not a dependency here.)
+        lines = written.read_text().splitlines()
+        start = lines.index("inputs:")
+        stated = [
+            json.loads(line.removeprefix("  - "))
+            for line in lines[start + 1 :]
+            if line.startswith("  - ")
+        ]
+
+        assert stated == [
             {"inputIndex": 0, "inputExcerpt": "Alice"},
             {"inputIndex": 1, "inputExcerpt": "Bob"},
         ]
