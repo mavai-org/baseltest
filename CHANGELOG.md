@@ -7,6 +7,39 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.22.1] — 2026-08-10
+
+**A postcondition now says who stated it, and a verdict record says what
+its inputs are.** Both are additive: nothing in your contracts changes, and
+every artefact keeps the shape it had plus one more fact.
+
+A standings row states `provenance`: `criterion` for a postcondition the
+criterion states, asserted of every input; `input` for one an input's own
+`expected:` block states, asserted only against that input. Both are
+postconditions — they differ in who stated them, and their denominators
+differ accordingly, an input's reaching only the samples that input drove.
+A consumer that could not tell them apart listed one figure out of six
+beside another out of twelve with nothing to explain the difference; the
+family's report now separates them because the artefact finally says so.
+Stated on every row, not only the input ones: a consumer reading absence
+as `criterion` is reading a default, and a default is worth less than a
+fact when the two kinds sit in one list.
+
+The fact is a carry, not a computation. The evaluator already tags an
+input's expectation with the index it dispatches on
+(`Postcondition.applies_to_input`), and that tag is the same fact under
+another name.
+
+Verdict records move to **1.6** and gain an `<inputs>` element: one entry
+per input the run drove, its index and a bounded excerpt. Every other
+interchange format has carried this for some time; a verdict record could
+not, so a verdict report named the document a failure came from by its
+index and nothing else. Every input is named, not only the ones a failure
+came from. The vendored schemas move to mavai-R 0.10.12 — ahead of its
+release, since this emitter is the first to adopt the fields; the
+conformance README says so rather than claiming an asset it was not taken
+from.
+
 ## [0.22.0] — 2026-08-10
 
 **Breaking: this package renders no HTML, and `baseltest.reporting.render_test_report`

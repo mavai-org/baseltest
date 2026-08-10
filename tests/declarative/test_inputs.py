@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from baseltest.contract import Provenance
 from baseltest.declarative import Bindings, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.engine import Verdict, inputs_fingerprint
@@ -141,3 +142,59 @@ class TestInputsFingerprint:
 
     def test_structured_and_string_corpora_do_not_collide(self) -> None:
         assert inputs_fingerprint(("7",)) != inputs_fingerprint((7,))
+
+
+class TestPostconditionProvenance:
+    """Who stated a postcondition travels with its tally.
+
+    A criterion states postconditions the response must satisfy whatever
+    input drove it; an input states what the response is expected to
+    contain for that input alone. Their denominators differ by
+    construction, so a consumer that cannot tell them apart lists one
+    figure out of six beside another out of twelve with nothing to explain
+    the difference.
+    """
+
+    def test_a_criterion_states_its_own_and_an_input_states_the_rest(self, tmp_path: Path) -> None:
+        bindings = Bindings()
+        register_forecast(bindings)
+        contract = """
+format: mavai-contract/1
+contract: forecast-is-complete
+service: forecast
+criteria:
+  - threshold: 0.5
+    matches: "days"
+inputs:
+  - input: ["Basel", 3, true]
+    expected: { contains: "20C" }
+  - input: ["Oslo", 1, false]
+    expected: { contains: "20F" }
+"""
+        result = run(write_contract(tmp_path, contract), emit=False, bindings=bindings)
+        standings = [
+            standing for criterion in result.criterion_results for standing in criterion.standings
+        ]
+        assert standings, "the run states standings"
+        by_provenance: dict[Provenance, set[str]] = {}
+        for standing in standings:
+            by_provenance.setdefault(standing.provenance, set()).add(standing.postcondition)
+        # The criterion's own form reaches every input; each input's
+        # expectation reaches only itself, and says so.
+        assert by_provenance[Provenance.CRITERION] == {"matches /days/"}
+        assert all("(input " in name for name in by_provenance[Provenance.INPUT]), by_provenance[
+            Provenance.INPUT
+        ]
+
+    def test_a_contract_stating_no_expectations_states_one_provenance(self, tmp_path: Path) -> None:
+        # Absence of input postconditions is not absence of the fact: every
+        # row still says who stated it, so a consumer never reads a default.
+        bindings = Bindings()
+        register_forecast(bindings)
+        result = run(write_contract(tmp_path, FORECAST_CONTRACT), emit=False, bindings=bindings)
+        provenances = {
+            standing.provenance
+            for criterion in result.criterion_results
+            for standing in criterion.standings
+        }
+        assert provenances == {Provenance.CRITERION}

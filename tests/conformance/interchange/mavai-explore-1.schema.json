@@ -226,6 +226,11 @@
                 "minimum": 0,
                 "description": "Zero-based structural input reference, as in failureDistribution."
               },
+              "provenance": {
+                "type": "string",
+                "enum": ["criterion", "input"],
+                "description": "Which declaration stated this postcondition: 'criterion' for one the criterion states, asserted of every input; 'input' for one an input's own expected values state, asserted only against that input. Both are postconditions \u2014 they differ in who stated them, and their denominators differ accordingly, which is why a consumer listing them together shows one figure out of six beside another out of twelve with nothing to explain it. Additive and optional: absence means 'criterion', which is what every pre-amendment emission means. A consumer meeting an unknown value reads it as 'criterion' and renders it without comment."
+              },
               "check": {
                 "type": "string",
                 "minLength": 1,

@@ -23,6 +23,26 @@ from .model import Criterion, DeliveryCause, TransformError
 _TRANSFORM_REASON_PREFIX = "transform failed"
 
 
+class Provenance(StrEnum):
+    """Which declaration stated a postcondition.
+
+    A criterion states postconditions the response must satisfy whatever
+    input drove it; an input states what the response is expected to
+    contain for that input alone. Both are postconditions — they differ in
+    who stated them, and their denominators differ accordingly, an input's
+    reaching only the samples that input drove. A consumer listing them
+    together shows one figure out of six beside another out of twelve with
+    nothing to explain it, which is why the artefact carries this.
+
+    Read from :attr:`Postcondition.applies_to_input`: the selection tag the
+    evaluator already keeps is the same fact, so this is a carry rather
+    than a second source of truth.
+    """
+
+    CRITERION = "criterion"
+    INPUT = "input"
+
+
 class Outcome(StrEnum):
     """A postcondition's three-valued status within a trial.
 
@@ -380,6 +400,10 @@ class PostconditionStanding:
     Attributes:
         input_index: Position of the driving input in the plan's input list.
         postcondition: The check's name, as declared.
+        provenance: Which declaration stated the check — the criterion's
+            own, or the input's. Consumers group on it; absence in an
+            artefact means the criterion's, so the default is the shape
+            every pre-amendment emission already means.
         passed: Trials on which the check held.
         failed: Trials on which it did not.
         skipped: Trials on which it went unevaluated (an earlier transform
@@ -401,6 +425,7 @@ class PostconditionStanding:
     passed: int
     failed: int
     skipped: int
+    provenance: Provenance = Provenance.CRITERION
     optional: bool = False
     path: str | None = None
     form: str | None = None

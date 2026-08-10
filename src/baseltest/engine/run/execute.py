@@ -23,6 +23,7 @@ from baseltest.contract import (
     Outcome,
     Postcondition,
     PostconditionStanding,
+    Provenance,
     ServiceContract,
 )
 from baseltest.statistics.verdict import Verdict
@@ -231,6 +232,14 @@ def _standing(
         passed=row[0],
         failed=row[1],
         skipped=row[2],
+        # The selection tag the evaluator keeps for dispatch is the same
+        # fact a consumer needs to group on: a check tagged for one input
+        # was stated by that input, and an untagged one by the criterion.
+        provenance=(
+            Provenance.INPUT
+            if descriptor is not None and descriptor.applies_to_input is not None
+            else Provenance.CRITERION
+        ),
         optional=descriptor is not None and not descriptor.required,
         path=descriptor.path if descriptor is not None else None,
         form=descriptor.form if descriptor is not None else None,

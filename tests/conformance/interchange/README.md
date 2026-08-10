@@ -6,11 +6,23 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.10.11`.** Verified byte-identical to the
-`interchange-v0.10.11.zip` release asset when recorded (2026-08-10). All
-three JSON schemas changed in it: each gained an optional `inputs` block
-stating how every input a run drove presents itself, so an artefact can name
-an input that behaved and not only one that failed.
+**Vendored from mavai-R `0.10.12`, ahead of its release.** Taken from the
+repository at the commit that introduced them, not from an
+`interchange-*.zip` asset — the release is not cut yet, and this emitter is
+the first to adopt the fields. Re-verify against the asset when 0.10.12 is
+published; until then the provenance stated here is a repository commit and
+nothing stronger.
+
+A standings row gains an optional `provenance`: `criterion` for a
+postcondition the criterion states, `input` for one an input's own expected
+values state. `verdict-1.6.xsd` carries that attribute and adds an optional
+`<inputs>` element, so a verdict record can name the document a failure came
+from rather than its index alone — the block every other format already had.
+
+**Vendored from mavai-R `0.10.11`** (superseded, recorded here because the
+`inputs` block in the three JSON schemas arrived in it): verified
+byte-identical to the `interchange-v0.10.11.zip` release asset when recorded
+(2026-08-10).
 
 Two corrections to what this file used to say. The `0.10.10` note claimed all
 three schemas were byte-identical to that release; `mavai-baseline-1` was
@@ -24,7 +36,7 @@ schema. And the verdict copy is `1.5`, not the `1.4` the prose claimed.
 | `mavai-explore-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-optimize-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-baseline-1.schema.json` | `tests/baseline/test_interchange_conformance.py` |
-| `verdict-1.5.xsd` | the verdict emitter's suite |
+| `verdict-1.6.xsd` | the verdict emitter's suite |
 
 ## Why the version is written down
 
