@@ -3,6 +3,7 @@
 import io
 import json
 from collections.abc import Callable
+from os.path import commonprefix
 from pathlib import Path
 from typing import Any
 
@@ -877,6 +878,26 @@ class TestBuiltinSteppers:
 
 META_MARKER = "You are a prompt engineer"
 
+IMPROVED = "IMPROVED: respond with hello"
+
+
+def proposal(prompt: str = IMPROVED, **overrides: Any) -> str:
+    """One well-formed meta-model reply in the declared JSON shape."""
+    payload: dict[str, Any] = {
+        "assessment": "the service greets nobody",
+        "edits": [
+            {
+                "id": "e1",
+                "targets": ["says-hello"],
+                "hypothesis": "the prompt never asks for a greeting",
+                "change": "require the reply to open with a greeting",
+            }
+        ],
+        "prompt": prompt,
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
+
 
 class TestPromptEngineer:
     @pytest.fixture()
@@ -889,35 +910,327 @@ class TestPromptEngineer:
         def respond(payload: dict[str, Any]) -> str:
             system = payload["messages"][0]["content"]
             if META_MARKER in system:
-                return "IMPROVED: respond with hello"
+                return proposal()
             return "hello there" if system.startswith("IMPROVED") else "goodbye"
 
         return scripted_endpoint(respond)
 
-    def prompt_services(self) -> str:
+    def prompt_services(self, extra: str = "") -> str:
         return services_yaml(
-            """
+            f"""
       - id: prompt-tuning
         stepper: prompt-engineer
-        stepper-config: {model: big-model, temperature: 0.9}
+        stepper-config: {{model: big-model, temperature: 0.9{extra}}}
         max-iterations: 2
 """
         )
 
-    def test_the_meta_message_carries_the_failure_breakdown(
+    def meta_messages(self, captured: list[dict[str, Any]]) -> list[str]:
+        return [
+            p["messages"][1]["content"]
+            for p in captured
+            if META_MARKER in p["messages"][0]["content"]
+        ]
+
+    def test_the_meta_message_carries_the_pooled_standings(
         self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
     ) -> None:
+        path = write_files(tmp_path, self.prompt_services())
+        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        messages = self.meta_messages(prompt_tuning_endpoint)
+        assert len(messages) == 1
+        message = messages[0]
+        assert "You are a support agent." in message  # the incumbent prompt travels
+        assert "Criteria under test: says-hello" in message
+        # The structured standings, not a prose reason: the check's form,
+        # its provenance, its tallies, and what the service actually returned.
+        assert "criterion-stated contains check(s): 2 of 2 trial(s) failed." in message
+        assert "returned 'goodbye' ×2 — did not hold" in message
+
+    def test_input_stated_checks_travel_as_a_pattern_not_as_input_identities(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # An input-stated check is n = 1; only the pattern across such
+        # checks is a fact about the service. The message must therefore
+        # say how many inputs were covered and never which, and must never
+        # carry the expected answer.
+        contract = """
+format: mavai-contract/1
+contract: support-agent-tuning
+service: support-agent
+inputs:
+  - input: "Where is my order?"
+    expected: { equals: "hello, order 42 ships today" }
+  - input: "Do you ship abroad?"
+    expected: { equals: "hello, yes we ship abroad" }
+criteria:
+  - name: says-hello
+    contains: "hello"
+"""
+
+        def respond(payload: dict[str, Any]) -> str:
+            return proposal() if META_MARKER in payload["messages"][0]["content"] else "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(tmp_path, self.prompt_services(), contract=contract)
+        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        message = self.meta_messages(captured)[0]
+        assert "input-stated equals check(s) across 2 input(s)" in message
+        assert "Where is my order?" not in message  # no input identities
+        assert "order 42 ships today" not in message  # no answer key
+
+    def test_the_ledger_accumulates_and_its_rendered_prefix_is_stable(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # Blocks [1]-[2] must render byte-identically across calls that
+        # share a ledger prefix: that is what makes the prefix cacheable
+        # and the ledger a record rather than a working note.
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return proposal(prompt=f"IMPROVED attempt {len(captured)}")
+            return "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(
+            tmp_path,
+            services_yaml(
+                """
+      - id: prompt-tuning
+        stepper: prompt-engineer
+        max-iterations: 3
+"""
+            ),
+        )
+        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        first, second = self.meta_messages(captured)
+        shared = commonprefix([first, second])
+        # The whole preamble and the whole baseline entry are byte-identical
+        # across the two calls — the cacheable prefix, and the guarantee
+        # that a written entry is never revised.
+        assert "Criteria under test: says-hello" in shared
+        assert "Iteration 0 of 3 (baseline, no edits): score 0.00" in shared
+        # What differs is an append, nothing else.
+        assert "Iteration 1 of 3:" in second
+        assert "Iteration 1 of 3:" not in first
+
+    def test_the_recency_digest_copies_the_newest_entry_without_removing_it(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # A copy, never a move: hoisting the entry out of the ledger would
+        # leave the run's record with a hole.
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            return proposal() if META_MARKER in system else "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(
+            tmp_path,
+            services_yaml(
+                """
+      - id: prompt-tuning
+        stepper: prompt-engineer
+        max-iterations: 3
+"""
+            ),
+        )
+        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        second = self.meta_messages(captured)[1]
+        ledger, digest = second.split("MOST RECENT CHANGE")
+        assert "require the reply to open with a greeting" in ledger  # still in the ledger
+        assert "require the reply to open with a greeting" in digest  # and restated
+
+    def test_every_meta_call_is_single_turn(
+        self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
+    ) -> None:
+        # A ledger, not a conversation: no prior meta turn is carried.
         path = write_files(tmp_path, self.prompt_services())
         optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
         meta_calls = [
             p for p in prompt_tuning_endpoint if META_MARKER in p["messages"][0]["content"]
         ]
-        assert len(meta_calls) == 1
-        message = meta_calls[0]["messages"][1]["content"]
-        assert "You are a support agent." in message  # the incumbent prompt travels
-        assert "Pass rate achieved: 0.00" in message
-        assert 'criterion "says-hello" failed 2 time(s)' in message
-        assert 'input "Where is my order?"' in message
+        assert all(len(call["messages"]) == 2 for call in meta_calls)
+        assert all(call["messages"][1]["role"] == "user" for call in meta_calls)
+
+    def test_edits_apply_to_the_incumbent_not_to_a_regressed_iteration(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # Iteration 1 improves, iteration 2 regresses. The proposal that
+        # follows must be built from iteration 1's prompt, not iteration 2's.
+        proposals = ["GOOD: say hello", "BAD: say nothing"]
+
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return proposal(prompt=proposals.pop(0) if proposals else "THIRD")
+            return "hello there" if system.startswith("GOOD") else "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(
+            tmp_path,
+            services_yaml(
+                """
+      - id: prompt-tuning
+        stepper: prompt-engineer
+        max-iterations: 4
+"""
+            ),
+        )
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        record = outcomes[0].record
+        assert dict(record.iterations[1].factors)["system-prompt"] == "GOOD: say hello"
+        assert dict(record.iterations[2].factors)["system-prompt"] == "BAD: say nothing"
+        # The third proposal was composed from the incumbent, GOOD, which
+        # scored best — not from BAD, which was measured most recently.
+        third = self.meta_messages(captured)[2]
+        assert "GOOD: say hello" in third.split("THE PROMPT TO IMPROVE")[1]
+        assert "BAD: say nothing" not in third.split("THE PROMPT TO IMPROVE")[1]
+
+    def test_a_regression_against_the_incumbent_is_named(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        proposals = ["GOOD: say hello", "BAD: say nothing"]
+
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return proposal(prompt=proposals.pop(0) if proposals else "THIRD")
+            return "hello there" if system.startswith("GOOD") else "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(
+            tmp_path,
+            services_yaml(
+                """
+      - id: prompt-tuning
+        stepper: prompt-engineer
+        max-iterations: 4
+"""
+            ),
+        )
+        optimize(path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o")
+        third = self.meta_messages(captured)[2]
+        assert "REGRESSION WATCH" in third
+        assert "says-hello" in third.split("REGRESSION WATCH")[1]
+
+    def test_withheld_criteria_are_absent_from_the_message_entirely(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        contract = """
+format: mavai-contract/1
+contract: support-agent-tuning
+service: support-agent
+inputs: ["Where is my order?"]
+criteria:
+  - name: says-hello
+    contains: "hello"
+  - name: secret-canary
+    contains: "zzzcanaryzzz"
+"""
+
+        def respond(payload: dict[str, Any]) -> str:
+            return proposal() if META_MARKER in payload["messages"][0]["content"] else "goodbye"
+
+        captured = scripted_endpoint(respond)
+        path = write_files(
+            tmp_path, self.prompt_services(", withhold-criteria: secret-canary"), contract=contract
+        )
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        message = self.meta_messages(captured)[0]
+        assert "says-hello" in message
+        assert "secret-canary" not in message  # name
+        assert "zzzcanaryzzz" not in message  # operand
+        assert dict(outcomes[0].record.stepper)["withheldCriteria"] == "secret-canary"
+
+    def test_a_malformed_proposal_stops_the_run_with_a_stated_reason(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            return "not json at all" if META_MARKER in system else "goodbye"
+
+        scripted_endpoint(respond)
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        record = outcomes[0].record
+        assert record.termination == "stepper-stopped"
+        assert dict(record.stepper)["stoppingReason"] == "malformed-proposal"
+
+    def test_a_fenced_proposal_is_still_read(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # Stripping a markdown fence is lenient parsing of a well-known
+        # wrapper, not a retry: nothing is re-asked and nothing guessed.
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return f"```json\n{proposal()}\n```"
+            return "hello there" if system.startswith("IMPROVED") else "goodbye"
+
+        scripted_endpoint(respond)
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        assert dict(outcomes[0].record.iterations[1].factors)["system-prompt"] == IMPROVED
+
+    def test_the_not_a_prompt_problem_verdict_stops_the_run_with_its_reason(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return json.dumps(
+                    {
+                        "verdict": "not-a-prompt-problem",
+                        "reason": "the contract states no check for the greeting",
+                    }
+                )
+            return "goodbye"
+
+        scripted_endpoint(respond)
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        stepper = dict(outcomes[0].record.stepper)
+        assert outcomes[0].record.termination == "stepper-stopped"
+        assert stepper["stoppingReason"] == "not-a-prompt-problem"
+        assert "no check for the greeting" in str(stepper["stoppingDetail"])
+
+    def test_the_declared_edits_reach_the_artefact(
+        self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
+    ) -> None:
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        ledger = str(dict(outcomes[0].record.stepper)["editLedger"])
+        assert "iteration 1 [e1] targets=says-hello" in ledger
+        assert "require the reply to open with a greeting" in ledger
+        assert "the prompt never asks for a greeting" in ledger  # the hypothesis travels
+
+    def test_no_produced_prompt_carries_an_input_or_a_response_verbatim(
+        self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
+    ) -> None:
+        # Evidence travels; exemplars are not installed. An input promoted
+        # into the prompt would be spent, and attainment over a sample set
+        # containing prompted inputs estimates nothing.
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        for capture in outcomes[0].record.iterations:
+            prompt = str(dict(capture.factors)["system-prompt"])
+            assert "Where is my order?" not in prompt
+            assert "Do you ship abroad?" not in prompt
+            assert "goodbye" not in prompt
 
     def test_the_suggestion_lands_in_the_target_key_and_the_run_improves(
         self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
@@ -985,7 +1298,7 @@ class TestPromptEngineer:
             payload = json.loads(request.data.decode("utf-8"))
             system = payload["messages"][0]["content"]
             if META_MARKER in system:
-                content = "IMPROVED: respond with hello"
+                content = proposal()
             else:
                 content = "hello there" if system.startswith("IMPROVED") else "goodbye"
             reply = {
@@ -1003,8 +1316,11 @@ class TestPromptEngineer:
         )
         record = outcomes[0].record
         factors = dict(record.iterations[1].factors)
-        assert factors["system-prompt"] == "IMPROVED: respond with hello"
+        assert factors["system-prompt"] == IMPROVED
         assert record.best.score == 1.0
+        # The tuner's own spend is recorded, and separately from the
+        # samples': meta tokens are the cost of the search, not of a trial.
+        assert dict(record.stepper)["metaTokens"] == 15
 
 
 class TestCheckVerb:

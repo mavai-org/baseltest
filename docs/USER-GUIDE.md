@@ -500,13 +500,13 @@ Each entry declares one Optimize experiment. `id:` names the run and its artefac
 
 | Stepper | Config keys | What it does |
 |---|---|---|
-| `prompt-engineer` | `provider`, `model`, `temperature` (default 0.5), `system-prompt` (the meta prompt), `target-key` (default `system-prompt`), `max-exemplars` (default 2) | A meta-LLM as prompt engineer: each iteration sends the current prompt, its score, and the per-criterion failure breakdown with exemplars to a meta model and treats the response as the next value of `target-key`. The meta `provider`/`model` default to the optimized service's own, so the credentials you already exported cover it and no vendor is silently pinned; the resolved meta identity is recorded in the artefact. |
+| `prompt-engineer` | `provider`, `model`, `temperature` (default 0.5), `system-prompt` (the meta prompt), `target-key` (default `system-prompt`), `max-exemplars` (default 2), `withhold-criteria` (default none) | A meta-LLM as prompt engineer: each iteration sends the run's ledger and the pooled postcondition standings to a meta model, which replies with declared, separable edits and the revised value of `target-key`. Edits apply to the best prompt measured so far, not the most recent. The meta `provider`/`model` default to the optimized service's own, so the credentials you already exported cover it and no vendor is silently pinned; the resolved meta identity, the edit ledger and the meta model's own token spend are recorded in the artefact. |
 | `linear-sweep` | `key`, `step`, `stop` (all required; `step` non-zero) | Walks one numeric configuration key from its starting value in fixed increments to `stop`. A fixed grid you want fully characterised is an *exploration*; what earns the sweep a place here is plateau stopping abandoning the walk early. |
 | `refining-grid` | `key`, `lo`, `hi`, `step`, `min-step` (required); `confidence` (0.95), `min-improvement` (0.02), `confirmation-epochs` (2), `prefer` (`low`\|`high`) | Noise-aware, coarse-to-fine search over one numeric key: measures every value on a coarse grid over `[lo, hi]`, pools evidence per value across visits, narrows to the leader's neighbourhood at half the step down to `min-step` — a candidate is eliminated only when its uncertainty interval can no longer carry a meaningful advantage, never by a single bad round — then re-measures the finalists in independent confirmation epochs before selecting (practical ties prefer the lower value unless `prefer: high`). Its selection, finalist standings, and stopping reason land in the artefact's `stepper:` block. |
 
 #### Configuring the prompt engineer
 
-The `prompt-engineer` stepper optimizes a prompt by delegating to a **meta model**: each iteration sends it the current prompt, the pass rate it achieved, and the per-criterion failure breakdown with example failures, and the meta model's response — verbatim — becomes the next value of the targeted configuration key. An empty response ends the run. Every `stepper-config:` key is optional; a bare `stepper: prompt-engineer` already works. The full surface:
+The `prompt-engineer` stepper optimizes a prompt by delegating to a **meta model**. Each iteration sends it the run's **ledger** — every edit tried so far, the hypothesis behind it, and what followed — together with the **pooled postcondition standings** the run just measured: which check, of which form, at which path, declared by the criterion or by an input, and what the service actually returned. The meta model replies with a JSON object carrying its declared edits and the revised prompt, which becomes the next value of the targeted key. Every `stepper-config:` key is optional; a bare `stepper: prompt-engineer` already works. The full surface:
 
 ```yaml
 optimizations:
@@ -517,21 +517,36 @@ optimizations:
       model: gpt-4o-mini          #   optimized service's own provider/model
       temperature: 0.5            # meta model sampling (default 0.5)
       target-key: system-prompt   # the configuration key each suggestion replaces
-      max-exemplars: 3            # failure examples per criterion in the meta
-                                  #   message (default 2, may be 0)
+      max-exemplars: 3            # obtained-value excerpts per check group in
+                                  #   the meta message (default 2, may be 0)
+      withhold-criteria: tone      # criteria the meta model never sees (default
+                                  #   none) — see "Guarding against a prompt
+                                  #   tuned to the measure" below
       system-prompt: |            # the META prompt: your instructions to the engineer
         You are a prompt engineer for a German insurance-document extractor.
         Improve the prompt you are given so the extraction criteria below
-        stop failing. Output only the new system prompt.
+        stop failing.
     max-iterations: 8
     no-improvement-window: 3
     initial:                      # optional: seed iteration 0's prompt
       system-prompt: "Extract the offer as JSON."
 ```
 
+**The engineer edits the incumbent, not the last thing measured.** A proposal that makes things worse is tried and abandoned; the next proposal starts again from the best prompt so far. Without this the search is a cumulative random walk that inherits every regression and merely reports its high-water mark.
+
+**Edits are declared, and the declaration is the point.** The meta model returns few, separable edits, each naming the criteria it targets and the hypothesis it tests. An opaque rewrite cannot be credited, blamed, or undone — a run of rewrites can never say which change did the work. The declared edits accumulate in the artefact's `stepper:` block under `editLedger`, so a finished run states what it changed and when.
+
+**What the evidence does and does not carry.** Input-stated checks travel as a *pattern* — "6 input-stated `equals` checks across 6 inputs, 5 of 6 trials failed" — never as input identities and never as expected answers. What the *service* returned does travel, because obtained values are how you tell a wrong answer from a right answer wrapped in prose. Nothing the run measured is installed into the prompt as a worked example: an input promoted into the prompt is spent, and a pass rate computed over a sample set containing prompted inputs measures nothing.
+
+**When the answer is not a prompt change**, the meta model can say so, replying `{"verdict": "not-a-prompt-problem", "reason": "…"}`. The run stops with that reason recorded. Two cases are worth the stop: the contract is missing a check it should state, and the model plainly lacks the capability the contract requires — where tuning would only build a prompt-resident lookup table. A malformed reply likewise stops the run with its reason stated, rather than being retried behind your back.
+
+#### Guarding against a prompt tuned to the measure
+
+Optimising against a proxy eventually finds the gaps between what the proxy detects and what it meant — the pass rate climbs while the responses get worse. `withhold-criteria:` is the control group: name one or more criteria (comma-separated) and the meta model never sees them — not their names, not their forms, not their evidence. They are still measured and still judged. If the criteria the engineer *can* see improve while the withheld ones do not, that divergence is the signature of a prompt fitted to the measure rather than to the requirement, and it is otherwise almost undetectable from inside the loop. Withholding is opt-in: the framework never silently hides evidence from your engineer.
+
 Two prompts are in play — keep them apart. The **service's** system prompt is the thing being optimized: it lives in the service's `configuration:`, and `target-key:` names it (default `system-prompt`; validated at load time against the service's configuration keys, so the stepper can equally tune any other prompt-valued key). The **stepper's own** `system-prompt:` is the *meta prompt* — the standing instructions to the engineer itself; the default asks for improvements aimed at structured-output and instruction-following failure modes, and overriding it is how you steer the engineer toward your domain.
 
-When `provider:`/`model:` are omitted, the meta identity is read from the optimized service's *current* configuration at each step — the credentials the service already uses cover the meta model too, and no vendor is silently pinned. The resolved meta identity (provider, model, temperature) is recorded on the artefact's `stepper:` block, so every run states which engineer produced its prompts.
+When `provider:`/`model:` are omitted, the meta identity is read from the optimized service's *current* configuration at each step — the credentials the service already uses cover the meta model too, and no vendor is silently pinned. The resolved meta identity (provider, model, temperature) is recorded on the artefact's `stepper:` block, so every run states which engineer produced its prompts, alongside `metaTokens` — the engineer's own token spend, kept separate from the samples' because it is the cost of the search, not of a trial.
 
 The built-in scorer, `pass-rate`, is the iteration's observed overall pass rate (it travels in artefacts under its canonical interchange name, `observed-pass-rate`). User steppers and scorers register in `mavai-bindings.py` — see [Part 4](#stepper-and-scorer--optimize-authors).
 
