@@ -64,11 +64,29 @@ class _StateVersions(argparse.Action):
         parser.exit()
 
 
+def _add_verb(
+    subparsers: argparse._SubParsersAction,  # noqa: SLF001
+    verb: str,
+    description: str,
+) -> argparse.ArgumentParser:
+    """Register a verb, stating what it does on both screens it appears on.
+
+    The one sentence is the verb's entry in ``basel --help`` and the opening
+    line of ``basel <verb> --help``. Passing it once is what keeps the two
+    from drifting apart, which is how the second came to state nothing at
+    all.
+    """
+    return subparsers.add_parser(verb, help=description, description=description)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the ``basel`` argument parser: the verbs and their flags."""
     parser = argparse.ArgumentParser(
         prog="basel",
         description="Statistically honest testing for stochastic services.",
+        # Each verb carries its own flags, and this screen lists none of them:
+        # a reader looking here for --html-report concludes it does not exist.
+        epilog="Each verb takes its own options: basel <verb> --help.",
     )
     # Naming the distribution rather than the command, so this string and the
     # one the verdict record's generator attribute carries are the same string:
@@ -84,13 +102,21 @@ def _build_parser() -> argparse.ArgumentParser:
         ("test", "judge the contract's thresholded criteria: a probabilistic test"),
         ("measure", "record every criterion and persist the baseline artefact"),
     ):
-        verb_parser = subparsers.add_parser(verb, help=description)
+        verb_parser = _add_verb(subparsers, verb, description)
         verb_parser.add_argument("contract_file", type=Path, help="path to the contract file")
+        # The same directory, read by one verb and written by the other: a
+        # measure run persists the baseline a later test sizes itself against.
+        # Stating only the writing direction left the flag looking irrelevant
+        # on the verb that reads it.
         verb_parser.add_argument(
             "--baseline-dir",
             type=Path,
             default=DEFAULT_BASELINE_DIR,
-            help="directory measure runs persist baselines into",
+            help=(
+                "directory the baseline artefact is persisted into"
+                if verb == "measure"
+                else "directory the proven baseline is read from"
+            ),
         )
         verb_parser.add_argument(
             "--html-report",
@@ -183,9 +209,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     "the sample size cannot support exits 3"
                 ),
             )
-    explore_parser = subparsers.add_parser(
+    explore_parser = _add_verb(
+        subparsers,
         "explore",
-        help=(
+        (
             "run every configuration in the service's grid and persist one "
             "descriptive artefact per configuration — triage, not judgement"
         ),
@@ -217,9 +244,10 @@ def _build_parser() -> argparse.ArgumentParser:
             "which must be on PATH. Never changes the verb's exit code."
         ),
     )
-    optimize_parser = subparsers.add_parser(
+    optimize_parser = _add_verb(
+        subparsers,
         "optimize",
-        help=(
+        (
             "run one declared optimization: iterative configuration search, "
             "scored per iteration, full history persisted — descriptive, "
             "never a verdict"
@@ -268,9 +296,10 @@ def _build_parser() -> argparse.ArgumentParser:
     # a reader does not always want it at the moment the samples are drawn.
     # The verb names the stage; its first argument names the kind, so the
     # four the framework runs stay the four it reports on.
-    report_parser = subparsers.add_parser(
+    report_parser = _add_verb(
+        subparsers,
         "report",
-        help=(
+        (
             "render artefacts a previous run wrote — the same report "
             "--html-report draws, without paying for the run again"
         ),
@@ -300,22 +329,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     # Every directory flag, because the kind is an argument rather than four
     # verbs: whichever kind is named reads the one that holds its artefacts,
-    # spelled exactly as the run that wrote them spelled it.
-    report_parser.add_argument(
-        "--baseline-dir", type=Path, default=DEFAULT_BASELINE_DIR, help=argparse.SUPPRESS
-    )
-    report_parser.add_argument(
-        "--verdict-dir", type=Path, default=DEFAULT_VERDICT_DIR, help=argparse.SUPPRESS
-    )
-    report_parser.add_argument(
-        "--explorations-dir", type=Path, default=DEFAULT_EXPLORATIONS_DIR, help=argparse.SUPPRESS
-    )
-    report_parser.add_argument(
-        "--optimizations-dir", type=Path, default=DEFAULT_OPTIMIZATIONS_DIR, help=argparse.SUPPRESS
-    )
-    check_parser = subparsers.add_parser(
+    # spelled exactly as the run that wrote them spelled it. Each is named in
+    # the help beside the kind it serves — a run that wrote somewhere other
+    # than the default is exactly the run whose reader needs to say so here,
+    # and a flag absent from the help cannot be reached by anyone who did not
+    # already know it existed.
+    for flag, default, kind in (
+        ("--baseline-dir", DEFAULT_BASELINE_DIR, "measure"),
+        ("--verdict-dir", DEFAULT_VERDICT_DIR, "test"),
+        ("--explorations-dir", DEFAULT_EXPLORATIONS_DIR, "explore"),
+        ("--optimizations-dir", DEFAULT_OPTIMIZATIONS_DIR, "optimize"),
+    ):
+        report_parser.add_argument(
+            flag,
+            type=Path,
+            default=default,
+            help=f"where the {kind} artefacts are, when the run did not write them to the default",
+        )
+    check_parser = _add_verb(
+        subparsers,
         "check",
-        help=(
+        (
             "validate the contract against its services file and bindings — every "
             "load-time join, zero samples; the authoring loop's compile step"
         ),
