@@ -39,6 +39,7 @@ from .._steppers import (
     OptimizeContext,
     StepProposal,
 )
+from ._evidence import criterion_evidence
 from ._shared import _tty_progress
 
 
@@ -230,6 +231,7 @@ def _iteration_summary(result: RunResult) -> IterationSummary:
         passes=result.overall_successes,
         samples=result.plan.samples,
         failures_by_criterion=failures,
+        evidence=criterion_evidence(result),
         latency=latency,
     )
 
