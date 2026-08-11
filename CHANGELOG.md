@@ -7,6 +7,32 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.22.2] — 2026-08-11
+
+**The bundled renderer moves to mavai 0.18.0, which reads the provenance
+0.22.1 started emitting.** No contract changes and no artefact changes: the
+same run, rendered by a renderer that finally knows the difference between
+a postcondition the criterion states and one an input states.
+
+The previous release emitted the fact and shipped a wheel built against a
+renderer that ignored it, so an upgrade changed the artefact and left the
+report where it was. What the new one draws: a criterion is a section of
+the page headed by its own name and pass rate, its postconditions listed in
+the order the contract declares them; the values an input states have a
+section of their own, one row per input, opening onto what that input
+claims. An input's outcome strip shows a mark for a postcondition that
+exists and nothing where none does — the empty squares that used to invite
+the question "why was this not checked?" were asking about postconditions
+that were never stated in the first place.
+
+Reports rendered from artefacts written before 0.22.1 are unchanged. The
+renderer reads absent provenance as `criterion`, which is what every such
+artefact means.
+
+The vendored interchange schemas are now verified against the published
+`interchange-v0.10.12.zip` asset — byte-identical to the copies 0.22.1
+vendored ahead of that release.
+
 ## [0.22.1] — 2026-08-10
 
 **A postcondition now says who stated it, and a verdict record says what

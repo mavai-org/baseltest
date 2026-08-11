@@ -6,12 +6,11 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.10.12`, ahead of its release.** Taken from the
-repository at the commit that introduced them, not from an
-`interchange-*.zip` asset — the release is not cut yet, and this emitter is
-the first to adopt the fields. Re-verify against the asset when 0.10.12 is
-published; until then the provenance stated here is a repository commit and
-nothing stronger.
+**Vendored from mavai-R `0.10.12`**: verified byte-identical to the
+`interchange-v0.10.12.zip` release asset when recorded (2026-08-11). The
+copies were first taken from the repository commit that introduced them,
+ahead of the release, because this emitter is the first to adopt the
+fields; the check against the published asset closes that gap.
 
 A standings row gains an optional `provenance`: `criterion` for a
 postcondition the criterion states, `input` for one an input's own expected
