@@ -37,6 +37,9 @@ declarative = [
     "jsonschema>=4.21",
 ]
 dev = [
+    # The build backend, so the wheel's build hook is testable like any other
+    # code in the project rather than only observable in a published wheel.
+    "hatchling>=1.24",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
