@@ -7,6 +7,22 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.23.0] — 2026-08-12
+
+**The prompt engineer now works from the evidence the run already computed, and keeps a ledger of what it changed.** Nothing breaks: your contracts, your artefacts and the published `failures_by_criterion` seam are all as they were, and everything here sits beside them.
+
+The optimize loop used to flatten every failure to a criterion name, a count and a sentence of English before any stepper saw it — so a meta-LLM tuning a prompt had to parse back out of prose what the evaluator had already stated formally. The standings now cross the stepper seam pooled by `(provenance, form, path)`: which check, of which form, at which path, what was obtained, and whether the criterion or the input declared it. Pooling is what makes input-stated evidence usable at all — such a check is `n = 1` by construction, and only the pattern across several is a fact about the service rather than about one answer — so a group counts the inputs it covered and never names them.
+
+The `prompt-engineer` stepper asks its meta model for **declared, separable edits**: each names the criteria it targets and the hypothesis it tests, alongside the revised value of `target-key`. That declaration is what a ledger can hold and an artefact can state, so a run can answer what it changed, when, and what followed — where an opaque rewrite of the last prompt made attribution impossible in principle. Edits now apply to the **best configuration measured so far**, not the most recent, so a regression is no longer inherited by every iteration after it. The resolved meta identity, the edit ledger and the meta model's own token spend are all recorded in the artefact.
+
+`withhold-criteria:` names criteria the meta model never sees — not their names, not their forms, not their evidence — while they are still measured and still judged. It is the control group against a prompt fitted to the measure: if the seen criteria improve while the withheld ones do not, that divergence is the signature, and it is otherwise almost undetectable from inside the loop. The run states the reading on the console and in the artefact's `stepper:` block as `withheldCriteriaReading`. Opt-in, because hiding evidence from your own engineer is never something to do silently.
+
+**`--help` says everything the command line accepts.** The `report` verb's four directory flags were suppressed — the flags a reader needs precisely when a run did not write to the default, reachable only by someone who already knew they were there. Verb screens now carry their description from the same string as the top-level screen, `--baseline-dir` states both directions it is used in, and the top-level screen says where the per-verb flags are instead of leaving a reader to conclude `--html-report` does not exist. Guarded by a suite that reads the parser rather than a copy of it.
+
+**The Windows wheel's bundled renderer is now called `mavai.exe`, which is what makes it reachable.** No other platform is affected.
+
+Every Windows wheel from 0.22.0 onward installed the renderer under the extensionless name `mavai`. On Windows that is not a command — resolution goes through `PATHEXT` — so typing `mavai` failed, and `--html-report` refused the run with a message advising the reader to install the platform wheel they had already installed. The renderer was present the whole time, under a name nothing could ask for. If you are on Windows and cannot upgrade yet, copying the file restores both: `copy .venv\Scripts\mavai .venv\Scripts\mavai.exe`.
+
 ## [0.22.2] — 2026-08-11
 
 **The bundled renderer moves to mavai 0.18.0, which reads the provenance
