@@ -38,11 +38,14 @@ built-in seed (`_builtins`).
 
 from ._builtins import builtin_scorers, builtin_stepper_registrations
 from ._context import (
+    CheckGroup,
+    CriterionEvidence,
     FailureDetail,
     FailureExemplar,
     IterationResult,
     IterationSummary,
     LatencySummary,
+    ObservedExcerpt,
     OptimizeContext,
 )
 from ._contract import (
@@ -56,11 +59,14 @@ from ._contract import (
 )
 
 __all__ = [
+    "CheckGroup",
+    "CriterionEvidence",
     "FailureDetail",
     "FailureExemplar",
     "IterationResult",
     "IterationSummary",
     "LatencySummary",
+    "ObservedExcerpt",
     "OptimizeContext",
     "Phase",
     "ScorerFunction",
