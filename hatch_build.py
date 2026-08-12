@@ -10,9 +10,10 @@ this a build-time question rather than a dependency: the same source builds
 five different wheels, and one more that carries nothing.
 
 - With ``MAVAI_BINARY`` naming an executable, the wheel installs it into the
-  environment's scripts directory as ``mavai`` and is tagged for the
-  platform named by ``MAVAI_WHEEL_PLATFORM``. The reader gets ``mavai`` on
-  their PATH, and ``basel --html-report`` finds it without one.
+  environment's scripts directory under the name that platform gives an
+  executable, and is tagged for the platform named by
+  ``MAVAI_WHEEL_PLATFORM``. The reader gets ``mavai`` on their PATH, and
+  ``basel --html-report`` finds it without one.
 - With neither set, the build is the ordinary pure-Python wheel: a complete
   framework that runs experiments and writes artefacts, and says plainly
   what it cannot do when a report is asked of it. This is what an
@@ -31,6 +32,23 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 BINARY = "MAVAI_BINARY"
 PLATFORM = "MAVAI_WHEEL_PLATFORM"
+
+#: The renderer's command name, as the family publishes it. The same name
+#: the framework's renderer lookup asks the scripts directory for.
+RENDERER = "mavai"
+
+
+def script_name(platform: str) -> str:
+    """What ``platform`` calls the renderer once it is installed.
+
+    The name is not free: ``baseltest.declarative._report.bundled_renderer``
+    reads this exact filename out of the environment's scripts directory, and
+    it asks for the name the platform uses — ``mavai.exe`` on Windows, where
+    an extensionless file is not a command at all. This hook is the half of
+    that one decision which knows the platform, so the name is derived from
+    the wheel's tag rather than written as a literal on both sides.
+    """
+    return f"{RENDERER}.exe" if platform.startswith("win") else RENDERER
 
 
 class RendererBundleHook(BuildHookInterface):
@@ -59,10 +77,10 @@ class RendererBundleHook(BuildHookInterface):
             message = f"{BINARY} names {binary}, which is not a file"
             raise ValueError(message)
 
-        # `mavai` on the reader's PATH, and the one file the framework's own
-        # renderer lookup resolves — it reads the scripts directory directly
-        # rather than trusting PATH, so a single copy serves both.
-        build_data["shared_scripts"] = {str(executable): "mavai"}
+        # The renderer on the reader's PATH, and the one file the framework's
+        # own renderer lookup resolves — it reads the scripts directory
+        # directly rather than trusting PATH, so a single copy serves both.
+        build_data["shared_scripts"] = {str(executable): script_name(platform)}
         # Not pure Python any more: the wheel carries an executable for one
         # platform, and its tag has to say so or pip will offer it to every
         # platform.
