@@ -10,7 +10,9 @@ unit.
 """
 
 from baseltest.contract.evaluation import ObservedValue, PostconditionStanding, Provenance
+from baseltest.declarative._runner._canary import canary_reading, withheld_names
 from baseltest.declarative._runner._evidence import _pool
+from baseltest.declarative._steppers import CriterionEvidence, IterationResult, IterationSummary
 
 
 def standing(
@@ -158,3 +160,90 @@ class TestPooling:
 
     def test_an_empty_standings_list_pools_to_nothing(self) -> None:
         assert _pool([]) == ()
+
+
+def iteration(**rates: tuple[int, int]) -> IterationResult:
+    """One iteration carrying only the per-criterion tallies the canary reads."""
+    evidence = tuple(
+        CriterionEvidence(name=name, passed=passed, trials=trials, lower_bound=None, groups=())
+        for name, (passed, trials) in rates.items()
+    )
+    return IterationResult(
+        config={},
+        score=0.0,
+        summary=IterationSummary(passes=0, samples=0, evidence=evidence),
+    )
+
+
+class TestCanaryReading:
+    """The control group's reading: stated, never judged.
+
+    A rising score is what optimising against a proxy looks like on the
+    way to exploiting it, so the run states how the seen and the unseen
+    criteria each moved and leaves the reader to decide. Any cutoff for
+    "diverged too far" would be a statistical claim this framework does
+    not own.
+    """
+
+    def test_no_withheld_criteria_reads_nothing(self) -> None:
+        assert canary_reading([iteration(a=(1, 2))], 0, frozenset()) is None
+
+    def test_both_groups_movements_are_stated(self) -> None:
+        history = [
+            iteration(seen=(2, 10), hidden=(6, 10)),
+            iteration(seen=(9, 10), hidden=(5, 10)),
+        ]
+        reading = canary_reading(history, 1, frozenset({"hidden"}))
+        assert reading == (
+            "seen criteria 0.20 → 0.90 (+0.70); withheld criteria 0.60 → 0.50 (-0.10)"
+        )
+
+    def test_the_reading_is_taken_at_the_best_iteration_not_the_last(self) -> None:
+        history = [
+            iteration(seen=(2, 10), hidden=(6, 10)),
+            iteration(seen=(9, 10), hidden=(5, 10)),
+            iteration(seen=(3, 10), hidden=(6, 10)),
+        ]
+        reading = canary_reading(history, 1, frozenset({"hidden"}))
+        assert reading is not None
+        assert "0.20 → 0.90" in reading  # the selected prompt, not the final one
+
+    def test_a_group_is_pooled_by_trials_not_averaged_across_criteria(self) -> None:
+        # A criterion that ran twice must not weigh as much as one that ran
+        # two hundred times; averaging their rates would say it does.
+        history = [
+            iteration(small=(0, 2), large=(100, 200), hidden=(1, 2)),
+            iteration(small=(2, 2), large=(100, 200), hidden=(1, 2)),
+        ]
+        reading = canary_reading(history, 1, frozenset({"hidden"}))
+        assert reading is not None
+        # 100/202 -> 102/202, not the 0.25 -> 0.75 an average of rates gives.
+        assert "0.50 → 0.50" in reading
+
+    def test_a_withheld_name_matching_no_criterion_is_surfaced(self) -> None:
+        # A mistyped name withholds nothing and would otherwise read as a
+        # clean run with a control group.
+        reading = canary_reading([iteration(a=(1, 2))], 0, frozenset({"typo"}))
+        assert reading is not None
+        assert "matched none of the criteria" in reading
+        assert "the tuner saw everything" in reading
+
+    def test_withholding_every_criterion_is_surfaced(self) -> None:
+        reading = canary_reading([iteration(a=(1, 2))], 0, frozenset({"a"}))
+        assert reading is not None
+        assert "every criterion was withheld" in reading
+
+    def test_a_group_with_no_trials_is_not_invented(self) -> None:
+        history = [iteration(seen=(0, 0), hidden=(1, 2)), iteration(seen=(0, 0), hidden=(2, 2))]
+        reading = canary_reading(history, 1, frozenset({"hidden"}))
+        assert reading is not None
+        assert "seen criteria not measured" in reading
+
+
+class TestWithheldNames:
+    def test_a_declared_list_is_read(self) -> None:
+        assert withheld_names("a, b ,c") == frozenset({"a", "b", "c"})
+
+    def test_an_absent_declaration_reads_as_nothing_withheld(self) -> None:
+        assert withheld_names(None) == frozenset()
+        assert withheld_names(42) == frozenset()

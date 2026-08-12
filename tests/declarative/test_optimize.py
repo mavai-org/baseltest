@@ -1146,6 +1146,52 @@ criteria:
         assert "zzzcanaryzzz" not in message  # operand
         assert dict(outcomes[0].record.stepper)["withheldCriteria"] == "secret-canary"
 
+    def test_the_withheld_control_group_reading_reaches_the_artefact(
+        self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
+    ) -> None:
+        # The tuner sees 'says-hello' and improves it; 'secret-canary' is
+        # withheld and does not move. Stating both movements is what makes
+        # a prompt fitted to the measure visible at all — and it has to
+        # travel in the artefact, because a console warning reaches nobody
+        # downstream.
+        contract = """
+format: mavai-contract/1
+contract: support-agent-tuning
+service: support-agent
+inputs: ["Where is my order?"]
+criteria:
+  - name: says-hello
+    contains: "hello"
+  - name: secret-canary
+    matches: ".+"
+"""
+
+        def respond(payload: dict[str, Any]) -> str:
+            system = payload["messages"][0]["content"]
+            if META_MARKER in system:
+                return proposal()
+            return "hello there" if system.startswith("IMPROVED") else "goodbye"
+
+        scripted_endpoint(respond)
+        path = write_files(
+            tmp_path, self.prompt_services(", withhold-criteria: secret-canary"), contract=contract
+        )
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        reading = str(dict(outcomes[0].record.stepper)["withheldCriteriaReading"])
+        assert "seen criteria 0.00 → 1.00 (+1.00)" in reading
+        assert "withheld criteria 1.00 → 1.00 (+0.00)" in reading
+
+    def test_a_run_without_withholding_states_no_reading(
+        self, tmp_path: Path, prompt_tuning_endpoint: list[dict[str, Any]]
+    ) -> None:
+        path = write_files(tmp_path, self.prompt_services())
+        outcomes = optimize(
+            path, samples_per_iteration=2, emit=False, optimizations_dir=tmp_path / "o"
+        )
+        assert "withheldCriteriaReading" not in dict(outcomes[0].record.stepper)
+
     def test_a_malformed_proposal_stops_the_run_with_a_stated_reason(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
     ) -> None:

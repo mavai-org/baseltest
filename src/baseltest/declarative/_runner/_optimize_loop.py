@@ -39,6 +39,7 @@ from .._steppers import (
     OptimizeContext,
     StepProposal,
 )
+from ._canary import WITHHELD_KEY, canary_reading, withheld_names
 from ._evidence import criterion_evidence
 from ._shared import _tty_progress
 
@@ -166,6 +167,14 @@ def _drive_optimization(
             run_id=entry.run_id, record=None, path=None, defect=defect_diagnosis
         )
 
+    # The canary is read here, not in the stepper: the stepper's last call
+    # happens before the final iteration is measured, so it can never see
+    # the whole run. The loop can.
+    canary = canary_reading(
+        history,
+        best_index,
+        withheld_names(step_provenance.get(WITHHELD_KEY) if step_provenance else None),
+    )
     record = OptimizationRecord(
         contract_id=declaration.contract,
         experiment_id=entry.run_id,
@@ -175,7 +184,7 @@ def _drive_optimization(
         iterations=tuple(captures),
         best_index=best_index,
         termination=termination,
-        stepper=_stepper_block(entry, step_provenance),
+        stepper=_stepper_block(entry, step_provenance, canary),
     )
     artefact = write_optimization(record, optimizations_dir)
     if emit:
@@ -194,6 +203,8 @@ def _drive_optimization(
                 artefact.as_posix(),
             )
         )
+        if canary is not None:
+            print(f"note: withheld-criteria control group — {canary}")
     return OptimizationOutcome(
         run_id=entry.run_id, record=record, path=artefact, defect=defect_diagnosis
     )
@@ -241,18 +252,24 @@ def _improved(score: float, best: float, objective: Objective) -> bool:
 
 
 def _stepper_block(
-    entry: OptimizationDeclaration, provenance: Mapping[str, object] | None
+    entry: OptimizationDeclaration,
+    provenance: Mapping[str, object] | None,
+    canary: str | None = None,
 ) -> tuple[tuple[str, object], ...]:
     """The artefact's mutator-provenance block: name, config, runtime residue.
 
     ``provenance`` is the last residue a proposal carried this run — the
     refining-grid's selection, the prompt-engineer's meta identity — or
-    ``None`` for a stepper that carries none.
+    ``None`` for a stepper that carries none. ``canary`` is the loop's own
+    reading of a declared withheld-criteria control group, stated here
+    because a warning at a console reaches nobody downstream.
     """
     block: list[tuple[str, object]] = [("name", entry.stepper_name)]
     block.extend((key.replace("_", "-"), value) for key, value in entry.stepper_config.items())
     if provenance is not None:
         block.extend(sorted(provenance.items()))
+    if canary is not None:
+        block.append(("withheldCriteriaReading", canary))
     return tuple(block)
 
 

@@ -544,6 +544,16 @@ optimizations:
 
 Optimising against a proxy eventually finds the gaps between what the proxy detects and what it meant — the pass rate climbs while the responses get worse. `withhold-criteria:` is the control group: name one or more criteria (comma-separated) and the meta model never sees them — not their names, not their forms, not their evidence. They are still measured and still judged. If the criteria the engineer *can* see improve while the withheld ones do not, that divergence is the signature of a prompt fitted to the measure rather than to the requirement, and it is otherwise almost undetectable from inside the loop. Withholding is opt-in: the framework never silently hides evidence from your engineer.
 
+The run states the reading — on the console, and in the artefact's `stepper:` block under `withheldCriteriaReading`, because a console note reaches nobody reading a report later:
+
+```
+note: withheld-criteria control group — seen criteria 0.31 → 0.88 (+0.57); withheld criteria 0.74 → 0.71 (-0.03)
+```
+
+Both groups are pooled by trials rather than averaged across criteria, and both are read at the *selected* iteration rather than the last. The framework states the two movements and stops there: it will not tell you a run was Goodharted. Whether a given divergence condemns a prompt is a statistical claim, and this framework does not invent numbers its oracle has not published — but a reader who can see both movements can judge, which is the whole point of keeping a control group.
+
+Two readings deserve attention when you see them. `matched none of the criteria this run measured` means a mistyped name withheld nothing, so the run had no control group at all despite asking for one. `every criterion was withheld` means the engineer had no evidence to work from.
+
 Two prompts are in play — keep them apart. The **service's** system prompt is the thing being optimized: it lives in the service's `configuration:`, and `target-key:` names it (default `system-prompt`; validated at load time against the service's configuration keys, so the stepper can equally tune any other prompt-valued key). The **stepper's own** `system-prompt:` is the *meta prompt* — the standing instructions to the engineer itself; the default asks for improvements aimed at structured-output and instruction-following failure modes, and overriding it is how you steer the engineer toward your domain.
 
 When `provider:`/`model:` are omitted, the meta identity is read from the optimized service's *current* configuration at each step — the credentials the service already uses cover the meta model too, and no vendor is silently pinned. The resolved meta identity (provider, model, temperature) is recorded on the artefact's `stepper:` block, so every run states which engineer produced its prompts, alongside `metaTokens` — the engineer's own token spend, kept separate from the samples' because it is the cost of the search, not of a trial.
