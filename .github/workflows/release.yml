@@ -80,7 +80,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     env:
-      MAVAI_VERSION: "0.18.0"
+      MAVAI_VERSION: "0.19.1"
     strategy:
       fail-fast: false
       matrix:
