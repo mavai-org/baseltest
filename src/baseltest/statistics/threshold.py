@@ -54,9 +54,27 @@ def _validate_baseline(baseline_successes: int, baseline_trials: int) -> None:
         raise ValueError("baseline_successes cannot exceed baseline_trials")
 
 
-def _effective_baseline_rate(
+def effective_baseline_rate(
     baseline_successes: int, baseline_trials: int, confidence_level: float
 ) -> float:
+    """The rate a baseline is reasoned from, rather than the one it observed.
+
+    A perfect run overstates what is known -- a coin that came up heads five
+    times running is not proven to always land heads -- so its own one-sided
+    Wilson lower bound stands in as the proven rate. Any other run is its
+    raw ratio.
+
+    Public because threshold derivation and sample sizing must reason from
+    the *same* baseline: two agreeing copies of this rule would be two
+    copies free to drift, and the branch it turns on is the one no ordinary
+    run exercises.
+
+    Note the asymmetry at the two boundaries. For a perfect baseline the
+    lower bound is ``n / (n + z**2)``, strictly inside (0, 1) and usable.
+    For a baseline that passed nothing it is exactly zero, at every size and
+    every confidence -- so there is no equivalent rescue, and a caller that
+    needs a rate strictly above zero must refuse rather than derive.
+    """
     if baseline_successes == baseline_trials:
         return wilson_lower_bound(baseline_successes, baseline_trials, confidence_level)
     return baseline_successes / baseline_trials
@@ -126,7 +144,7 @@ def derive_sample_size_first(
         raise ValueError("test_samples must be a positive integer")
     validate_confidence_level(confidence_level)
 
-    effective_rate = _effective_baseline_rate(baseline_successes, baseline_trials, confidence_level)
+    effective_rate = effective_baseline_rate(baseline_successes, baseline_trials, confidence_level)
     min_pass_rate = wilson_lower_bound_from_rate(effective_rate, test_samples, confidence_level)
     cutoff = math.ceil(test_samples * min_pass_rate)
     # The lower-tail false-degradation probability at the effective baseline
@@ -202,7 +220,7 @@ def derive_threshold_first(
     confidence_level = (low + high) / 2
     for _ in range(max_iterations):
         confidence_level = (low + high) / 2
-        effective_rate = _effective_baseline_rate(
+        effective_rate = effective_baseline_rate(
             baseline_successes, baseline_trials, confidence_level
         )
         candidate = wilson_lower_bound_from_rate(effective_rate, test_samples, confidence_level)

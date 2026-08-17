@@ -39,6 +39,7 @@ from .threshold import (
     derive_confidence_first,
     derive_sample_size_first,
     derive_threshold_first,
+    effective_baseline_rate,
 )
 from .verdict import (
     ComplianceVerdict,
@@ -79,6 +80,7 @@ __all__ = [
     "derive_confidence_first",
     "derive_sample_size_first",
     "derive_threshold_first",
+    "effective_baseline_rate",
     "detectable_rate",
     "evaluate_compliance",
     "evaluate_regression",
