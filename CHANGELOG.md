@@ -7,6 +7,18 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.24.0] — 2026-08-17
+
+**A baseline that passed nothing now tells you so, and your reports read the way they were meant to.** Nothing breaks: contracts, artefacts and every published seam are as they were, and every run that sized before sizes identically.
+
+**A criterion whose baseline recorded no successes is declined, not crashed on.** `basel test` against one used to abort with a stack trace and `ValueError: baseline_rate must be strictly between 0 and 1` — three frames inside the sizing conversation, naming a parameter rather than the criterion, and arriving after the run had already begun narrating a size it could not reach. The refusal itself was right: the Wilson lower bound of no successes is exactly zero, at every sample size and every confidence, and sizing needs a tolerated rate strictly below the baseline. There is no drop to detect and no sample size that buys one. What was wrong is that an outcome of the measurement travelled on the channel reserved for defects. The run is now declined with the criterion and its counts named — `0 of 10 baseline samples` — and what follows from that: there is no baseline to defend, so the next step is the service or the contract, not the test. Every offending criterion is named, not just the first, and a contract whose criteria are all unsizeable is declined rather than quietly falling through. A run that could be sized over only *some* of its criteria is declined too, because a verdict over part of a contract that looks like a verdict over the contract is worse than no verdict.
+
+**The perfect baseline is untouched and now locked.** A baseline every sample passed still sizes: it reduces to its own Wilson lower bound — 10 of 10 becomes 79% at 95% confidence — and the run is priced against that rather than against a claim of certainty. That was already correct; it is now asserted through the command line, because it is the immediate neighbour of the path this release changes.
+
+**`effective_baseline_rate` joins the statistics surface.** The rule that a perfect run is reasoned from its Wilson lower bound rather than its observed 1.0 existed twice — once in threshold derivation, once in sizing — agreeing line for line, with nothing holding them in agreement. They are now one function both callers reach, public because it is a domain concept both packages legitimately need.
+
+**The bundled renderer catches up to mavai 0.19.1**, which carries three reading fixes to every report type. The base configuration is named between the Overview heading and the table that first refers to it, rather than below that table in an exploration report and above the heading in an optimization one. A criterion's pass rates sit over the configurations they describe — a report with more than three configurations had wrapped the surplus onto rows under no column at all. And the by-input strip stays inside the table it belongs to, where the grid had asked for a minimum wider than the page that borders it.
+
 ## [0.23.0] — 2026-08-12
 
 **The prompt engineer now works from the evidence the run already computed, and keeps a ledger of what it changed.** Nothing breaks: your contracts, your artefacts and the published `failures_by_criterion` seam are all as they were, and everything here sits beside them.
