@@ -71,9 +71,12 @@ def power_at(
 
     Args:
         sample_size: The candidate test sample size. Must be positive.
-        baseline_rate: The measured baseline pass rate, strictly between
-            0 and 1 (a perfect baseline should be reduced to its effective
-            rate before sizing).
+        baseline_rate: The *effective* baseline rate (see
+            `effective_baseline_rate`), strictly between 0 and 1. The
+            effective rate itself ranges over [0, 1); the open bound here is
+            the construction's, not the quantity's -- with a baseline of
+            zero there is no tolerated rate below it to solve for, so such a
+            baseline must be refused by the caller rather than sized.
         minimum_acceptable_rate: The declared worst tolerable true rate,
             strictly between 0 and `baseline_rate`.
         confidence_level: The confidence the acceptance floor is derived

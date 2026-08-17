@@ -7,6 +7,8 @@ from baseltest.statistics import (
     derive_confidence_first,
     derive_sample_size_first,
     derive_threshold_first,
+    effective_baseline_rate,
+    wilson_lower_bound_from_rate,
 )
 
 
@@ -108,3 +110,56 @@ def test_confidence_first_rejects_zero_effect_size() -> None:
 def test_confidence_first_rejects_full_power() -> None:
     with pytest.raises(ValueError):
         derive_confidence_first(baseline_rate=0.95, effect_size=0.05, power=1.0)
+
+
+class TestEffectiveBaselineRate:
+    """The rate a baseline is reasoned from, at both ends of its range.
+
+    The two boundaries are not mirror images, and the asymmetry is why a
+    perfect baseline can be sized against and a baseline of no successes
+    cannot.
+    """
+
+    def test_a_perfect_baseline_reduces_to_its_wilson_lower_bound(self):  # type: ignore[no-untyped-def]
+        # The closed form for k == n is n / (n + z**2).
+        assert effective_baseline_rate(10, 10, 0.95) == pytest.approx(0.787058029916593)
+        assert effective_baseline_rate(1000, 1000, 0.95) == pytest.approx(0.9973017567602394)
+
+    def test_a_perfect_baseline_never_reaches_one(self):  # type: ignore[no-untyped-def]
+        """Which is what makes it sizeable: the sizing construction needs a
+        rate strictly below the baseline, and there is room below this."""
+        for trials in (1, 5, 100, 10_000):
+            assert 0.0 < effective_baseline_rate(trials, trials, 0.95) < 1.0
+
+    def test_a_baseline_with_no_successes_is_exactly_zero(self):  # type: ignore[no-untyped-def]
+        """Not an artefact of rounding: at k = 0 the Wilson half-width
+        equals the centre, so the lower bound is zero identically — at every
+        size and every confidence. There is no room below it, which is why
+        such a baseline is refused rather than reduced."""
+        for trials in (1, 5, 100, 10_000):
+            for confidence in (0.9, 0.95, 0.99):
+                assert effective_baseline_rate(0, trials, confidence) == 0.0
+
+    def test_an_ordinary_baseline_is_its_raw_ratio(self):  # type: ignore[no-untyped-def]
+        assert effective_baseline_rate(9, 10, 0.95) == pytest.approx(0.9)
+        assert effective_baseline_rate(87, 100, 0.95) == pytest.approx(0.87)
+
+
+class TestOneReductionSharedByBothCallers:
+    def test_sizing_and_threshold_derivation_reason_from_the_same_baseline(self):  # type: ignore[no-untyped-def]
+        """Threshold derivation and run sizing must not hold two copies of
+        the perfect-baseline rule: two copies that agree today are two
+        copies free to drift, on the one branch no ordinary run exercises.
+        """
+        from baseltest.declarative._sizing import _criteria, _rates
+
+        # One function object, reached from both sides — not two definitions
+        # that happen to agree.
+        assert _criteria.effective_baseline_rate is effective_baseline_rate
+        assert not hasattr(_rates, "_effective_rate")
+
+        # And the surviving one is what threshold derivation reasons from.
+        derived = derive_sample_size_first(10, 10, 100, 0.95)
+        assert derived.min_pass_rate == pytest.approx(
+            wilson_lower_bound_from_rate(effective_baseline_rate(10, 10, 0.95), 100, 0.95)
+        )

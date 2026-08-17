@@ -11,12 +11,11 @@ from typing import TYPE_CHECKING
 
 from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
 from baseltest.engine import inputs_fingerprint
-from baseltest.statistics import check_feasibility
+from baseltest.statistics import check_feasibility, effective_baseline_rate
 
 from .._parser import ContractDeclaration, CriterionDeclaration
 from .._services import ServiceDefinition
-from ._model import _EmpiricalCriterion
-from ._rates import _effective_rate
+from ._model import _EmpiricalCriterion, _UnsizeableCriterion
 
 if TYPE_CHECKING:
     from .._registry import Registry
@@ -64,19 +63,33 @@ def _sizeable_criteria(
     baseline: StoredBaseline,
     tolerate_flags: dict[str, float],
     confidence_flag: float | None,
-) -> list[_EmpiricalCriterion]:
+) -> tuple[list[_EmpiricalCriterion], list[_UnsizeableCriterion]]:
     """The empirical criteria the baseline records, with claims resolved.
 
     Claim precedence per criterion: flag over contract key; an unclaimed
     criterion carries ``None`` and is the interactive mode's business.
+
+    A criterion the baseline records as passing nothing comes back in the
+    second list. Its effective rate is zero — the Wilson lower bound of no
+    successes is exactly zero, at every sample size and every confidence —
+    and the sizing construction needs a tolerated rate strictly below the
+    baseline, which leaves nothing to ask for. That is a fact about the
+    measurement, so it travels as one rather than as a violated precondition
+    three frames further in.
     """
     sizeable = []
+    unsizeable = []
     for entry in declaration.criteria:
         if entry.threshold is not None:
             continue
         evidence = baseline.criteria.get(entry.name)
         if evidence is None or evidence.trials == 0:
             continue  # instantiation reports the skip; there is nothing to size
+        if evidence.successes == 0:
+            # Decided on the count, not the derived rate: the count is what
+            # the baseline document states.
+            unsizeable.append(_UnsizeableCriterion(name=entry.name, trials=evidence.trials))
+            continue
         confidence = _criterion_confidence(entry, declaration, confidence_flag)
         tolerated = tolerate_flags.get(entry.name)
         if tolerated is None:
@@ -84,13 +97,15 @@ def _sizeable_criteria(
         sizeable.append(
             _EmpiricalCriterion(
                 name=entry.name,
-                baseline_rate=_effective_rate(evidence.successes, evidence.trials, confidence),
+                baseline_rate=effective_baseline_rate(
+                    evidence.successes, evidence.trials, confidence
+                ),
                 baseline_trials=evidence.trials,
                 confidence=confidence,
                 tolerated_rate=tolerated,
             )
         )
-    return sizeable
+    return sizeable, unsizeable
 
 
 def _criterion_confidence(
