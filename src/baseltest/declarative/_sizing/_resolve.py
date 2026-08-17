@@ -27,6 +27,7 @@ from ._prompts import (
     _prompt_rate,
 )
 from ._rates import _parse_rate
+from ._render import _nothing_to_defend
 
 if TYPE_CHECKING:
     from .._registry import Registry
@@ -96,7 +97,15 @@ def resolve_test_sizing(
             )
         return ResolvedSizing(samples=samples)
 
-    criteria = _sizeable_criteria(declaration, baseline, tolerate_flags, confidence_flag)
+    criteria, unsizeable = _sizeable_criteria(
+        declaration, baseline, tolerate_flags, confidence_flag
+    )
+    # Before the modes, so a refused run never begins narrating a size it
+    # cannot reach — and before the empty-criteria return below, so a
+    # contract whose criteria are *all* unsizeable refuses rather than
+    # falling through to the runner's own sizing story.
+    if unsizeable:
+        raise SizingRefusalError(_nothing_to_defend(unsizeable))
     if not criteria:
         return ResolvedSizing(samples=samples)
 

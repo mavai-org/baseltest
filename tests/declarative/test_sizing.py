@@ -432,3 +432,153 @@ class TestJsonMode:
         fake_tty(monkeypatch, ["should", "never", "be", "read"])
         assert main(["test", str(contract), "--json"]) == 2
         assert "--tolerate" in capsys.readouterr().err
+
+
+BOUNDARY_BINDINGS = """
+from baseltest.declarative import Bindings
+
+bindings = Bindings()
+
+
+@bindings.binding('boundary-svc')
+def invoke(value: str) -> str:
+    return "always the same answer"
+"""
+
+# The service is deterministic, so `always-holds` passes every baseline
+# sample and `never-holds` passes none: the two ends of the baseline range
+# in one contract.
+NEVER_HOLDS = """
+format: mavai-contract/1
+contract: boundary-zero
+service: boundary-svc
+criteria:
+  - name: never-holds
+    contains: "impossible"
+inputs: ["a"]
+"""
+
+ALWAYS_HOLDS = """
+format: mavai-contract/1
+contract: boundary-perfect
+service: boundary-svc
+criteria:
+  - name: always-holds
+    contains: "always"
+inputs: ["a"]
+"""
+
+TWO_THAT_NEVER_HOLD = """
+format: mavai-contract/1
+contract: boundary-both
+service: boundary-svc
+criteria:
+  - name: never-holds
+    contains: "impossible"
+  - name: also-never-holds
+    contains: "likewise absent"
+  - name: always-holds
+    contains: "always"
+inputs: ["a"]
+"""
+
+
+def prepare_boundary(tmp_path: Path, monkeypatch, contract_text: str, samples: int = 10) -> Path:  # type: ignore[no-untyped-def]
+    """As `prepare`, with the deterministic all-or-nothing service."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "mavai-bindings.py").write_text(BOUNDARY_BINDINGS, encoding="utf-8")
+    contract = tmp_path / "contract.yaml"
+    contract.write_text(contract_text, encoding="utf-8")
+    assert main(["measure", str(contract), "--samples", str(samples)]) == 0
+    return contract
+
+
+class TestBaselineWithNoSuccesses:
+    """A baseline that passed nothing cannot be sized against at any size.
+
+    Its effective rate is exactly zero — the Wilson lower bound of no
+    successes is zero at every size and every confidence — and the sizing
+    construction needs a tolerated rate strictly below the baseline. So the
+    run is declined, as a fact about the measurement rather than as a
+    violated precondition several frames in.
+    """
+
+    def test_it_refuses_with_the_counts_and_no_traceback(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare_boundary(tmp_path, monkeypatch, NEVER_HOLDS)
+        assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
+        err = capsys.readouterr().err
+        assert "never-holds" in err
+        assert "0 of 10 baseline samples" in err
+        assert "no baseline to defend" in err
+        assert "Traceback" not in err
+        # The refusal reads as a measurement, not as an internal fault.
+        for internal in ("baseline_rate", "strictly between", "ValueError", "detectable_rate"):
+            assert internal not in err
+
+    def test_a_declared_tolerance_does_not_open_a_second_door(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare_boundary(tmp_path, monkeypatch, NEVER_HOLDS)
+        assert main(["test", str(contract), "--tolerate", "50", "--no-verdict-xml"]) == 2
+        err = capsys.readouterr().err
+        assert "never-holds" in err
+        assert "Traceback" not in err
+
+    def test_it_refuses_before_the_run_narrates_itself(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare_boundary(tmp_path, monkeypatch, NEVER_HOLDS)
+        assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
+        # Nothing may announce a size the run cannot reach.
+        assert "You asked to run" not in capsys.readouterr().out
+
+    def test_every_offender_is_named_not_only_the_first(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare_boundary(tmp_path, monkeypatch, TWO_THAT_NEVER_HOLD)
+        assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
+        err = capsys.readouterr().err
+        assert "never-holds" in err
+        assert "also-never-holds" in err
+
+    def test_a_sizeable_criterion_beside_it_does_not_rescue_the_run(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        """A run sized over the priceable criteria alone would present a
+        verdict over the contract while covering part of it."""
+        contract = prepare_boundary(tmp_path, monkeypatch, TWO_THAT_NEVER_HOLD)
+        assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
+
+
+class TestPerfectBaselineStillSizes:
+    """The other end is not a refusal, and must not become one.
+
+    A perfect run reduces to its own Wilson lower bound — strictly inside
+    (0, 1) — so it sizes like any other baseline. Locked here because it is
+    the neighbour of the path this change touches.
+    """
+
+    def test_it_sizes_rather_than_refusing(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        contract = prepare_boundary(tmp_path, monkeypatch, ALWAYS_HOLDS)
+        capsys.readouterr()  # discard the measure run's own output
+        code = main(
+            [
+                "test",
+                str(contract),
+                "--samples",
+                "3",
+                "--accept-weak-design",
+                "--no-verdict-xml",
+            ]
+        )
+        assert code == 0
+        assert "You asked to run 3 samples" in capsys.readouterr().out
+
+    def test_it_is_priced_against_the_reduced_rate_not_against_certainty(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        """10 of 10 reduces to 10 / (10 + z**2) = 0.787…, so the run is
+        priced against 79% rather than against a claim of certainty. Reached
+        through the weak-design warning, which is the surface that states
+        the baseline back to the reader — and which proves sizing ran at
+        all, as against the refusal a zero baseline earns."""
+        contract = prepare_boundary(tmp_path, monkeypatch, ALWAYS_HOLDS)
+        capsys.readouterr()
+        assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
+        captured = capsys.readouterr()
+        assert "baseline of 79%" in captured.out
+        assert "no baseline to defend" not in captured.err

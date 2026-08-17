@@ -8,8 +8,30 @@ drop) are pure functions of the claim and the size.
 
 from baseltest.statistics import detectable_rate, power_at, wilson_lower_bound_from_rate
 
-from ._model import SizingClaim
+from ._model import SizingClaim, _UnsizeableCriterion
 from ._rates import _percent
+
+
+def _nothing_to_defend(unsizeable: list[_UnsizeableCriterion]) -> str:
+    """Why a run cannot be sized against a baseline that passed nothing.
+
+    Reads as a fact about the measurement, because that is what it is. It
+    names every offending criterion rather than the first: a reader who
+    fixes the one they were told about and meets the same refusal has been
+    told the truth twice and helped once.
+    """
+    named = "\n".join(
+        f"  {criterion.name} — passed on 0 of {criterion.trials} baseline samples"
+        for criterion in unsizeable
+    )
+    subject = "criterion" if len(unsizeable) == 1 else "criteria"
+    return (
+        f"cannot size the run — the baseline records no successes for this {subject}:\n"
+        f"{named}\n"
+        "there is no baseline to defend and no drop for a test to detect. "
+        "The next step is the service or the contract, not the test: re-measure "
+        "once the criterion passes at all."
+    )
 
 
 def _explanation(

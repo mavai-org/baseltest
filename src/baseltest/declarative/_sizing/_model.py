@@ -60,3 +60,19 @@ class _EmpiricalCriterion:
     baseline_trials: int
     confidence: float
     tolerated_rate: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class _UnsizeableCriterion:
+    """An empirical criterion whose baseline no sample size can price.
+
+    A baseline that passed nothing has an effective rate of zero, and the
+    sizing construction is defined only for a tolerated rate strictly below
+    it — so there is no drop to detect at any size. Carried out of the
+    selection rather than dropped from it: a run sized over the criteria
+    that happened to be priceable would present a verdict over the contract
+    while covering part of it.
+    """
+
+    name: str
+    trials: int
