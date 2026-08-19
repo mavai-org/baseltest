@@ -29,7 +29,13 @@ from .latency import (
 )
 from .power import achieved_power, required_sample_size
 from .proportion import proportion_standard_error, proportion_variance
-from .sizing import detectable_rate, power_at, required_samples_for_power
+from .sizing import (
+    SizingRefusal,
+    check_sizing_domain,
+    detectable_rate,
+    power_at,
+    required_samples_for_power,
+)
 from .summary import MultiRunSummary, RunOutcome, summarize_runs
 from .threshold import (
     ConfidenceFirstThreshold,
@@ -67,12 +73,14 @@ __all__ = [
     "RegressionVerdict",
     "RunOutcome",
     "SampleSizeFirstThreshold",
+    "SizingRefusal",
     "ThresholdFirstConfidence",
     "Verdict",
     "WilsonInterval",
     "achieved_power",
     "bound_existence_minimum",
     "check_feasibility",
+    "check_sizing_domain",
     "derive_latency_threshold",
     "latency_max",
     "latency_mean",

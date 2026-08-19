@@ -289,9 +289,17 @@ class Criterion:
             raise ValueError("criterion name must be non-empty")
         if not self.postconditions:
             raise ValueError(f"criterion {self.name!r} declares no postconditions")
-        if self.threshold is not None and not 0.0 < self.threshold < 1.0:
+        # A threshold of exactly 0 is admissible, and only at the boundary:
+        # a baseline that observed no successes has an effective rate of 0,
+        # so its derived threshold is 0 and its cutoff is 0 (companion
+        # 4.3.4). Every outcome clears it. That reads oddly and is the
+        # correct reading of the evidence -- a baseline that succeeded on no
+        # attempt can demand nothing of its successor -- and rejecting it
+        # would refuse a design the methodology defines. A threshold of 1 is
+        # still refused: no test can require certainty.
+        if self.threshold is not None and not 0.0 <= self.threshold < 1.0:
             raise ValueError(
-                f"criterion {self.name!r}: threshold must be in (0, 1), got {self.threshold}"
+                f"criterion {self.name!r}: threshold must be in [0, 1), got {self.threshold}"
             )
         if not 0.0 < self.confidence < 1.0:
             raise ValueError(
@@ -303,9 +311,13 @@ class Criterion:
                     f"criterion {self.name!r}: a cutoff is the decision artefact of a "
                     "derived threshold; it cannot stand without one"
                 )
-            if self.cutoff < 1:
+            # Zero is admissible for the same reason a threshold of 0 is:
+            # it is the cutoff a zero baseline derives (companion 4.3.4),
+            # and `K >= 0` holds for every outcome. Negative is not a count.
+            if self.cutoff < 0:
                 raise ValueError(
-                    f"criterion {self.name!r}: cutoff must be a positive count, got {self.cutoff}"
+                    f"criterion {self.name!r}: cutoff must be a non-negative count, "
+                    f"got {self.cutoff}"
                 )
 
     @property
