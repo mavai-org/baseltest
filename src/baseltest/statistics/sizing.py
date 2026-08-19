@@ -28,6 +28,7 @@ baseline rather than asserting improvement through the tolerance.
 """
 
 import math
+from enum import Enum
 
 from scipy.stats import norm
 
@@ -42,17 +43,74 @@ _REQUIRED_SAMPLES_CAP = 10_000_000
 _DETECTABLE_RATE_TOLERANCE = 1e-10
 
 
-def _validate_sizing_domain(baseline_rate: float, minimum_acceptable_rate: float) -> None:
-    validate_unit_interval("baseline_rate", baseline_rate)
-    validate_unit_interval("minimum_acceptable_rate", minimum_acceptable_rate)
-    if minimum_acceptable_rate >= baseline_rate:
-        raise ValueError(
+class SizingRefusal(Enum):
+    """Why a sizing design cannot be priced.
+
+    The domain restriction of companion 5.4.1 is reached by two routes,
+    and they call for different corrective action. Carrying the cause as
+    data rather than only as prose lets a caller -- a diagnostic, a
+    report, a conformance run -- tell them apart without parsing a
+    message.
+    """
+
+    ZERO_BASELINE = "ZERO_BASELINE"
+    """The baseline observed no successes, so its effective rate is exactly
+    0 at every sample size (companion 4.3.4) and no declared tolerance can
+    sit below it. *Measure a baseline before sizing against it.*"""
+
+    EMPTY_TOLERANCE_INTERVAL = "EMPTY_TOLERANCE_INTERVAL"
+    """The baseline is usable, but the declared tolerance does not sit
+    strictly below it, so there is no degradation to detect. *Re-measure
+    the baseline rather than raising the tolerance.*"""
+
+    def message(self, baseline_rate: float, minimum_acceptable_rate: float) -> str:
+        """The operator-facing explanation, naming the corrective action."""
+        if self is SizingRefusal.ZERO_BASELINE:
+            return (
+                "baseline_rate is exactly 0: the baseline observed no successes, so its "
+                "effective rate is 0 at every sample size and there is no tolerated rate "
+                "below it to detect. No sample size can price this design. Measure a "
+                "baseline with at least one success before sizing against it"
+            )
+        return (
             f"minimum_acceptable_rate ({minimum_acceptable_rate}) must sit strictly "
             f"below baseline_rate ({baseline_rate}): the tolerance declares how far "
             "below the measured baseline a true rate may drop; to demand more than "
             "the baseline delivered, re-measure the baseline rather than raising "
             "the tolerance"
         )
+
+
+def check_sizing_domain(
+    baseline_rate: float, minimum_acceptable_rate: float
+) -> SizingRefusal | None:
+    """Report whether a sizing design can be priced, and why not if it cannot.
+
+    The sizing entry points raise on an inadmissible design, which is the
+    right response to a misconfiguration discovered before any sample is
+    taken. This is the same decision offered as a value, for a caller that
+    would rather ask than handle an exception.
+
+    Returns `None` when the design is admissible.
+
+    Raises:
+        ValueError: If either rate is malformed -- outside `[0, 1)` or not
+            positive. That is a different statement from a refusal: a
+            refusal says a well-formed design cannot be priced.
+    """
+    if baseline_rate == 0.0:
+        return SizingRefusal.ZERO_BASELINE
+    validate_unit_interval("baseline_rate", baseline_rate)
+    validate_unit_interval("minimum_acceptable_rate", minimum_acceptable_rate)
+    if minimum_acceptable_rate >= baseline_rate:
+        return SizingRefusal.EMPTY_TOLERANCE_INTERVAL
+    return None
+
+
+def _validate_sizing_domain(baseline_rate: float, minimum_acceptable_rate: float) -> None:
+    refusal = check_sizing_domain(baseline_rate, minimum_acceptable_rate)
+    if refusal is not None:
+        raise ValueError(refusal.message(baseline_rate, minimum_acceptable_rate))
 
 
 def power_at(
@@ -198,6 +256,8 @@ def detectable_rate(
     """
     if sample_size <= 0:
         raise ValueError("sample_size must be a positive integer")
+    if baseline_rate == 0.0:
+        raise ValueError(SizingRefusal.ZERO_BASELINE.message(baseline_rate, float("nan")))
     validate_unit_interval("baseline_rate", baseline_rate)
     validate_unit_interval("confidence_level", confidence_level)
     validate_unit_interval("target_power", target_power)

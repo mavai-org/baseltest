@@ -157,6 +157,27 @@ def wilson_lower_bound_from_rate(
         raise ValueError("trials must be a positive integer")
     validate_confidence_level(confidence_level)
 
+    # At a zero rate the bound's centre and margin are the same quantity,
+    # z^2 / (2n), so they cancel and the bound is exactly 0 at every
+    # `trials` and every confidence (companion 4.3.4). That is an algebraic
+    # identity, not a small number, and floating point does not reliably
+    # deliver it -- `proportion_confint` leaves a residue near 1e-17 at 178
+    # of the 3000 (n, confidence) pairs over n in 1..1000 at 90/95/99%.
+    #
+    # The residue is invisible against any tolerance a caller would set and
+    # decisive on the artefact that binds, because the decision is
+    # ceil(n_test * threshold) and ceil turns any positive residue into 1 --
+    # demanding one success of a test whose baseline can demand nothing.
+    #
+    # The exact comparison is a test on an *input* whose domain is discrete:
+    # baselines store (k, n) rather than a rate (companion 4.3), so
+    # `observed_rate` is either k/n -- exactly 0.0 when k = 0 -- or an
+    # effective baseline rate, which 4.3.2 bounds at n/(n + z^2). Nothing
+    # lands between 0 and 1/n to be missed, and a genuinely tiny non-zero
+    # rate falls through to the computation, which is well defined there.
+    if observed_rate == 0.0:
+        return 0.0
+
     # Spend the full alpha budget on the lower tail: `proportion_confint`
     # always splits its `alpha` in half between the two tails, so doubling
     # it here makes the *lower* endpoint the one-sided (1 - confidence_level)

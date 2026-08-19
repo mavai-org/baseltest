@@ -5,20 +5,31 @@ published conformance cases (`mavai-R/inst/cases/*.json` upstream), used by
 `tests/statistics/test_conformance.py` to validate this package's statistics
 primitives against the reference implementation.
 
-Pinned at `mavai-R` `v0.8.5` (the `risk_driven_sizing` suite and its
-manifest entry are new in 0.8.5; every other vendored file is
-byte-identical with 0.8.4). `test_conformance.py` verifies each
-vendored suite against the manifest's content hash, so drift from the
-pin fails the build rather than passing silently.
+Pinned at `mavai-R` `v0.10.13`.
 
-These statistics fixtures remain **current as of `mavai-R` `v0.9.0`**:
-that release changed only the interchange schemas (which this package
-pins separately, in the artefact writers/readers), and its manifest
-still declares `fixtureVersion 0.8.5` — the vendored suites here are
-byte-identical (matching md5s) with what `v0.9.0` ships. The
-statistics-fixture pin and the interchange-schema pin name *different*
-oracle artefacts and version independently by design; the two are not
-expected to match.
+Four suites changed from the previous `v0.8.5` pin — `threshold_derivation`,
+`regression_decision`, `risk_driven_sizing`, and the manifest. Every other
+vendored file is byte-identical, which is why the pin sat still for so long:
+the cases genuinely had not moved. The manifest had, though only in one
+field — it declared `fixtureVersion 0.8.5` for five releases because nobody
+regenerated it, so a consumer checking the version it claimed was reading a
+stale number. `v0.10.13` fixes that alongside the new cases.
+
+What `v0.10.13` adds is the **zero baseline**, which no fixture in the family
+had ever exercised: a baseline that observed no successes, carried through a
+threshold, a verdict, and a sizing calculation. `risk_driven_sizing` also
+gains `sizing_gate` on every case (`ADMIT` / `REFUSE`) and `refusal_category`
+on the four refused ones — both binding, so the coverage diff demands them.
+
+A note for whoever bumps this next. The oracle's zero-baseline cases pick
+their test sizes to sit where the *reference* implementation left a
+floating-point residue (n = 50, 200 at 95%; n = 85 at 99%). Those sizes
+cancel cleanly here, because this package computes the bound through
+`statsmodels.proportion_confint` rather than the formula directly — so these
+fixtures passed while the same defect was present at 178 *other*
+`(n, confidence)` pairs. Residue sites are implementation-specific. The
+guard that actually holds this boundary is the dense sweep in
+`tests/statistics/test_wilson.py`, not the conformance suite.
 
 The manifest-driven coverage obligation is the oracle's family-mandatory
 tier plus the committed `SCOPE.json` beside these fixtures (extend-only;

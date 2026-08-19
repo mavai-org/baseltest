@@ -31,6 +31,7 @@ from baseltest.statistics import (
     achieved_power,
     bound_existence_minimum,
     check_feasibility,
+    check_sizing_domain,
     derive_latency_threshold,
     derive_sample_size_first,
     derive_threshold_first,
@@ -83,6 +84,35 @@ def assert_oracle(
         assert actual == pytest.approx(expected, abs=abs_tol), (
             f"{label}: expected {expected!r} within {abs_tol}, got {actual!r}"
         )
+
+
+def assert_sizing_refusal(case: dict[str, Any]) -> None:
+    """Assert an inadmissible sizing design is declined, and named.
+
+    The refusal is the expected outcome, so there is no number to compare.
+    Sizing refusal stays on the exception channel -- an inadmissible design
+    is a misconfiguration found before any sample is taken, not the
+    anticipated failure of a sample -- so the decision is asked for as a
+    value rather than provoked and caught.
+    """
+    __tracebackhide__ = True
+    inputs = case["inputs"]
+    refusal = check_sizing_domain(
+        inputs["baseline_rate"], inputs.get("minimum_acceptable_rate", float("nan"))
+    )
+    assert refusal is not None, (
+        f"risk_driven_sizing/{case['name']}: the oracle expects this design to be refused"
+    )
+    assert_oracle("risk_driven_sizing", case, "sizing_gate", "REFUSE")
+    assert_oracle("risk_driven_sizing", case, "refusal_category", refusal.value)
+
+    # The numerics the manifest still binds on this case. The refusal means
+    # no value exists for any of them, and saying so is the assertion: a
+    # framework that clamped the baseline and returned a number fails here,
+    # and clamping is the repair companion 4.3.4 forbids.
+    for field, expected in case["expected"].items():
+        if expected is None:
+            LEDGER.record("risk_driven_sizing", case["name"], field)
 
 
 _WILSON_CI_TOLERANCE, _WILSON_CI_CASES = _load("wilson_ci.json")
@@ -399,6 +429,12 @@ def test_required_samples_for_power_matches_oracle(case: dict[str, Any]) -> None
     through the same Wilson function the decision rule uses (one shared z)."""
     inputs = case["inputs"]
 
+    if case["expected"]["sizing_gate"] == "REFUSE":
+        assert_sizing_refusal(case)
+        return
+
+    assert_oracle("risk_driven_sizing", case, "sizing_gate", "ADMIT")
+
     required = required_samples_for_power(
         baseline_rate=inputs["baseline_rate"],
         minimum_acceptable_rate=inputs["minimum_acceptable_rate"],
@@ -425,6 +461,12 @@ def test_required_samples_for_power_matches_oracle(case: dict[str, Any]) -> None
 def test_power_at_candidate_size_matches_oracle(case: dict[str, Any]) -> None:
     inputs = case["inputs"]
 
+    if case["expected"]["sizing_gate"] == "REFUSE":
+        assert_sizing_refusal(case)
+        return
+
+    assert_oracle("risk_driven_sizing", case, "sizing_gate", "ADMIT")
+
     floor = wilson_lower_bound_from_rate(
         inputs["baseline_rate"], inputs["test_samples"], inputs["confidence"]
     )
@@ -442,6 +484,12 @@ def test_power_at_candidate_size_matches_oracle(case: dict[str, Any]) -> None:
 @pytest.mark.parametrize("case", _DETECTABLE_RATE_CASES, ids=lambda c: c["name"])
 def test_detectable_rate_matches_oracle(case: dict[str, Any]) -> None:
     inputs = case["inputs"]
+
+    if case["expected"]["sizing_gate"] == "REFUSE":
+        assert_sizing_refusal(case)
+        return
+
+    assert_oracle("risk_driven_sizing", case, "sizing_gate", "ADMIT")
 
     rate = detectable_rate(
         sample_size=inputs["test_samples"],

@@ -1,5 +1,7 @@
 """Edge-case and validation tests for the Wilson score interval primitives."""
 
+import math
+
 import pytest
 
 from baseltest.statistics import wilson_interval, wilson_lower_bound, wilson_lower_bound_from_rate
@@ -93,3 +95,44 @@ def test_lower_bound_from_rate_does_not_require_integrality() -> None:
     # forward as the reference rate for a downstream test.
     result = wilson_lower_bound_from_rate(observed_rate=0.873, trials=50)
     assert 0.0 <= result <= 0.873
+
+
+def test_zero_rate_gives_exactly_zero() -> None:
+    """At a zero rate the bound is exactly 0, not a cancellation residue.
+
+    The bound's centre and margin are the same quantity there, z^2 / (2n),
+    so they cancel: an algebraic identity holding at every sample size and
+    every confidence, not a small number. Asserted with `==` rather than
+    `pytest.approx`, because a tolerance comparison is precisely what
+    cannot see this break.
+
+    The sweep is dense on purpose. The round numbers one would sample by
+    hand mostly cancel cleanly, and — the reason this matters — *which*
+    sizes leave a residue depends on the implementation. The oracle and
+    two sibling frameworks compute the formula directly and leave one at
+    n = 50 and n = 200; this package goes through `proportion_confint` and
+    left one at 178 different (n, confidence) pairs, none of them the
+    oracle's. No fixture at a fixed n can be relied on to catch this, so
+    the dense sweep is the guard, not the conformance suite.
+    """
+    for trials in range(1, 1001):
+        for confidence in (0.90, 0.95, 0.99):
+            assert wilson_lower_bound_from_rate(0.0, trials, confidence) == 0.0, (
+                f"trials={trials}, confidence={confidence}: expected exactly 0"
+            )
+
+
+def test_zero_rate_leaves_the_integer_cutoff_at_zero() -> None:
+    """Why the identity earns a test of its own.
+
+    The binding decision artefact is `ceil(n_test * threshold)`, and `ceil`
+    turns any positive residue into 1 — demanding one success of a test
+    whose baseline can demand nothing. Against the previous body this
+    failed at 178 of the 3000 pairs swept here.
+    """
+    for trials in range(1, 1001):
+        for confidence in (0.90, 0.95, 0.99):
+            threshold = wilson_lower_bound_from_rate(0.0, trials, confidence)
+            assert math.ceil(trials * threshold) == 0, (
+                f"trials={trials}, confidence={confidence}: cutoff must stay at 0"
+            )
