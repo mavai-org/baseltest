@@ -98,6 +98,8 @@ def wilson_interval(
     )
 
 
+# mavai-ref: JVI-MNVWS4U — do not remove (resolves in mavai-orchestrator)
+# mavai-ref: JVI-TX478RT — do not remove (resolves in mavai-orchestrator)
 def wilson_lower_bound(
     successes: int, trials: int, confidence_level: float = DEFAULT_CONFIDENCE_LEVEL
 ) -> float:
