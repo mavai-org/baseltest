@@ -2,7 +2,7 @@
 # covariate) and on the mavai-services.yaml configuration (declared,
 # sweepable factors) — one drift-checked identity with two feeds.
 #   basel check request-triage.yaml                  -> every join, zero samples
-#   basel measure request-triage.yaml --samples 200  -> pins the identity
+#   basel measure request-triage.yaml --samples 1000 -> pins the identity
 #   basel test request-triage.yaml --tolerate 84     -> judged against it
 #   basel explore request-triage.yaml                -> the whole grid, descriptively
 # Edit triage-rules.txt (or the configuration) and the next test is

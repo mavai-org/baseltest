@@ -114,68 +114,72 @@ basel test basket-builder.yaml
 ```
 
 ```
-n = 52 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 52 samples)
-contract basket-builder-returns-valid-baskets: PASS
-  criterion response-is-a-valid-basket: PASS
-    52 of 52 responses met expectations
-    observed rate 1.0000; we can be 95% confident the true rate is at least 0.9505 — clears your 0.95 threshold
+n = 59 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 59 samples)
+contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.5.0)
+  Type-I envelopes: false compliance ≤ 0.05
+
+  criterion                   verdict  passed  required  threshold  rule                       basis
+  response-is-a-valid-basket  PASS      59/59        59       0.95  compliance/exact-binomial  unspecified
+      one-sided Clopper–Pearson lower bound 0.9505 at alpha 0.05
 ```
 
-That last line is the point of baseltest: the verdict is not "100% ≥ 95%". It is a claim about the *true* rate, at a stated confidence, computed from a Wilson lower bound — a high observed rate over too few samples would honestly fail. Notice what the derived minimum means: at n = 52, only a perfect run can clear a 0.95 bar. A larger `--samples` buys slack — at n = 100, two failures still pass (the lower bound of 98/100 is 0.9530). Add `--html-report report.html` to have mavai draw a self-contained summary page from the run's artefacts.
+The `required` column is the point of baseltest: the verdict is not "100% ≥ 95%". A declared threshold is a requirement, and the test asks whether the evidence *demonstrates* it — the exact binomial test of the Statistical Companion (`compliance/exact-binomial`): it passes when at least `required` samples succeed, the smallest count that demonstrates 0.95 at 95% confidence. A high observed rate over too few samples honestly fails: 48 of 50 against 0.90 does not demonstrate 0.90. Notice what the derived minimum means: at n = 59, only a perfect run can pass a 0.95 requirement. A larger `--samples` buys slack — at n = 100, 99 successes still pass. Add `--html-report report.html` to have mavai draw a self-contained summary page from the run's artefacts.
 
-The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n that can support every bar at its confidence. That minimum is the weakest admissible design (only a perfect run clears the bar): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (roughly, any bar above 0.96) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (still feasibility-checked), and `intent: smoke` gives a cheap pass with no statistical verdict. *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
+The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n at which every requirement can be demonstrated at its confidence. That minimum is the weakest admissible design (only a perfect run passes): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (any requirement above 0.97) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (a size at which no outcome could demonstrate a requirement is refused, `COMPLIANCE_INFEASIBLE`), and `intent: smoke` runs a cheap undersized check that says when a pass was not possible. *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
 
-`--samples N` works on `test` and `measure` alike, and the confidence bound is honestly computed at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
+`--samples N` works on `test` and `measure` alike, and every decision is made at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
 
-**`test` judges; `measure` records.** The same file, run as `basel measure basket-builder.yaml --samples 1000`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles (p50/p90/p95/p99, each present only when the passing-sample count can support it) and the full ascending vector of passing-sample durations, the raw material from which a later consumer derives latency bounds at its own sample size and confidence; only passing samples contribute, because the timing of incorrect behaviour does not characterise the correct path. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. `measure` is the one verb with no default n — a measurement's budget is an experimental-design decision, so it must be typed: `--samples 1000` is a solid baseline-grade count, and a smaller deliberate budget is legitimate (an empirical bar derived from a smaller baseline simply widens honestly). A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `basel measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, the bar derived from the baseline's recorded evidence at the test's own sample size, the verdict line naming the artefact it judged against:
+**`test` judges; `measure` records.** The same file, run as `basel measure basket-builder.yaml --samples 1000`, records *every* criterion (rate, variance, failure distribution) — a declared bar is noted against the evidence as *met* or *not met*, a recorded fact rather than a verdict, and the run always exits successfully — and always persists a **baseline artefact** into `_baseltest/baselines/`: the durable record of what was observed, under exactly which service configuration. When at least one sample passed, the baseline also records the run's **latency profile** — the gated percentiles (p50/p90/p95/p99, each present only when the passing-sample count can support it) and the full ascending vector of passing-sample durations, the raw material from which a later test derives its latency thresholds for the number of successful latencies it returns; only passing samples contribute, because the timing of incorrect behaviour does not characterise the correct path. (Everything baseltest generates lives under the single `_baseltest/` directory — one `.gitignore` line, one `rm -rf` for a clean slate.) A test run persists no baseline: its product is the verdict, written into `_baseltest/verdicts/` as the verdict record described below. `measure` is the one verb with no default n — a measurement's budget is an experimental-design decision, so it must be typed: `--samples 1000` is a solid baseline-grade count, and a smaller deliberate budget is legitimate (an empirical cutoff derived from a smaller baseline simply widens honestly — but a test may never run more samples than the baseline it consumes: `TEST_LARGER_THAN_BASELINE`). A criterion with no `threshold:` is an **empirical** criterion — its bar comes from evidence rather than declaration. Before any baseline exists, `test` skips it with a one-line indicator; but once you have run `basel measure`, the next `test` finds the baseline and judges the empirical criterion against it — *no worse than measured*, by the one-sided Fisher exact test (`regression/fisher`): an integer cutoff derived from the baseline's counts at the test's own sample size, the row naming the artefact it judged against:
 
 ```
-criterion spirits-stay-polite: PASS
-  observed rate 1.0000; we can be 95% confident the true rate is at least 0.9867
-  — clears your 0.9654 threshold (empirical, fortune-teller-…-b44846234567.yaml)
+  criterion            verdict  passed   required  threshold  rule               basis
+  spirits-stay-polite  PASS     200/200       199     0.9950  regression/fisher  empirical — fortune-teller-…-b44846234567.yaml
+      minimum detectable degradation 0.0149 at 80% power (inverts the design power)
 ```
+
+The last line says what the design can detect: the smallest drop from the baseline rate it catches four times in five.
 
 The workflow is **measure once, test forever after** — and the baseline only matches if it measured *the same thing*: same contract, same inputs, same service configuration. Change the model or the system prompt and the test tells you the baseline no longer applies (naming the differing settings) instead of quietly judging against stale evidence.
 
-## Sizing by risk: tell it what you tolerate
+## Sizing by risk: tell it what drop to catch
 
-For empirical criteria, the sample size is a **derived output of your stated risk**, not a guess. The empirical bar is derived *at the test's own size* and falls as the sample shrinks, so dialling `--samples` down quietly buys an easier pass — the trap this closes. `basel test` instead asks two plain questions — the lowest real pass rate you will accept, and how sure you want to be — and computes the smallest n at which a service truly at that rate fails about four times out of five (`--power` overrides the 0.80 default).
+For empirical criteria, the sample size is a **derived output of your stated risk**, not a guess. The empirical cutoff is derived *at the test's own size* and falls as the sample shrinks, so dialling `--samples` down quietly buys an easier pass — the trap this closes. `basel test` instead asks two plain questions — the degraded pass rate the test must catch reliably (the *design alternative rate*), and how rarely it may raise a false alarm — and, against your measured baseline, computes the smallest n from which a service truly at that rate fails at least four times out of five, at every larger size the baseline admits (`--power` overrides the 0.80 default). The rate is not a tolerance: the test still flags any drop from the baseline it can see — smaller drops less often. A baseline too small for any admissible test to reach that power is refused (`BASELINE_TOO_SMALL`): measure a larger one.
 
 Declare the claim wherever it belongs:
 
-- **In the contract file** — the criterion key `tolerate: 0.84` (the worst acceptable true rate), with an optional per-criterion `confidence:` override. A CI run then needs no flags.
+- **In the contract file** — the criterion key `tolerate: 0.84` (the rate to catch), with an optional per-criterion `confidence:` override. A CI run then needs no flags.
 - **On the command line** — `--tolerate 84 --confidence 95` (rates or percentages); a flag overrides the contract key. Against several empirical criteria, name each claim: `--tolerate keeps-up=0.84 --tolerate stays-polite=0.9` (the bare form is refused). The largest requirement governs the run; the output marks which criterion set it.
-- **Interactively** — with no claim declared and a terminal attached, the test asks, shows each criterion's proven baseline rate, and confirms before running. With no terminal it refuses: exit 2, zero invocations, the exact flags named.
+- **Interactively** — with no claim declared and a terminal attached, the test asks, shows each criterion's baseline rate, and confirms before running. With no terminal it refuses: exit 2, zero invocations, the exact flags named.
 
 Every mode explains the n that actually runs. One claim gets a sentence:
 
 ```
-This test needs 214 samples (computed from your declared tolerance).
-If this test passes, you can be 95% confident the true pass rate is at least 85%. This design will catch a genuine drop to 84% about 80% of the time.
+This test needs 253 samples (computed from your declared rate to catch).
+Against your baseline of 900 of 1000, this test passes when at least 218 of its 253 samples succeed; an unchanged service is flagged at most 5% of the time. This design will catch a genuine drop to 84% about 80% of the time (its resolved power); a smaller drop is still flagged, less often.
 ```
 
 Several claims get a table, one row per claim:
 
 ```
-This test needs 563 samples (computed from your declared tolerances).
+This test needs 253 samples (computed from your declared rates to catch).
 
-  criterion             tolerates  confidence  drop caught  a pass proves  needs alone
-  fortune-is-delivered        84%         95%   about 100%   at least 89%          134
-  spirits-stay-polite         97%         95%    about 80%   at least 98%          563  ← sets the run size
+  criterion             catch a drop to  confidence  drop caught  passes at   needs alone
+  fortune-is-delivered              84%         95%    about 80%  218 of 253          253  ← sets the run size
+  spirits-stay-polite               97%         95%    about 88%  249 of 253          223
 ```
 
 Reading the columns:
 
-- **criterion** — the promise being priced; one row per empirical criterion with a declared tolerance.
-- **tolerates** — the worst true success rate you said you can live with: your `tolerate:` value.
-- **confidence** — how sure a verdict must be before it counts; the same confidence the pass bar is built at.
-- **drop caught** — if the service really has fallen to the tolerated rate, how often a run of this size will catch it.
-- **a pass proves** — what passing entitles you to claim: the true rate is at least this, at the stated confidence.
+- **criterion** — the promise being priced; one row per empirical criterion with a declared rate to catch.
+- **catch a drop to** — the degraded true success rate the test must catch reliably: your `tolerate:` value.
+- **confidence** — one minus the false-alarm rate: how rarely an unchanged service is flagged.
+- **drop caught** — if the service really has fallen to that rate, how often a run of this size will catch it (the resolved power against your baseline).
+- **passes at** — the cutoff: how many of the run's samples must succeed for it to pass.
 - **needs alone** — the samples this claim would need by itself. The largest number wins the run size; `←` marks the claim that set it, and every other claim gets caught more often than it asked for.
 
-`--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--accept-weak-design` restores automation). A tolerance **at or above** the proven baseline is over-reach — a test designed to fail, which more samples only make worse — so no size is computed: re-measure and set the tolerance against the new proven rate, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a wider tolerance or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
+`--samples N` is the other sizing mode, and the two don't mix: `--samples` with `--tolerate` or `--power` is refused as contradictory. On its own — including against contract-file `tolerate:` keys — it never runs silently: the run states what that n buys, and a **weak design** needs a confirmation defaulting to No (`--accept-weak-design` restores automation). A rate to catch **at or above** the baseline rate is over-reach — there is no drop to catch — so no size is computed: re-measure and set the rate against the new measurement, confirm past the warning interactively (default No), or pass `--force` plus an explicit `--samples` in automation. A large computed n is never refused; it reports its cost and suggests a lower rate to catch or lower confidence. `--json` emits the sizing block machine-readably and implies non-interactive.
 
-The decision rule is untouched — risk-driven sizing only chooses *how many* samples feed the same empirical derivation and judgement. The HTML report's **Run design** block records the deal: the approach (`confidence-first (risk-driven)` or `sample-size-first`), the claims and computed size, and — for a run smaller than its baseline's measurement — the drop it could actually catch and the estimated time saving.
+The decision rule is untouched — risk-driven sizing only chooses *how many* samples feed the same Fisher cutoff and judgement. The HTML report's **Run design** block records the deal: the approach (`confidence-first (risk-driven)` or `sample-size-first`), the claims and computed size, and — for a run smaller than its baseline's measurement — the drop it could actually catch and the estimated time saving.
 
 ## Testing your own (non-LLM) service
 
@@ -263,7 +267,7 @@ A file with no thresholds at all cannot be tested — `basel test` refuses it, t
 
 ## The latency dimension
 
-Reliability has a second axis: not just *whether* the service answers correctly, but *how long* the correct answers take. A contract may assert a `latency:` block — per-percentile upper bounds judged over the durations of **passing** samples only (the timing of wrong answers does not characterise the correct path), gating the verdict by conjunction with the functional criteria: a test passes only when both dimensions do. Two shapes, mutually exclusive:
+Reliability has a second axis: not just *whether* the service answers correctly, but *how long* the correct answers take. A contract may assert a `latency:` block — per-percentile upper bounds judged over the durations of **passing** samples only (the timing of wrong answers does not characterise the correct path), composed with the functional criteria into the test's verdict: a test passes only when both dimensions do. Two shapes, mutually exclusive:
 
 ```yaml
 latency:                 # explicit: SLA-style ceilings, in milliseconds
@@ -276,12 +280,12 @@ latency:                 # explicit: SLA-style ceilings, in milliseconds
 ```yaml
 latency:                 # empirical: no worse than measured
   empirical: [p50, p95]
-  confidence: 0.95                       # optional; the derivation confidence
+  confidence: 0.95                       # optional; 1 - alpha for every latency decision
 ```
 
-An **explicit** ceiling is your declared requirement, compared directly: the observed percentile (nearest-rank, over passing samples) passes at or below it. An **empirical** declaration derives its bounds from the matching measured baseline's recorded latency profile at test time, using an exact distribution-free upper confidence bound — the latency analogue of the functional *no worse than measured* bar, and like it, statistically honest about sample size: the bound derived from a small baseline is simply looser. The verdict line names the derivation (`bound is the baseline's 35th of 56 sorted latencies`), and the verdict record carries it.
+An **explicit** ceiling is your declared requirement, and it is decided like one: by how many successful latencies are at or below it, under the exact binomial test (`latency/compliance-exact-binomial`). "p95 ≤ 500 ms" over 100 successful latencies passes when at least 99 are within 500 ms; the observed p95 itself is shown beside the verdict as an advisory figure, because a p95 that happens to land under the ceiling does not demonstrate the requirement. An **empirical** declaration is decided by `latency/precedence` after the run, for the number of successful latencies the run actually returned: the threshold is the smallest baseline latency (by rank) that an undegraded service would exceed with probability at most alpha — the latency analogue of the functional *no worse than measured* cutoff, and like it honest about sample size. The verdict line names the derivation (`the baseline's 911th of 935 latencies, derived for 192 successful latencies`), and the verdict record carries it.
 
-The framework refuses up front — before any invocation, exit 2 — what can never be judged: a percentile the planned sample count cannot estimate (the median needs 5 passing samples, p90 needs 10, p95 needs 20, p99 needs 100), an empirical declaration with no matching baseline (or one measured before latency recording existed — re-measure), and a requested confidence the baseline's size cannot support a bound at (the refusal names the required baseline size). When a run's *passing* count falls below a percentile's minimum only at evaluation time — a flaky service under a small budget — the latency dimension is INCONCLUSIVE rather than judged, and the run exits 3: no assertion can rest on it. Measure and explore runs never judge a latency block; they record the latency profile the empirical bounds derive from.
+The framework refuses up front — before any invocation, exit 2 — what can never be judged: an explicit requirement no outcome of the planned size could demonstrate even if every sample succeeded (p95 needs 59, p99 299, at 95% confidence), a test planned larger than the baseline run an empirical declaration consumes, and an empirical declaration with no matching baseline (or one measured before latency recording existed — re-measure). What depends on how many samples actually pass is decided after the run: before it, the framework only warns when the expected count falls short of a percentile's minimum (the median needs 5 successful latencies, p90 10, p95 20, p99 100) or of what the baseline can support, and names the planning figure. When the actual count is too small — or no baseline rank exists for it (*saturated*) — the latency dimension is INCONCLUSIVE rather than judged, and the run exits 3: no assertion can rest on it. Measure and explore runs never judge a latency block; they record the latency profile the empirical bounds derive from.
 
 ## Exploring configurations
 
@@ -394,8 +398,8 @@ The return code is the machine-readable half of the honest-output story — CI r
 |---|---|
 | `0` | Success. `test`: every judged criterion passed. `measure`: recorded (and, with `--assert`, every declared bar met). `explore`: every configuration explored and its artefact persisted (an exploration cannot fail — it judges nothing). `optimize`: every selected run completed and its artefact persisted (like explore, it judges nothing). |
 | `1` | **Judgement failure.** `test`: the composite verdict is FAIL. `measure --assert`: a declared bar was not met (the baseline is still on disk — recording happens before assertion). |
-| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a test whose sample count cannot support its bars (functional or latency), an empirical latency declaration with no usable baseline or a confidence its baseline cannot support, a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a service with no services-file grid, an optimize selection left ambiguous (or over a service with no `optimizations:` section), a stepper mid-run proposing an invalid configuration, a `basel check` join failure, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical tolerances with no terminal to ask on, an over-reaching tolerance in automation without `--force`, or any declined confirmation. |
-| `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: too few samples *passed* for an asserted latency percentile to be estimated — the composite is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
+| `2` | **Refusal.** The run never invoked the service: malformed contract file, unresolvable binding, nothing to test, a refused configuration (`TEST_LARGER_THAN_BASELINE` — a test larger than the baseline it consumes — or `COMPLIANCE_INFEASIBLE` — a requirement, functional or latency, that no outcome of the planned size can demonstrate; every applicable code named at once), an empirical latency declaration with no usable baseline, a baseline too small for the declared rate to catch (`BASELINE_TOO_SMALL`), a silently derived n above the 100-sample gate, a measure without `--samples`, an explore over a service with no services-file grid, an optimize selection left ambiguous (or over a service with no `optimizations:` section), a stepper mid-run proposing an invalid configuration, a `basel check` join failure, contradictory sizing flags (`--samples` with `--tolerate` or `--power`), unclaimed empirical rates to catch with no terminal to ask on, an over-reaching rate to catch in automation without `--force`, or any declined confirmation. |
+| `3` | **Unsupportable assertion.** `measure --assert`: the sample size could never have supported a declared bar. `test`: nothing failed, and a latency constraint could not be decided — too few successful latencies, or no baseline rank for the count returned — so the test verdict is INCONCLUSIVE. Either way, no assertion can rest on the evidence, in either direction. |
 
 `0` is the only success; any non-zero fails a CI step. The distinctions matter for scripting: `1` means the service fell short, `2` means the run was never valid, `3` means the run was too small to know.
 
