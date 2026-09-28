@@ -9,7 +9,7 @@ carry breaking changes; each says so in its first line.
 
 ## [0.25.0] — 2026-09-28
 
-**Breaking: every verdict is now decided by the decision rules of Statistical Companion 1.5.0, and cutoffs, sizes and verdicts change.** Contracts keep their shape, but a test that passed under 0.24 may fail, pass at a different size, be refused before it runs, or come back INCONCLUSIVE. There is no compatibility switch: re-run your tests and read their new run-plan lines. Conformance is against the mavai-R v0.11.0 fixtures.
+**Breaking: every verdict is now decided by the decision rules of Statistical Companion 1.5.0, and cutoffs, sizes and verdicts change.** Contracts keep their shape, but a test that passed under 0.24 may fail, pass at a different size, be refused before it runs, or come back INCONCLUSIVE. There is no compatibility switch: re-run your tests and read their new run-plan lines. Conformance is against the mavai-R v0.11.1 fixtures and verdict schema.
 
 **A declared threshold is a requirement, and the test asks whether the evidence demonstrates it** (`compliance/exact-binomial`). The run passes when at least *k*<sub>min</sub> samples succeed — the smallest count the exact one-sided binomial test accepts at your confidence — where it used to pass when the run's Wilson lower bound cleared the bar. The feasibility minimum moves with it: `ceil(log alpha / log p)`, so a 0.95 requirement needs 59 samples (was 52) and a 0.99 one 299 (was 268). A verification test no outcome of its size could pass is refused with `COMPLIANCE_INFEASIBLE`; a smoke test runs and says a pass was not possible.
 

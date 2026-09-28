@@ -359,17 +359,16 @@ class TestLatencyElement:
         assert row.get("decision-rule") == "latency/precedence"
         assert_valid(tmp_path, text)
 
-    def test_a_saturated_constraint_is_recorded_without_a_threshold(self) -> None:
+    def test_a_saturated_constraint_is_recorded_without_a_threshold(self, tmp_path: Path) -> None:
         # A p90 test of 10 against 32 baseline latencies: no rank achieves
         # alpha, so there is no threshold to state and none is manufactured.
-        # (Schema validation of this shape arrives with mavai-R 0.11.1, whose
-        # verdict-1.7.xsd admits status SATURATED and an absent threshold-ms.)
         bar = LatencyBar(
             bounds=(LatencyBound("p90"),),
             origin=ThresholdSource.BASELINE_DERIVED,
             baseline=LatencyBaseline(tuple(range(1, 33)), samples=32),
         )
-        root = ElementTree.fromstring(render_verdict_record(self._result_with_latency(bar)))
+        text = render_verdict_record(self._result_with_latency(bar))
+        root = ElementTree.fromstring(text)
         latency = root.find(f"{NS}latency")
         assert latency is not None and latency.get("verdict") == "INCONCLUSIVE"
         (row,) = latency.findall(f"{NS}evaluations/{NS}evaluation")
@@ -381,6 +380,7 @@ class TestLatencyElement:
         assert row.get("decision-rule") == "latency/precedence"
         verdict = root.find(f"{NS}verdict")
         assert verdict is not None and verdict.get("value") == "INCONCLUSIVE"
+        assert_valid(tmp_path, text)
 
     def test_no_latency_element_without_a_bar(self) -> None:
         root = ElementTree.fromstring(render_verdict_record(run_result()))

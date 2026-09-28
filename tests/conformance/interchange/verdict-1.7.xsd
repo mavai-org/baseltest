@@ -308,7 +308,8 @@
     <!-- 1.7: the latency dimension's verdict V_latency, the structural
          composite of the strict (enforced) evaluations: PASS if every one
          passes, FAIL if any is STRICT_FAIL, INCONCLUSIVE otherwise (an
-         evaluation with status INFEASIBLE is inconclusive). Absent when the
+         evaluation with status INFEASIBLE or SATURATED is inconclusive).
+         Absent when the
          test enforces no latency constraint; advisory evaluations never
          enter it. -->
     <xs:attribute name="verdict"             type="tns:VerdictEnum" use="optional"/>
@@ -336,7 +337,10 @@
   <xs:complexType name="EvaluationType">
     <xs:attribute name="percentile"          type="tns:PercentileLabelEnum"   use="required"/>
     <xs:attribute name="observed-ms"         type="xs:long"                   use="optional"/>
-    <xs:attribute name="threshold-ms"        type="xs:long"                   use="required"/>
+    <!-- 1.7 (mavai-R 0.11.1): required on every evaluation except status
+         SATURATED, where no threshold exists (see below). XSD 1.0 cannot
+         state the co-constraint; the worked-example tests enforce it. -->
+    <xs:attribute name="threshold-ms"        type="xs:long"                   use="optional"/>
     <xs:attribute name="provenance"          type="tns:LatencyProvenanceEnum" use="required"/>
     <xs:attribute name="mode"                type="tns:EnforcementModeEnum"   use="required"/>
     <xs:attribute name="status"              type="tns:EvaluationStatusEnum"  use="required"/>
@@ -351,7 +355,12 @@
          the smallest count that demonstrates compliance; status PASS or
          STRICT_FAIL, and INFEASIBLE when too few successful latencies
          arrived for any count to pass (no @required-within). A
-         baseline-derived threshold is decided by latency/precedence. An
+         baseline-derived threshold is decided by latency/precedence; when no
+         baseline rank keeps the no-degradation breach probability at or
+         below alpha - not even the baseline's slowest latency - the
+         evaluation is SATURATED: it has no @threshold-ms and no
+         @baseline-rank, and is inconclusive (Statistical Companion
+         §12.4.2). An
          advisory evaluation compares @observed-ms with @threshold-ms, is
          decided by no rule and never enters the composite. -->
     <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum" use="optional"/>
@@ -389,6 +398,9 @@
       <xs:enumeration value="STRICT_FAIL"/>
       <xs:enumeration value="ADVISORY_WARN"/>
       <xs:enumeration value="INFEASIBLE"/>
+      <!-- 1.7 (mavai-R 0.11.1): a baseline-derived evaluation for which no
+           baseline rank achieves alpha; carries no @threshold-ms. -->
+      <xs:enumeration value="SATURATED"/>
     </xs:restriction>
   </xs:simpleType>
 

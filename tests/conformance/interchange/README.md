@@ -6,7 +6,15 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.11.0`**: verified byte-identical to the
+**Vendored from mavai-R `0.11.1`**: verified byte-identical to the
+`interchange-v0.11.1.zip` release asset when recorded (2026-09-28). The one
+change from `0.11.0` closes a gap in `verdict-1.7.xsd`: a baseline-derived
+latency constraint with no precedence rank (saturated) has no threshold, so an
+evaluation now takes status `SATURATED` and omits `threshold-ms` (and
+`baseline-rank`). The emitter writes that shape rather than manufacture a
+threshold, and the record now validates here.
+
+**Vendored from mavai-R `0.11.0`** (superseded): verified byte-identical to the
 `interchange-v0.11.0.zip` release asset when recorded (2026-09-28). The three
 JSON schemas are unchanged from `0.10.12`; the verdict schema moves to
 `verdict-1.7.xsd` (Statistical Companion 1.5.0), which names the decision
@@ -16,13 +24,6 @@ dimension's verdict, the overall test verdict, and — for a configuration
 refused before any sample ran — the configuration-error list, no verdict
 value and the termination reason `CONFIGURATION_REFUSED`. `verdict-1.6.xsd`
 is no longer vendored: this emitter writes 1.7 only.
-
-One schema gap is known and closed upstream in mavai-R 0.11.1: in 0.11.0
-every latency evaluation requires `threshold-ms`, which a baseline-derived
-constraint with no precedence rank (saturated) does not have. The emitter
-already writes the 0.11.1 shape — status `SATURATED`, no `threshold-ms`, no
-`baseline-rank` — rather than manufacture a threshold; such a record
-validates once this copy is re-vendored from 0.11.1.
 
 **Vendored from mavai-R `0.10.12`** (superseded): verified byte-identical to
 the `interchange-v0.10.12.zip` release asset when recorded (2026-08-11). The
