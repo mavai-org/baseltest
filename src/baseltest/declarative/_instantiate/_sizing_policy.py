@@ -66,7 +66,7 @@ def _resolve_run_size(
             "widens honestly)"
         )
     anchors = [
-        (check_feasibility(1, c.threshold, c.confidence).minimum_samples, c)
+        (check_feasibility(c.threshold, 1, c.alpha).minimum_samples, c)
         for c in judged
         if c.threshold is not None
     ]

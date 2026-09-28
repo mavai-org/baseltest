@@ -1,8 +1,9 @@
 """The interactive sizing conversation: the channel and the questions.
 
 ``_Interaction`` is the injectable I/O channel (so tests can drive the
-conversation without a terminal); the prompts ask for a criterion's lowest
-acceptable rate and the one-time confidence, re-asking until valid.
+conversation without a terminal); the prompts ask for a criterion's design
+alternative rate (the rate to catch) and the one-time confidence, re-asking
+until valid.
 """
 
 from collections.abc import Callable
@@ -34,28 +35,29 @@ class _Interaction:
 
 
 def _prompt_rate(interaction: _Interaction, criterion: _EmpiricalCriterion) -> float:
-    """Ask for one criterion's lowest acceptable rate; re-ask until valid."""
+    """Ask for one criterion's design alternative rate; re-ask until valid."""
     baseline_pct = round(criterion.baseline_rate * 100)
     default = max(1, baseline_pct - 3)
     interaction.say(
-        f"\nThe proven baseline pass rate for criterion {criterion.name} is "
-        f"{_percent(criterion.baseline_rate)} (from your measure run of "
-        f"{criterion.baseline_trials} samples).\n"
+        f"\nThe baseline pass rate for criterion {criterion.name} is "
+        f"{_percent(criterion.baseline_rate)} ({criterion.baseline_successes} of "
+        f"{criterion.baseline_trials} samples in your measure run).\n"
         "\n"
-        "What is the LOWEST real pass rate you are willing to accept?\n"
-        "If the system has genuinely dropped below this, the test should fail.\n"
+        "The test flags any drop from that baseline it can see. Which degraded pass\n"
+        "rate must it catch reliably? If the system has genuinely dropped to this\n"
+        "rate, the test should fail almost every time.\n"
         f"(Enter a percentage between 1 and {baseline_pct - 1})  [default: {default}]"
     )
     while True:
         answer = interaction.ask("> ").strip()
         try:
-            value = _parse_rate(answer, "the lowest acceptable rate") if answer else default / 100
+            value = _parse_rate(answer, "the rate to catch") if answer else default / 100
         except SizingRefusalError as invalid:
             interaction.say(f"{invalid} — please try again.")
             continue
         if value >= criterion.baseline_rate:
             interaction.say(
-                f"The lowest acceptable rate must be below the proven baseline of "
+                f"The rate to catch must be below the baseline rate of "
                 f"{_percent(criterion.baseline_rate)} — please try again."
             )
             continue
@@ -65,9 +67,9 @@ def _prompt_rate(interaction: _Interaction, criterion: _EmpiricalCriterion) -> f
 def _prompt_confidence(interaction: _Interaction) -> float:
     """The one-time confidence question, in presets."""
     interaction.say(
-        "\nHow sure do you want to be that a PASS is trustworthy?\n"
-        "  [1] Standard - 95% sure  (recommended)\n"
-        "  [2] High     - 99% sure  (more careful, needs more samples)\n"
+        "\nHow rarely may the test raise a false alarm on an unchanged service?\n"
+        "  [1] Standard - 95% confidence, 1 run in 20  (recommended)\n"
+        "  [2] High     - 99% confidence, 1 run in 100 (needs more samples)\n"
         "  [3] Custom"
     )
     while True:

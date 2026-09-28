@@ -13,7 +13,7 @@ from pathlib import Path
 
 from baseltest.declarative._cli import main
 from baseltest.reporting import RISK_DRIVEN_APPROACH
-from baseltest.statistics import required_samples_for_power
+from baseltest.statistics import resolved_sizing
 
 BINDINGS = """
 from itertools import count
@@ -54,18 +54,25 @@ criteria:
 inputs: ["a"]
 """
 
-# The deterministic service rates and the oracle-locked requirements they
-# imply (tolerance 0.84 against 0.9 governs over 0.7 against 0.8).
-REQUIRED_FOR_MAIN_CLAIM = required_samples_for_power(0.9, 0.84, 0.95, 0.8)
+BASELINE_SAMPLES = 1000
+
+# The deterministic service measures exactly 900 and 800 of 1000; resolved
+# sizing against those counts gives the requirements (a rate to catch of
+# 0.84 against 900 of 1000 governs over 0.7 against 800 of 1000).
+_MAIN_CLAIM = resolved_sizing(900, BASELINE_SAMPLES, 0.84, 0.05, 0.8)
+assert _MAIN_CLAIM is not None
+REQUIRED_FOR_MAIN_CLAIM = _MAIN_CLAIM.required_samples
 
 
-def prepare(tmp_path: Path, monkeypatch, contract_text: str) -> Path:  # type: ignore[no-untyped-def]
+def prepare(
+    tmp_path: Path, monkeypatch, contract_text: str, samples: int = BASELINE_SAMPLES
+) -> Path:  # type: ignore[no-untyped-def]
     """Write the bindings and contract, chdir, and measure the baseline."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "mavai-bindings.py").write_text(BINDINGS, encoding="utf-8")
     contract = tmp_path / "contract.yaml"
     contract.write_text(contract_text, encoding="utf-8")
-    assert main(["measure", str(contract), "--samples", "200"]) == 0
+    assert main(["measure", str(contract), "--samples", str(samples)]) == 0
     return contract
 
 
@@ -88,12 +95,12 @@ class TestFullySpecified:
         out = capsys.readouterr().out
         assert (
             f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
-            "(computed from your declared tolerance)." in out
+            "(computed from your declared rate to catch)." in out
         )
         # The title line carries n and its provenance; no separate run-plan line.
         assert f"n = {REQUIRED_FOR_MAIN_CLAIM}" not in out
-        assert "confident the true pass rate is at least" in out
-        assert "catch a genuine drop to 84% about 80% of the time" in out
+        assert "this test passes when at least" in out
+        assert "catch a genuine drop to 84% about 80% of the time (its resolved power)" in out
 
     def test_contract_keys_size_the_run_with_no_flags(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(
@@ -104,7 +111,7 @@ class TestFullySpecified:
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
         assert (
             f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
-            "(computed from your declared tolerance)." in capsys.readouterr().out
+            "(computed from your declared rate to catch)." in capsys.readouterr().out
         )
 
     def test_flag_overrides_the_contract_key(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -114,10 +121,10 @@ class TestFullySpecified:
             ONE_CRITERION.replace("name: keeps-up", "name: keeps-up\n    tolerate: 0.7"),
         )
         assert main(["test", str(contract), "--tolerate", "0.84", "--no-verdict-xml"]) == 0
-        # The flag's tighter tolerance governs, not the key's cheaper one.
+        # The flag's rate governs, not the key's cheaper one.
         assert (
             f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
-            "(computed from your declared tolerance)." in capsys.readouterr().out
+            "(computed from your declared rate to catch)." in capsys.readouterr().out
         )
 
     def test_statistical_jargon_stays_out_of_the_output(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -148,10 +155,10 @@ class TestMultiCriterion:
         out = capsys.readouterr().out
         assert (
             f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
-            "(computed from your declared tolerances)." in out
+            "(computed from your declared rates to catch)." in out
         )
         # The sizing table: header, one row per criterion, governing marked.
-        assert "tolerates" in out and "a pass proves" in out and "needs alone" in out
+        assert "catch a drop to" in out and "passes at" in out and "needs alone" in out
         lines = out.splitlines()
         governing_row = next(line for line in lines if "keeps-up" in line and "←" in line)
         assert "84%" in governing_row
@@ -177,15 +184,15 @@ class TestMultiCriterion:
 class TestInteractiveMode:
     def test_two_answers_size_confirm_and_run(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
-        # confidence preset (Standard), lowest acceptable rate, confirm run.
+        # confidence preset (Standard), the rate to catch, confirm run.
         fake_tty(monkeypatch, ["1", "84", ""])
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
         out = capsys.readouterr().out
-        assert "proven baseline pass rate for criterion keeps-up is 90%" in out
-        assert "How sure do you want to be" in out
+        assert "The baseline pass rate for criterion keeps-up is 90%" in out
+        assert "How rarely may the test raise a false alarm" in out
         assert (
             f"This test needs {REQUIRED_FOR_MAIN_CLAIM} samples "
-            "(computed from your declared tolerance)." in out
+            "(computed from your declared rate to catch)." in out
         )
 
     def test_invalid_answers_are_re_asked(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -194,7 +201,7 @@ class TestInteractiveMode:
         fake_tty(monkeypatch, ["1", "95", "many", "84", ""])
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
         out = capsys.readouterr().out
-        assert "must be below the proven baseline" in out
+        assert "must be below the baseline rate" in out
         assert "please try again" in out
 
     def test_declining_the_confirmation_exits_two_without_sampling(
@@ -210,7 +217,32 @@ class TestInteractiveMode:
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION + "confidence: 0.95\n")
         fake_tty(monkeypatch, ["84", ""])
         assert main(["test", str(contract), "--no-verdict-xml"]) == 0
-        assert "How sure do you want to be" not in capsys.readouterr().out
+        assert "How rarely may the test raise a false alarm" not in capsys.readouterr().out
+
+
+class TestResolvedSizingRefusals:
+    def test_a_baseline_too_small_for_the_claim_is_refused(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        # 180 of 200: no test of at most 200 samples reaches and holds 80%
+        # power against a drop to 84%.
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION, samples=200)
+        assert main(["test", str(contract), "--tolerate", "84"]) == 2
+        err = capsys.readouterr().err
+        assert "BASELINE_TOO_SMALL" in err and "keeps-up" in err
+        assert not list((tmp_path / "_baseltest" / "verdicts").glob("*.xml"))
+
+    def test_a_test_larger_than_its_baseline_is_refused_before_it_runs(
+        self, tmp_path, monkeypatch, capsys
+    ):  # type: ignore[no-untyped-def]
+        contract = prepare(tmp_path, monkeypatch, ONE_CRITERION, samples=200)
+        capsys.readouterr()
+        assert main(["test", str(contract), "--samples", "201", "--accept-weak-design"]) == 2
+        err = capsys.readouterr().err
+        assert "TEST_LARGER_THAN_BASELINE: keeps-up" in err
+        # The refused configuration still leaves its record.
+        (record,) = (tmp_path / "_baseltest" / "verdicts").glob("*.xml")
+        text = record.read_text(encoding="utf-8")
+        assert 'configuration-error="TEST_LARGER_THAN_BASELINE"' in text
+        assert 'reason="CONFIGURATION_REFUSED"' in text
 
 
 class TestNoTtyRefusal:
@@ -245,7 +277,7 @@ class TestExplicitSamples:
         assert main(["test", str(contract), "--samples", "400", "--no-verdict-xml"]) == 0
         out = capsys.readouterr().out
         assert "You asked to run 400 samples." in out
-        assert "confident the true pass rate is at least" in out
+        assert "this test passes when at least 348 of its 400 samples succeed" in out
         assert "warning" not in out.lower()
 
     def test_a_weak_explicit_size_needs_yes_in_automation(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -290,7 +322,7 @@ class TestExplicitSamples:
         assert code in (0, 1)
         out = capsys.readouterr().out
         assert "You asked to run 400 samples." in out
-        assert "confident the true pass rate is at least" in out
+        assert "this test passes when at least" in out
 
     def test_interactive_confirmation_lets_a_weak_run_proceed(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         contract = prepare(tmp_path, monkeypatch, ONE_CRITERION)
@@ -414,15 +446,19 @@ class TestJsonMode:
         for row in payload["criteria"]:
             assert set(row) == {
                 "criterion",
-                "baseline_rate",
-                "tolerated_rate",
+                "baseline_successes",
+                "baseline_trials",
+                "design_alternative_rate",
                 "confidence",
                 "required_n",
-                "floor",
-                "power",
+                "cutoff",
+                "resolved_power",
             }
-        assert 0 < payload["acceptanceFloor"] < 1
-        assert 0 < payload["detectableDrop"] < 1
+        assert payload["decisionRule"] == "regression/fisher"
+        assert payload["designAlternativeRate"] == 0.84
+        assert 0 < payload["cutoff"] <= REQUIRED_FOR_MAIN_CLAIM
+        assert 0.8 <= payload["resolvedPower"] < 1
+        assert 0 < payload["resolvedDetectableRate"] < 1
         assert "explanation" in payload
 
     def test_json_with_missing_claims_refuses_rather_than_prompting(
@@ -496,11 +532,10 @@ def prepare_boundary(tmp_path: Path, monkeypatch, contract_text: str, samples: i
 class TestBaselineWithNoSuccesses:
     """A baseline that passed nothing cannot be sized against at any size.
 
-    Its effective rate is exactly zero — the Wilson lower bound of no
-    successes is zero at every size and every confidence — and the sizing
-    construction needs a tolerated rate strictly below the baseline. So the
-    run is declined, as a fact about the measurement rather than as a
-    violated precondition several frames in.
+    Its rate is exactly zero, and sizing needs a design alternative rate
+    strictly below the baseline (``ZERO_BASELINE``). So the run is declined,
+    as a fact about the measurement rather than as a violated precondition
+    several frames in.
     """
 
     def test_it_refuses_with_the_counts_and_no_traceback(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -547,9 +582,9 @@ class TestBaselineWithNoSuccesses:
 class TestPerfectBaselineStillSizes:
     """The other end is not a refusal, and must not become one.
 
-    A perfect run reduces to its own Wilson lower bound — strictly inside
-    (0, 1) — so it sizes like any other baseline. Locked here because it is
-    the neighbour of the path this change touches.
+    Under ``regression/fisher`` a perfect baseline needs no special case: its
+    cutoff is the Fisher cutoff at its count, like any other. Locked here
+    because it is the neighbour of the zero-baseline path.
     """
 
     def test_it_sizes_rather_than_refusing(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
@@ -568,17 +603,15 @@ class TestPerfectBaselineStillSizes:
         assert code == 0
         assert "You asked to run 3 samples" in capsys.readouterr().out
 
-    def test_it_is_priced_against_the_reduced_rate_not_against_certainty(
-        self, tmp_path, monkeypatch, capsys
-    ):  # type: ignore[no-untyped-def]
-        """10 of 10 reduces to 10 / (10 + z**2) = 0.787…, so the run is
-        priced against 79% rather than against a claim of certainty. Reached
-        through the weak-design warning, which is the surface that states
-        the baseline back to the reader — and which proves sizing ran at
-        all, as against the refusal a zero baseline earns."""
+    def test_it_is_priced_against_its_own_count(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        """10 of 10 is priced as 10 of 10 — no reduced rate stands in for it.
+        Reached through the weak-design warning, which is the surface that
+        states the baseline back to the reader — and which proves sizing ran
+        at all, as against the refusal a zero baseline earns."""
         contract = prepare_boundary(tmp_path, monkeypatch, ALWAYS_HOLDS)
         capsys.readouterr()
         assert main(["test", str(contract), "--samples", "3", "--no-verdict-xml"]) == 2
         captured = capsys.readouterr()
-        assert "baseline of 79%" in captured.out
+        assert "baseline of 100%" in captured.out
+        assert "Against your baseline of 10 of 10" in captured.out
         assert "no baseline to defend" not in captured.err

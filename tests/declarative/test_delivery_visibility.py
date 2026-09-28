@@ -248,7 +248,7 @@ def _verdict_documents(verdicts_dir: Path) -> list[Any]:
     return [ElementTree.parse(path).getroot() for path in sorted(verdicts_dir.rglob("*.xml"))]
 
 
-def _run_test(tmp_path: Path, samples: int = 4) -> Path:
+def _run_test(tmp_path: Path, samples: int = 6) -> Path:
     from baseltest.declarative import run
 
     contract = _write_files(tmp_path)
@@ -284,7 +284,7 @@ def test_a_verdict_states_the_run_failure_attribution(tmp_path: Path, monkeypatc
     roots = _verdict_documents(verdicts)
     assert roots
     for root in roots:
-        assert root.get("version") == "1.6"
+        assert root.get("version") == "1.7"
         functional = root.find(f"{ns}functional")
         assert functional is not None
         checks = functional.findall(f"{ns}failure-distribution/{ns}check")

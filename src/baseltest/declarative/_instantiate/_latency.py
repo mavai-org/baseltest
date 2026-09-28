@@ -1,60 +1,42 @@
-"""The latency bar: the contract's latency spec resolved to concrete bounds.
+"""The latency bar: the contract's latency spec resolved to enforced constraints.
 
-Every refusal here is a configuration fact knowable up front, so it fires
-before any service invocation: an asserted percentile the planned sample
-count can never estimate, an empirical declaration with no usable baseline,
-and a requested confidence a baseline's size cannot support.
+The refusals here are configuration facts knowable up front, so they fire
+before any service invocation: an empirical declaration with no usable
+baseline, or a baseline that recorded no latency profile. Everything that
+depends on how many successful latencies the run returns — the
+non-degeneracy gate and the precedence rank — is decided after the run; the
+engine's planning checks warn about it beforehand (``engine.plan_latency``).
 """
 
 from baseltest.baseline import BaselineResolution
 from baseltest.contract import (
-    PERCENTILE_LEVELS,
     LatencyBar,
+    LatencyBaseline,
     LatencyBound,
     ThresholdProvenance,
 )
-from baseltest.engine import minimum_contributing_samples
-from baseltest.statistics import bound_existence_minimum, derive_latency_threshold
+from baseltest.statistics import ThresholdSource
 
 from .._errors import ContractConfigurationError
 from .._parser import ContractDeclaration
 
 
 def _latency_bar(
-    declaration: ContractDeclaration,
-    samples: int,
-    resolution: BaselineResolution | None,
+    declaration: ContractDeclaration, resolution: BaselineResolution | None
 ) -> LatencyBar | None:
-    """The contract's latency bar, resolved to concrete bounds — or a refusal.
-
-    Every refusal here fires before any service invocation: an asserted
-    percentile the planned sample count can never estimate, an empirical
-    declaration with no usable baseline, and a requested confidence the
-    baseline's size cannot support a non-saturated bound at (the
-    distribution-free existence condition) are all configuration facts,
-    knowable up front.
-    """
+    """The contract's latency bar — explicit ceilings, or baseline-derived
+    constraints carrying the baseline they are derived from — or a refusal."""
     spec = declaration.latency
     if spec is None:
         return None
     confidence = spec.confidence if spec.confidence is not None else declaration.confidence
-    asserted = [percentile for percentile, _ in spec.ceilings] or list(spec.empirical)
-    for percentile in asserted:
-        minimum = minimum_contributing_samples(percentile)
-        if minimum > samples:
-            raise ContractConfigurationError(
-                f"the latency bound on {percentile} needs at least {minimum} passing "
-                f"samples to estimate, and the run is planned at {samples} — run with "
-                f"`--samples {minimum}` or more (only passing samples contribute)"
-            )
-
     if spec.ceilings:
         return LatencyBar(
             bounds=tuple(
                 LatencyBound(percentile=percentile, threshold_ms=ms)
                 for percentile, ms in spec.ceilings
             ),
-            origin="explicit",
+            origin=ThresholdSource.EXPLICIT,
             confidence=confidence,
             provenance=ThresholdProvenance(
                 origin=spec.threshold_origin or "unspecified",
@@ -77,32 +59,15 @@ def _latency_bar(
     if stored.latency is None or not stored.latency.sorted_passing_latencies_ms:
         raise ContractConfigurationError(
             f"baseline {stored.path.name} records no latency profile (it predates "
-            "latency recording) — re-run `basel measure`"
-        )
-    vector = list(stored.latency.sorted_passing_latencies_ms)
-    bounds = []
-    for percentile in spec.empirical:
-        derived = derive_latency_threshold(vector, PERCENTILE_LEVELS[percentile], confidence)
-        if derived.saturated:
-            required = bound_existence_minimum(PERCENTILE_LEVELS[percentile], confidence)
-            raise ContractConfigurationError(
-                f"no {confidence:.0%}-confident upper bound on {percentile} exists "
-                f"from a baseline of {derived.n} passing samples — at least "
-                f"{required} are needed. Re-measure with a larger budget, or declare "
-                "a lower `latency: confidence:`"
-            )
-        bounds.append(
-            LatencyBound(
-                percentile=percentile,
-                threshold_ms=round(derived.threshold),
-                rank=derived.rank,
-                baseline_percentile_ms=round(derived.baseline_percentile),
-                baseline_samples=derived.n,
-            )
+            "latency recording, or no sample passed) — re-run `basel measure`"
         )
     return LatencyBar(
-        bounds=tuple(bounds),
-        origin="baseline-derived",
+        bounds=tuple(LatencyBound(percentile=percentile) for percentile in spec.empirical),
+        origin=ThresholdSource.BASELINE_DERIVED,
         confidence=confidence,
+        baseline=LatencyBaseline(
+            sorted_latencies_ms=tuple(stored.latency.sorted_passing_latencies_ms),
+            samples=stored.sample_count,
+        ),
         provenance=ThresholdProvenance(origin="empirical", contract_ref=stored.path.name),
     )

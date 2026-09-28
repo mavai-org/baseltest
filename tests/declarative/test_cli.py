@@ -76,7 +76,7 @@ class TestSampleSizing:
         monkeypatch.chdir(tmp_path)
         contract = write_contract(tmp_path, threshold="0.99")
         assert main(["test", str(contract), "--samples", "50"]) == 2
-        assert "cannot support" in capsys.readouterr().err
+        assert "COMPLIANCE_INFEASIBLE" in capsys.readouterr().err
 
     def test_samples_flag_applies_to_measure_too(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         monkeypatch.chdir(tmp_path)

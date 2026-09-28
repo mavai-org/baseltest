@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from baseltest.baseline import BaselineResolution, StoredBaseline, resolve_baseline
 from baseltest.engine import inputs_fingerprint
-from baseltest.statistics import check_feasibility, effective_baseline_rate
+from baseltest.statistics import alpha_from_confidence, check_feasibility
 
 from .._parser import ContractDeclaration, CriterionDeclaration
 from .._services import ServiceDefinition
@@ -70,12 +70,10 @@ def _sizeable_criteria(
     criterion carries ``None`` and is the interactive mode's business.
 
     A criterion the baseline records as passing nothing comes back in the
-    second list. Its effective rate is zero — the Wilson lower bound of no
-    successes is exactly zero, at every sample size and every confidence —
-    and the sizing construction needs a tolerated rate strictly below the
-    baseline, which leaves nothing to ask for. That is a fact about the
-    measurement, so it travels as one rather than as a violated precondition
-    three frames further in.
+    second list (``ZERO_BASELINE``): sizing needs a design alternative rate
+    strictly below the baseline rate, and below zero there is nothing to ask
+    for. That is a fact about the measurement, so it travels as one rather
+    than as a violated precondition three frames further in.
     """
     sizeable = []
     unsizeable = []
@@ -97,12 +95,10 @@ def _sizeable_criteria(
         sizeable.append(
             _EmpiricalCriterion(
                 name=entry.name,
-                baseline_rate=effective_baseline_rate(
-                    evidence.successes, evidence.trials, confidence
-                ),
+                baseline_successes=evidence.successes,
                 baseline_trials=evidence.trials,
                 confidence=confidence,
-                tolerated_rate=tolerated,
+                design_alternative_rate=tolerated,
             )
         )
     return sizeable, unsizeable
@@ -124,7 +120,9 @@ def _normative_minimum(declaration: ContractDeclaration) -> int:
     """The feasibility floor the normative criteria put under any run size."""
     minima = [
         check_feasibility(
-            1, entry.threshold, _criterion_confidence(entry, declaration, None)
+            entry.threshold,
+            1,
+            alpha_from_confidence(_criterion_confidence(entry, declaration, None)),
         ).minimum_samples
         for entry in declaration.criteria
         if entry.threshold is not None

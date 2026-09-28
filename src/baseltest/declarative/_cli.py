@@ -6,13 +6,13 @@ from pathlib import Path
 
 from baseltest._version import __version__
 from baseltest.engine import (
+    ConfigurationRefusedError,
     DefectDiagnosisError,
-    InfeasibleRunError,
     RunResult,
     Verdict,
     bar_attainment,
 )
-from baseltest.reporting import render_infeasible
+from baseltest.reporting import render_refusal
 
 from . import _report
 from ._errors import ContractConfigurationError
@@ -480,8 +480,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"  {rejection}", file=sys.stderr)
         return 2
-    except InfeasibleRunError as infeasible:
-        print(render_infeasible(arguments.contract_file.stem, infeasible), file=sys.stderr)
+    except ConfigurationRefusedError as refused:
+        print(render_refusal(arguments.contract_file.stem, refused), file=sys.stderr)
         return 2
     except DefectDiagnosisError as defect:
         # A defect escaped a transform in a single-configuration run (test or
@@ -495,8 +495,9 @@ def main(argv: list[str] | None = None) -> int:
         if result.composite is Verdict.FAIL:
             return 1
         if result.composite is Verdict.INCONCLUSIVE:
-            # A latency bound the run's passing samples could not estimate:
-            # no judgement was possible, so no assertion can rest on it.
+            # Nothing failed, and something could not be decided — a latency
+            # constraint with too few successful latencies, or no precedence
+            # rank for the count the run returned: no assertion can rest on it.
             return 3
         return 0
     if getattr(arguments, "assert_bars", False):
@@ -692,9 +693,7 @@ def _resolve_sizing(arguments: "argparse.Namespace", loaded: LoadedContract) -> 
 def _assert_recorded_bars(result: RunResult) -> int:
     """The opt-in assertion: fail after recording, unsupportable distinguished."""
     standings = {
-        r.name: bar_attainment(r)
-        for r in result.criterion_results
-        if r.criterion.threshold is not None
+        r.name: bar_attainment(r) for r in result.criterion_results if r.decision is not None
     }
     unsupportable = [name for name, standing in standings.items() if standing == "unsupportable"]
     unmet = [name for name, standing in standings.items() if standing == "not met"]

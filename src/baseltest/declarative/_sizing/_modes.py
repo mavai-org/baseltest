@@ -7,7 +7,7 @@ and returns the ``ResolvedSizing``. The resolver dispatches to exactly one.
 
 import json
 
-from baseltest.statistics import detectable_rate
+from baseltest.statistics import resolved_detectable_rate
 
 from .._parser import ContractDeclaration
 from ._criteria import _normative_minimum
@@ -32,13 +32,20 @@ def _explicit_samples_mode(
     interaction: _Interaction,
 ) -> ResolvedSizing:
     """Explicit-samples mode: run at the typed size, but price it first and
-    require confirmation for a weak design."""
+    require confirmation for a weak design.
+
+    A size larger than the baseline is not priced: the engine refuses it
+    before any sample runs (``TEST_LARGER_THAN_BASELINE``), with every other
+    configuration error beside it.
+    """
+    if any(samples > criterion.baseline_trials for criterion in criteria):
+        return ResolvedSizing(samples=samples, provenance="explicit", approach="sample-size-first")
     several = len(criteria) > 1
     claims: list[SizingClaim] = []
     weak_lines: list[str] = []
     interaction.say(f"\nYou asked to run {samples} samples.\n\nWhat this means:")
     for criterion in criteria:
-        if criterion.tolerated_rate is not None:
+        if criterion.design_alternative_rate is not None:
             claim = _priced_claim(criterion, target_power)
             required = claim.required_n or 0
             weak = samples < required
@@ -47,21 +54,32 @@ def _explicit_samples_mode(
             )
             if weak:
                 weak_lines.append(
-                    f"To reliably catch a drop to {_percent(claim.tolerated_rate)} on "
-                    f"criterion {claim.criterion}, you would need about {required} samples."
+                    f"To reliably catch a drop to {_percent(claim.design_alternative_rate)} "
+                    f"on criterion {claim.criterion}, you would need about {required} samples."
                 )
         else:
-            catchable = detectable_rate(
-                samples, criterion.baseline_rate, criterion.confidence, target_power
+            catchable = resolved_detectable_rate(
+                criterion.baseline_successes,
+                criterion.baseline_trials,
+                samples,
+                criterion.alpha,
+                target_power,
             )
+            if catchable is None:
+                weak_lines.append(
+                    f"At {samples} samples no drop on criterion {criterion.name} is caught "
+                    f"{_percent(target_power)} of the time — not even a collapse to 0%."
+                )
+                continue
             claim = SizingClaim(
                 criterion=criterion.name,
-                baseline_rate=criterion.baseline_rate,
+                baseline_successes=criterion.baseline_successes,
                 baseline_trials=criterion.baseline_trials,
-                tolerated_rate=catchable,
+                design_alternative_rate=catchable,
                 confidence=criterion.confidence,
                 target_power=target_power,
                 required_n=None,
+                declared=False,
             )
             weak = catchable < criterion.baseline_rate - _WEAK_DESIGN_MARGIN
             interaction.say(
@@ -87,7 +105,7 @@ def _explicit_samples_mode(
             )
         if not interaction.confirm("Continue anyway?", default_yes=False):
             raise SizingRefusalError("run declined — no samples were taken")
-    if interaction.emit_json:
+    if interaction.emit_json and claims:
         interaction.say(json.dumps(_json_payload(claims, samples, None, []), indent=2))
     return ResolvedSizing(
         samples=samples,
@@ -95,6 +113,7 @@ def _explicit_samples_mode(
         claims=tuple(claims),
         governing=None,
         approach="sample-size-first",
+        design_alternative_rates=_declared_rates(claims),
     )
 
 
@@ -120,7 +139,7 @@ def _risk_driven_mode(
             json.dumps(_json_payload(claims, samples, governing, explanations), indent=2)
         )
     else:
-        qualifier = "tolerances" if several else "tolerance"
+        qualifier = "rates to catch" if several else "rate to catch"
         interaction.say(
             f"\nThis test needs {samples} samples (computed from your declared {qualifier})."
         )
@@ -135,8 +154,8 @@ def _risk_driven_mode(
         if samples > LARGE_RUN_NOTE_LIMIT:
             interaction.say(
                 f"\nnote: a run of {samples} samples is the honest cost of the confidence "
-                "and tolerance you asked for. To spend less, tolerate a larger drop "
-                "(--tolerate) or accept a lower confidence (--confidence)."
+                "and the rate to catch you asked for. To spend less, declare a lower rate "
+                "to catch (--tolerate) or accept a lower confidence (--confidence)."
             )
     if (
         prompted
@@ -150,7 +169,13 @@ def _risk_driven_mode(
         claims=tuple(claims),
         governing=governing,
         approach="confidence-first (risk-driven)",
+        design_alternative_rates=_declared_rates(claims),
     )
+
+
+def _declared_rates(claims: list[SizingClaim]) -> dict[str, float]:
+    """The declared design alternative rates, by criterion, for the run's report."""
+    return {claim.criterion: claim.design_alternative_rate for claim in claims if claim.declared}
 
 
 def _over_reach_mode(
@@ -160,35 +185,37 @@ def _over_reach_mode(
     target_power: float,
     interaction: _Interaction,
 ) -> ResolvedSizing:
-    """Addendum behaviour for a tolerance at or above the proven baseline:
-    warn, never search for a required size, and demand a deliberate
-    override (interactive confirmation, or ``--force`` in automation)."""
+    """A design alternative rate at or above the baseline rate
+    (``ALTERNATIVE_NOT_BELOW_BASELINE``): warn, never search for a required
+    size, and demand a deliberate override (interactive confirmation, or
+    ``--force`` in automation)."""
     interaction.say("\n" + _over_reach_message(offender))
     if not interaction.force:
         if not interaction.interactive:
             raise SizingRefusalError(
-                f"the tolerance for criterion {offender.name} is at or above its "
-                "proven baseline — re-run with --force to design the test anyway"
+                f"ALTERNATIVE_NOT_BELOW_BASELINE: the rate to catch for criterion "
+                f"{offender.name} is at or above its baseline rate — re-run with --force "
+                "to design the test anyway"
             )
         if not interaction.confirm("\nDesign the test anyway?", default_yes=False):
             raise SizingRefusalError("run declined — no samples were taken")
     if samples is None:
         raise SizingRefusalError(
-            "no number of samples can be computed for a tolerance at or above the "
-            "proven baseline (more samples only make a pass less likely) — choose "
-            "the size yourself with --samples N"
+            "no number of samples can be computed for a rate to catch at or above the "
+            "baseline rate (there is no drop to catch) — choose the size yourself with "
+            "--samples N"
         )
     # The over-reaching claim prices nothing; explain what the chosen size
     # actually buys instead, per criterion.
     priced = [
         c
-        if c.tolerated_rate is None or c.tolerated_rate < c.baseline_rate
+        if c.design_alternative_rate is None or c.design_alternative_rate < c.baseline_rate
         else _EmpiricalCriterion(
             name=c.name,
-            baseline_rate=c.baseline_rate,
+            baseline_successes=c.baseline_successes,
             baseline_trials=c.baseline_trials,
             confidence=c.confidence,
-            tolerated_rate=None,
+            design_alternative_rate=None,
         )
         for c in criteria
     ]
