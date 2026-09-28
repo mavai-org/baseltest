@@ -4,21 +4,28 @@ from itertools import count
 
 import pytest
 
-from baseltest.contract import Criterion, ServiceContract, contains
+from baseltest.contract import (
+    BaselineCount,
+    Criterion,
+    LatencyBar,
+    LatencyBaseline,
+    LatencyBound,
+    ServiceContract,
+    contains,
+)
 from baseltest.engine import (
-    InfeasibleRunError,
+    ConfigurationError,
+    ConfigurationRefusedError,
     Intent,
     RunKind,
     RunPlan,
-    bar_attainment,
     derive_minimum_samples,
     execute,
     inputs_fingerprint,
 )
 from baseltest.engine.run.execute import _reduce_samples
 from baseltest.engine.run.sample import _run_one_sample
-from baseltest.statistics import check_feasibility
-from baseltest.statistics.verdict import Verdict
+from baseltest.statistics import ThresholdSource, Verdict, check_feasibility
 
 
 def flaky_service(period: int) -> object:
@@ -46,7 +53,7 @@ def plan(samples: int, **kwargs: object) -> RunPlan:
 
 class TestVerdicts:
     def test_clearing_threshold_passes(self) -> None:
-        # observed ~2/3 against 0.5: Wilson lower bound clears at 300 samples
+        # observed 200/300 against 0.5: the exact binomial test demonstrates it
         criterion = Criterion(name="ok", postconditions=(contains("ok"),), threshold=0.5)
         result = execute(contract_with((criterion,)), plan(300))
         assert result.criterion_results[0].verdict is Verdict.PASS
@@ -58,13 +65,13 @@ class TestVerdicts:
         assert result.criterion_results[0].verdict is Verdict.FAIL
         assert result.composite is Verdict.FAIL
 
-    def test_verdict_is_bound_based_not_point_estimate(self) -> None:
-        # observed 2/3 ≈ 0.667 exceeds 0.66, but the lower bound at 300 does not
+    def test_verdict_is_the_exact_test_not_the_point_estimate(self) -> None:
+        # observed 200/300 ≈ 0.667 exceeds 0.66, but compliance is not demonstrated
         criterion = Criterion(name="ok", postconditions=(contains("ok"),), threshold=0.66)
         result = execute(contract_with((criterion,)), plan(300))
         r = result.criterion_results[0]
         assert r.tally.observed_rate > 0.66
-        assert r.lower_bound is not None and r.lower_bound < 0.66
+        assert r.decision is not None and r.decision.rule == "compliance/exact-binomial"
         assert r.verdict is Verdict.FAIL
 
 
@@ -105,11 +112,59 @@ class TestPreflight:
 
         criterion = Criterion(name="c", postconditions=(contains("x"),), threshold=0.99)
         contract = ServiceContract(contract_id="svc", invoke=invoke, criteria=(criterion,))
-        with pytest.raises(InfeasibleRunError) as excinfo:
+        with pytest.raises(ConfigurationRefusedError) as excinfo:
             execute(contract, plan(30))
         assert invocations == []
-        assert excinfo.value.governing_minimum > 30
-        assert excinfo.value.infeasible[0].name == "c"
+        assert excinfo.value.errors == (ConfigurationError.COMPLIANCE_INFEASIBLE,)
+        (part,) = excinfo.value.parts
+        assert (part.subject, part.limit) == ("c", 299)
+
+    def test_test_larger_than_its_baseline_refused_whatever_the_intent(self) -> None:
+        criterion = Criterion(
+            name="c", postconditions=(contains("ok"),), baseline=BaselineCount(95, 100)
+        )
+        for intent in Intent:
+            with pytest.raises(ConfigurationRefusedError) as excinfo:
+                execute(contract_with((criterion,)), plan(101, intent=intent))
+            assert excinfo.value.errors == (ConfigurationError.TEST_LARGER_THAN_BASELINE,)
+
+    def test_the_whole_configuration_is_refused_naming_every_code_in_order(self) -> None:
+        requirement = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.999)
+        regression = Criterion(
+            name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(95, 100)
+        )
+        with pytest.raises(ConfigurationRefusedError) as excinfo:
+            execute(contract_with((requirement, regression)), plan(200))
+        assert excinfo.value.errors == (
+            ConfigurationError.TEST_LARGER_THAN_BASELINE,
+            ConfigurationError.COMPLIANCE_INFEASIBLE,
+        )
+
+    def test_latency_test_size_is_judged_on_the_samplings(self) -> None:
+        bar = LatencyBar(
+            bounds=(LatencyBound("p50"),),
+            origin=ThresholdSource.BASELINE_DERIVED,
+            baseline=LatencyBaseline(tuple(range(1, 11)), samples=500),
+        )
+        criterion = Criterion(name="c", postconditions=(contains("ok"),))
+        contract = ServiceContract(
+            contract_id="svc", invoke=flaky_service(3), criteria=(criterion,), latency=bar
+        )
+        # 20 planned samples against a baseline run of 500, whose 10 successful
+        # latencies are fewer than the test's: not refused.
+        assert execute(contract, plan(20)).latency is not None
+        with pytest.raises(ConfigurationRefusedError):
+            execute(contract, plan(501))
+
+    def test_explicit_latency_requirement_below_its_feasibility_is_refused(self) -> None:
+        bar = LatencyBar(bounds=(LatencyBound("p95", 500),))
+        criterion = Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5)
+        contract = ServiceContract(
+            contract_id="svc", invoke=flaky_service(3), criteria=(criterion,), latency=bar
+        )
+        with pytest.raises(ConfigurationRefusedError) as excinfo:
+            execute(contract, plan(58))
+        assert [part.subject for part in excinfo.value.parts] == ["latency p95"]
 
     def test_smoke_intent_runs_anyway(self) -> None:
         criterion = Criterion(name="c", postconditions=(contains("ok"),), threshold=0.99)
@@ -122,8 +177,8 @@ class TestPreflight:
         contract = contract_with((lax, strict))
         derived = derive_minimum_samples(contract)
         assert derived == max(
-            check_feasibility(1, 0.8, 0.95).minimum_samples,
-            check_feasibility(1, 0.99, 0.95).minimum_samples,
+            check_feasibility(0.8, 1, 0.05).minimum_samples,
+            check_feasibility(0.99, 1, 0.05).minimum_samples,
         )
 
     def test_derivation_requires_a_threshold(self) -> None:
@@ -183,49 +238,71 @@ def exact_service(successes: int) -> object:
 
 
 class TestRegressionPosture:
-    """A baseline-derived criterion carries an integer cutoff; the verdict
-    is the raw observed count meeting it, not a test-side confidence bound
-    clearing the derived threshold."""
+    """A criterion carrying its baseline evidence is judged by
+    ``regression/fisher``: its cutoff is derived at the run's own size and the
+    verdict is the raw observed count meeting it."""
 
-    def _criterion(self, cutoff: int) -> Criterion:
+    def _criterion(self, design_alternative_rate: float | None = None) -> Criterion:
         return Criterion(
             name="derived",
             postconditions=(contains("ok"),),
-            threshold=0.9021,
-            cutoff=cutoff,
+            baseline=BaselineCount(951, 1000),
+            design_alternative_rate=design_alternative_rate,
         )
 
-    def test_count_at_cutoff_passes_even_where_the_bound_would_not(self) -> None:
+    def test_count_at_cutoff_passes(self) -> None:
         contract = ServiceContract(
-            contract_id="svc", invoke=exact_service(91), criteria=(self._criterion(91),)
+            contract_id="svc", invoke=exact_service(91), criteria=(self._criterion(),)
         )
         result = execute(contract, RunPlan(samples=100, inputs=("a",)))
         r = result.criterion_results[0]
-        # The distinction under test: the test-side bound sits below the
-        # derived threshold, and the verdict is PASS regardless.
-        assert r.lower_bound is not None and r.lower_bound < 0.9021
+        assert r.decision is not None and r.decision.rule == "regression/fisher"
         assert r.verdict is Verdict.PASS
         assert result.composite is Verdict.PASS
 
-    def test_count_below_cutoff_fails(self) -> None:
+    def test_count_below_cutoff_fails_and_names_the_criterion(self) -> None:
         contract = ServiceContract(
-            contract_id="svc", invoke=exact_service(90), criteria=(self._criterion(91),)
+            contract_id="svc", invoke=exact_service(90), criteria=(self._criterion(),)
         )
         result = execute(contract, RunPlan(samples=100, inputs=("a",)))
         assert result.criterion_results[0].verdict is Verdict.FAIL
+        assert result.overall is not None
+        assert [t.id for t in result.overall.triggering] == ["derived"]
 
-    def test_run_shorter_than_cutoff_fails_and_records_unsupportable(self) -> None:
+    def test_power_disclosure_names_the_two_powers_apart(self) -> None:
         contract = ServiceContract(
-            contract_id="svc", invoke=exact_service(50), criteria=(self._criterion(91),)
+            contract_id="svc", invoke=exact_service(93), criteria=(self._criterion(0.90),)
         )
-        result = execute(contract, RunPlan(samples=50, inputs=("a",)))
-        r = result.criterion_results[0]
-        assert r.verdict is Verdict.FAIL
-        assert bar_attainment(r) == "unsupportable"
+        power = execute(contract, RunPlan(samples=100, inputs=("a",))).criterion_results[0].power
+        assert power is not None
+        assert power.design_alternative_rate == 0.90
+        assert power.design_power == pytest.approx(0.55, abs=0.01)
+        assert power.resolved_power == pytest.approx(0.549, abs=0.001)
+        assert power.minimum_detectable_degradation is not None
 
-    def test_cutoff_without_threshold_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match="cannot stand without"):
-            Criterion(name="c", postconditions=(contains("ok"),), cutoff=5)
+    def test_a_criterion_is_judged_against_a_requirement_or_a_baseline_not_both(self) -> None:
+        with pytest.raises(ValueError, match="two criteria"):
+            Criterion(
+                name="c",
+                postconditions=(contains("ok"),),
+                threshold=0.9,
+                baseline=BaselineCount(9, 10),
+            )
+
+    def test_a_requirement_and_a_baseline_are_two_criteria_composed(self) -> None:
+        compliance = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.80)
+        regression = Criterion(
+            name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(951, 1000)
+        )
+        contract = ServiceContract(
+            contract_id="svc", invoke=exact_service(90), criteria=(compliance, regression)
+        )
+        result = execute(contract, RunPlan(samples=100, inputs=("a",)))
+        verdicts = {r.name: r.verdict for r in result.criterion_results}
+        assert verdicts == {"req": Verdict.PASS, "reg": Verdict.FAIL}
+        assert result.composite is Verdict.FAIL
+        assert result.envelopes.false_compliance == pytest.approx(0.05)
+        assert result.envelopes.false_degradation_signal == pytest.approx(0.05)
 
 
 class TestReduceOrderIndependence:

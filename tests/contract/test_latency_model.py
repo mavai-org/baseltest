@@ -2,7 +2,8 @@
 
 import pytest
 
-from baseltest.contract import LatencyBar, LatencyBound
+from baseltest.contract import LatencyBar, LatencyBaseline, LatencyBound
+from baseltest.statistics import ThresholdSource
 
 
 class TestLatencyBound:
@@ -14,15 +15,9 @@ class TestLatencyBound:
         with pytest.raises(ValueError, match="positive"):
             LatencyBound(percentile="p95", threshold_ms=0)
 
-    def test_carries_derivation_facts_for_baseline_derived_bounds(self) -> None:
-        bound = LatencyBound(
-            percentile="p95",
-            threshold_ms=420,
-            rank=196,
-            baseline_percentile_ms=356,
-            baseline_samples=200,
-        )
-        assert (bound.rank, bound.baseline_samples) == (196, 200)
+    def test_a_baseline_derived_bound_has_no_ceiling_until_the_run(self) -> None:
+        assert LatencyBound(percentile="p95").threshold_ms is None
+        assert LatencyBound(percentile="p95").level == 0.95
 
 
 class TestLatencyBar:
@@ -31,8 +26,27 @@ class TestLatencyBar:
             LatencyBar(bounds=())
 
     def test_rejects_unknown_origin(self) -> None:
-        with pytest.raises(ValueError, match="origin"):
-            LatencyBar(bounds=(LatencyBound("p50", 100),), origin="advisory")
+        with pytest.raises(ValueError, match="ThresholdSource"):
+            LatencyBar(
+                bounds=(LatencyBound("p50", 100),),
+                origin="advisory",  # type: ignore[arg-type]
+            )
+
+    def test_baseline_derived_bar_carries_its_baseline_and_no_ceilings(self) -> None:
+        baseline = LatencyBaseline((10, 20, 30), samples=4)
+        source = ThresholdSource.BASELINE_DERIVED
+        derived = LatencyBar(bounds=(LatencyBound("p50"),), origin=source, baseline=baseline)
+        assert derived.baseline is not None and derived.baseline.passing_rate == 0.75
+        with pytest.raises(ValueError, match="carries its baseline"):
+            LatencyBar(bounds=(LatencyBound("p50"),), origin=source)
+        with pytest.raises(ValueError, match="after the run"):
+            LatencyBar(bounds=(LatencyBound("p50", 100),), origin=source, baseline=baseline)
+
+    def test_latency_baseline_is_sorted_and_no_larger_than_its_sampling(self) -> None:
+        with pytest.raises(ValueError, match="sorted"):
+            LatencyBaseline((30, 10), samples=2)
+        with pytest.raises(ValueError, match="more latencies than samples"):
+            LatencyBaseline((10, 20, 30), samples=2)
 
     def test_rejects_duplicate_percentiles(self) -> None:
         with pytest.raises(ValueError, match="at most once"):

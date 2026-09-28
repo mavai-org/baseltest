@@ -18,7 +18,18 @@ from baseltest.contract import (
     Outcome,
     PostconditionStanding,
 )
-from baseltest.statistics.verdict import Verdict
+from baseltest.statistics import (
+    ComplianceVerdict,
+    ConfigurationError,
+    Envelopes,
+    OverallVerdict,
+    RegressionVerdict,
+    Verdict,
+    type_one_envelopes,
+)
+from baseltest.statistics import (
+    Intent as Intent,
+)
 
 if TYPE_CHECKING:
     from ..latency import LatencyEvaluation
@@ -31,13 +42,6 @@ class RunKind(Enum):
     MEASURE = "measure"
     EXPLORE = "explore"
     OPTIMIZE = "optimize"
-
-
-class Intent(Enum):
-    """Whether the run's statistical adequacy is enforced or advisory."""
-
-    VERIFICATION = "verification"
-    SMOKE = "smoke"
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,22 +68,64 @@ class RunPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class InfeasibleCriterion:
-    """One criterion whose threshold the planned sample count cannot support."""
+class RefusedPart:
+    """One part of a configuration refused before any sample runs.
 
-    name: str
-    threshold: float
-    confidence: float
-    minimum_samples: int
+    Attributes:
+        code: The configuration error.
+        subject: What the part is: a criterion's name, or a latency
+            constraint's percentile label (``latency p95``).
+        planned_samples: The test's planned sample size.
+        limit: For ``TEST_LARGER_THAN_BASELINE``, the baseline run's sample
+            size; for ``COMPLIANCE_INFEASIBLE``, the smallest size at which
+            a pass is possible.
+        requirement: For ``COMPLIANCE_INFEASIBLE``, the requirement the
+            design cannot demonstrate.
+    """
+
+    code: ConfigurationError
+    subject: str
+    planned_samples: int
+    limit: int
+    requirement: float | None = None
+
+
+Decision = ComplianceVerdict | RegressionVerdict
+"""A judged criterion's decision under its rule."""
+
+
+@dataclass(frozen=True, slots=True)
+class PowerDisclosure:
+    """What a regression criterion's design can detect (§5.6, §10.2).
+
+    Attributes:
+        minimum_detectable_degradation: The smallest drop from the baseline
+            rate detected with 80% power — it inverts the *design* power
+            (baseline and test both yet to be drawn); ``None`` when no drop
+            is detectable at that power.
+        design_alternative_rate: The declared rate at which the test is to
+            reach its target power, when the criterion declares one.
+        design_power: The power at that rate with the baseline and the test
+            both yet to be drawn, the baseline at its observed rate.
+        resolved_power: The power at that rate of this test, resolved
+            against the observed baseline, whose cutoff is fixed. The two
+            powers answer different questions and are named apart.
+    """
+
+    minimum_detectable_degradation: float | None
+    design_alternative_rate: float | None = None
+    design_power: float | None = None
+    resolved_power: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class CriterionResult:
     """One criterion's outcome over the whole run.
 
-    A thresholded criterion carries a verdict and its Wilson lower bound;
-    an unthresholded criterion is characterised only -- its ``verdict`` and
-    ``lower_bound`` are ``None`` and its rate is reported without judgement.
+    A judged criterion carries its decision under its rule; a criterion
+    without a bar is characterised only -- its ``decision`` is ``None`` and
+    its rate is reported without judgement. ``lower_bound`` is the Wilson
+    lower bound, a descriptive interval that decides nothing.
 
     ``standings`` is the criterion's descriptive per-postcondition tally —
     per ``(input, check)``, the passed/failed/skipped counts over the run —
@@ -89,8 +135,14 @@ class CriterionResult:
     criterion: Criterion
     tally: CriterionTally
     lower_bound: float | None
-    verdict: Verdict | None
+    decision: Decision | None
     standings: tuple[PostconditionStanding, ...] = ()
+    power: PowerDisclosure | None = None
+
+    @property
+    def verdict(self) -> Verdict | None:
+        """The criterion's verdict; ``None`` when it is characterised only."""
+        return self.decision.verdict if self.decision is not None else None
 
     @property
     def name(self) -> str:
@@ -161,9 +213,10 @@ class RunResult:
         kind: The run kind executed.
         plan: The plan the run executed under.
         criterion_results: Per-criterion outcomes, in declaration order.
-        composite: The run-level verdict -- FAIL if any thresholded
-            criterion failed, PASS otherwise; ``None`` for a run with no
-            thresholded criteria (an observation renders no verdict).
+        overall: The test's verdict ``V_test`` with the two dimensions it
+            composes and what triggered a FAIL or an INCONCLUSIVE; ``None``
+            for a run with nothing judged (an observation renders no
+            verdict).
         started_at: Run start, UTC.
         finished_at: Run end, UTC.
         inputs_identity: Fingerprint of the input list (order-insensitive).
@@ -171,15 +224,15 @@ class RunResult:
             to record them (explorations and measures do; tests don't
             carry per-sample payloads).
         latency: The latency dimension's outcome, when the contract
-            asserts a latency bar; folded into the composite by
-            conjunction.
+            asserts a latency bar; composed with the functional dimension
+            into ``overall``.
     """
 
     contract_id: str
     kind: RunKind
     plan: RunPlan
     criterion_results: tuple[CriterionResult, ...]
-    composite: Verdict | None
+    overall: OverallVerdict | None
     started_at: datetime
     finished_at: datetime
     inputs_identity: str
@@ -192,6 +245,28 @@ class RunResult:
     # deterministic order; empty when every trial passed.
     failure_attribution: tuple[FailureAttribution, ...] = ()
     latency: "LatencyEvaluation | None" = None
+
+    @property
+    def composite(self) -> Verdict | None:
+        """The test's verdict ``V_test``; ``None`` for an observation."""
+        return self.overall.verdict if self.overall is not None else None
+
+    @property
+    def envelopes(self) -> Envelopes:
+        """The Type-I envelopes over every decision the run made, by direction:
+        the judged criteria and the enforced latency constraints (§1.4.6)."""
+        decisions = [
+            (r.decision.rule, r.decision.alpha)
+            for r in self.criterion_results
+            if r.decision is not None
+        ]
+        if self.latency is not None:
+            decisions.extend(
+                (e.judgement.rule, e.judgement.alpha)
+                for e in self.latency.evaluations
+                if e.judgement.rule is not None
+            )
+        return type_one_envelopes(decisions)
 
     @property
     def observed_rate(self) -> float:

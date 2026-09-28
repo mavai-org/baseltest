@@ -8,7 +8,12 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Generic, Protocol, TypeVar
 
-from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL
+from baseltest.statistics import (
+    DEFAULT_CONFIDENCE_LEVEL,
+    DecisionRule,
+    ThresholdSource,
+    alpha_from_confidence,
+)
 
 from .errors import BaseltestError
 from .postconditions import Postcondition
@@ -247,6 +252,32 @@ class OptionalSlack:
 
 
 @dataclass(frozen=True, slots=True)
+class BaselineCount:
+    """The baseline evidence an empirical criterion is judged against.
+
+    Attributes:
+        successes: ``K_b``, the baseline samples that passed the criterion.
+        trials: ``n_b``, the baseline run's sample size — every trial counts.
+    """
+
+    successes: int
+    trials: int
+
+    def __post_init__(self) -> None:
+        if self.trials <= 0:
+            raise ValueError(f"baseline trials must be positive, got {self.trials}")
+        if not 0 <= self.successes <= self.trials:
+            raise ValueError(
+                f"baseline successes must be in 0..{self.trials}, got {self.successes}"
+            )
+
+    @property
+    def rate(self) -> float:
+        """The baseline's observed rate ``K_b / n_b``."""
+        return self.successes / self.trials
+
+
+@dataclass(frozen=True, slots=True)
 class Criterion:
     """One criterion: a single Bernoulli stream with its own bar.
 
@@ -257,19 +288,24 @@ class Criterion:
     judges; the views themselves are declared on the contract and computed
     at most once per response, shared across criteria.
 
+    A criterion is judged by at most one rule, selected by its threshold's
+    origin: a declared ``threshold`` (a given requirement) by
+    ``compliance/exact-binomial``, a ``baseline`` (the evidence of a measured
+    baseline) by ``regression/fisher``. A service judged against both a
+    requirement and its baseline carries two criteria over the same
+    postconditions, one of each.
+
     Attributes:
         name: The criterion's stable identifier within its contract.
         postconditions: The checks, evaluated in declaration order.
-        threshold: The declared minimum acceptable pass rate in ``(0, 1)``,
-            or ``None`` for a criterion that is characterised, never judged.
-        confidence: The confidence level for this criterion's verdict.
-        cutoff: For a baseline-derived (regression) criterion, the resolved
-            integer decision artefact: the verdict is PASS iff the raw
-            observed success count meets it. The confidence correction
-            already lives inside the derivation that produced the cutoff,
-            so the observed count is compared directly. When ``None`` the
-            threshold is a declared bar and the verdict is the test
-            sample's own confidence bound clearing it (compliance posture).
+        threshold: The declared requirement ``p_req`` in ``(0, 1)``, for a
+            normative criterion; ``None`` otherwise.
+        baseline: The baseline evidence, for an empirical criterion; its
+            cutoff is derived at the run's own size.
+        confidence: ``1 - alpha``, the confidence level of the verdict.
+        design_alternative_rate: For an empirical criterion, the true rate
+            at which the test is to reach its target power — reported with
+            the design and resolved powers; never a tolerance.
         provenance: Where the threshold comes from, when one is declared.
         optional_slack: The optional-check failure budget. ``None`` (the
             default) is a budget of zero: an optional check must still pass
@@ -279,8 +315,9 @@ class Criterion:
     name: str
     postconditions: tuple[Postcondition, ...]
     threshold: float | None = None
+    baseline: BaselineCount | None = None
     confidence: float = DEFAULT_CONFIDENCE_LEVEL
-    cutoff: int | None = None
+    design_alternative_rate: float | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
     optional_slack: OptionalSlack | None = None
 
@@ -289,41 +326,50 @@ class Criterion:
             raise ValueError("criterion name must be non-empty")
         if not self.postconditions:
             raise ValueError(f"criterion {self.name!r} declares no postconditions")
-        # A threshold of exactly 0 is admissible, and only at the boundary:
-        # a baseline that observed no successes has an effective rate of 0,
-        # so its derived threshold is 0 and its cutoff is 0 (companion
-        # 4.3.4). Every outcome clears it. That reads oddly and is the
-        # correct reading of the evidence -- a baseline that succeeded on no
-        # attempt can demand nothing of its successor -- and rejecting it
-        # would refuse a design the methodology defines. A threshold of 1 is
-        # still refused: no test can require certainty.
-        if self.threshold is not None and not 0.0 <= self.threshold < 1.0:
+        if self.threshold is not None and self.baseline is not None:
             raise ValueError(
-                f"criterion {self.name!r}: threshold must be in [0, 1), got {self.threshold}"
+                f"criterion {self.name!r}: a criterion is judged against a requirement or "
+                "against a baseline, not both — declare two criteria over the same "
+                "postconditions"
+            )
+        if self.threshold is not None and not 0.0 < self.threshold < 1.0:
+            raise ValueError(
+                f"criterion {self.name!r}: threshold must be in (0, 1), got {self.threshold}"
             )
         if not 0.0 < self.confidence < 1.0:
             raise ValueError(
                 f"criterion {self.name!r}: confidence must be in (0, 1), got {self.confidence}"
             )
-        if self.cutoff is not None:
-            if self.threshold is None:
+        if self.design_alternative_rate is not None:
+            if self.baseline is None:
                 raise ValueError(
-                    f"criterion {self.name!r}: a cutoff is the decision artefact of a "
-                    "derived threshold; it cannot stand without one"
+                    f"criterion {self.name!r}: a design alternative rate belongs to a "
+                    "criterion judged against a baseline"
                 )
-            # Zero is admissible for the same reason a threshold of 0 is:
-            # it is the cutoff a zero baseline derives (companion 4.3.4),
-            # and `K >= 0` holds for every outcome. Negative is not a count.
-            if self.cutoff < 0:
+            if not 0.0 < self.design_alternative_rate < 1.0:
                 raise ValueError(
-                    f"criterion {self.name!r}: cutoff must be a non-negative count, "
-                    f"got {self.cutoff}"
+                    f"criterion {self.name!r}: design alternative rate must be in (0, 1), "
+                    f"got {self.design_alternative_rate}"
                 )
 
     @property
-    def is_thresholded(self) -> bool:
-        """Whether this criterion declares a bar and therefore receives a verdict."""
-        return self.threshold is not None
+    def rule(self) -> DecisionRule | None:
+        """The rule that decides this criterion; ``None`` when it is characterised only."""
+        if self.threshold is not None:
+            return DecisionRule.COMPLIANCE_EXACT_BINOMIAL
+        if self.baseline is not None:
+            return DecisionRule.REGRESSION_FISHER
+        return None
+
+    @property
+    def is_judged(self) -> bool:
+        """Whether this criterion has a bar and therefore receives a verdict."""
+        return self.rule is not None
+
+    @property
+    def alpha(self) -> float:
+        """The one-sided level ``1 - confidence``."""
+        return alpha_from_confidence(self.confidence)
 
     def postconditions_for(self, input_index: int) -> tuple[Postcondition, ...]:
         """The postconditions a sample driven by this input is judged against.
@@ -362,71 +408,95 @@ PERCENTILE_LEVELS: Mapping[str, float] = {"p50": 0.50, "p90": 0.90, "p95": 0.95,
 
 @dataclass(frozen=True, slots=True)
 class LatencyBound:
-    """One resolved upper bound on an observed latency percentile.
-
-    A bound is always concrete by the time it reaches the contract: an
-    explicit ceiling carries the declared milliseconds; a baseline-derived
-    bound carries the order-statistic result and its derivation facts.
+    """One asserted latency constraint: a percentile and, when explicit, its ceiling.
 
     Attributes:
         percentile: One of the supported labels (``p50``/``p90``/``p95``/``p99``).
-        threshold_ms: The bound in milliseconds; the observed percentile
-            passes iff it is at or below this value.
-        rank: For a baseline-derived bound, the one-based order-statistic
-            rank the threshold was read at.
-        baseline_percentile_ms: For a baseline-derived bound, the
-            baseline's nearest-rank point estimate — reporting context,
-            never the threshold.
-        baseline_samples: For a baseline-derived bound, the baseline's
-            contributing-sample count.
+        threshold_ms: For an explicit requirement, the declared ceiling in
+            milliseconds; ``None`` for a baseline-derived constraint, whose
+            threshold is derived after the run for the number of successful
+            latencies it actually returned (``latency/precedence``).
     """
 
     percentile: str
-    threshold_ms: int
-    rank: int | None = None
-    baseline_percentile_ms: int | None = None
-    baseline_samples: int | None = None
+    threshold_ms: int | None = None
 
     def __post_init__(self) -> None:
         if self.percentile not in PERCENTILE_LEVELS:
             supported = ", ".join(PERCENTILE_LEVELS)
             raise ValueError(f"unknown percentile {self.percentile!r} (supported: {supported})")
-        if self.threshold_ms <= 0:
+        if self.threshold_ms is not None and self.threshold_ms <= 0:
             raise ValueError(
                 f"{self.percentile}: threshold must be positive, got {self.threshold_ms}"
             )
 
+    @property
+    def level(self) -> float:
+        """The percentile as a fraction (``0.95`` for ``p95``)."""
+        return PERCENTILE_LEVELS[self.percentile]
+
+
+@dataclass(frozen=True, slots=True)
+class LatencyBaseline:
+    """The measured baseline a baseline-derived latency bar is judged against.
+
+    Attributes:
+        sorted_latencies_ms: The baseline's successful latencies — those of
+            the samples that passed every functional criterion — ascending.
+        samples: The baseline run's sample size ``N_b``: the sampling the
+            design rule compares a test's planned size with, and the
+            denominator of the baseline's passing rate.
+    """
+
+    sorted_latencies_ms: tuple[int, ...]
+    samples: int
+
+    def __post_init__(self) -> None:
+        if not self.sorted_latencies_ms:
+            raise ValueError("a latency baseline records at least one successful latency")
+        if not len(self.sorted_latencies_ms) <= self.samples:
+            raise ValueError("a latency baseline cannot have more latencies than samples")
+        if list(self.sorted_latencies_ms) != sorted(self.sorted_latencies_ms):
+            raise ValueError("baseline latencies must be sorted ascending")
+
+    @property
+    def passing_rate(self) -> float:
+        """The fraction of the baseline's samples that were successful (§12.5.3)."""
+        return len(self.sorted_latencies_ms) / self.samples
+
 
 @dataclass(frozen=True, slots=True)
 class LatencyBar:
-    """The contract's latency dimension: resolved bounds, judged like any bar.
+    """The contract's latency dimension: one enforced constraint per percentile.
 
-    Latency is conditioned on functional success — only passing samples'
-    durations are judged — and gates the composite verdict by conjunction
-    with the functional criteria. Declaring the bar is the opt-in; there
-    is no advisory mode.
+    Latency is conditioned on functional success — only the latencies of
+    samples that passed every functional criterion are judged. Each
+    constraint is decided by the rule for its threshold source: explicit
+    ceilings by ``latency/compliance-exact-binomial``, baseline-derived ones
+    by ``latency/precedence``. The latency verdict composes them, and the
+    test's verdict composes it with the functional one. Declaring the bar
+    is the opt-in: every constraint is enforced.
 
     Attributes:
-        bounds: The asserted bounds, one per percentile, in tail order.
-        origin: ``"explicit"`` (declared ceilings) or
-            ``"baseline-derived"`` (order-statistic bounds from a measured
-            baseline) — the family's latency-provenance vocabulary.
-        confidence: For baseline-derived bounds, the one-sided confidence
-            the derivation was performed at; recorded for explicit bounds.
+        bounds: The asserted constraints, one per percentile, in tail order.
+        origin: Where the thresholds come from.
+        confidence: ``1 - alpha``, the level every constraint is decided at.
+        baseline: The measured baseline, for a baseline-derived bar.
         provenance: Where the declaration comes from (SLA reference, the
             baseline artefact's name, ...).
     """
 
     bounds: tuple[LatencyBound, ...]
-    origin: str = "explicit"
+    origin: ThresholdSource = ThresholdSource.EXPLICIT
     confidence: float = DEFAULT_CONFIDENCE_LEVEL
+    baseline: LatencyBaseline | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
 
     def __post_init__(self) -> None:
+        # Parsed once at the boundary: the origin is a closed set.
+        object.__setattr__(self, "origin", ThresholdSource(self.origin))
         if not self.bounds:
             raise ValueError("a latency bar declares at least one bound")
-        if self.origin not in ("explicit", "baseline-derived"):
-            raise ValueError(f"unknown latency origin {self.origin!r}")
         if not 0.0 < self.confidence < 1.0:
             raise ValueError(f"latency confidence must be in (0, 1), got {self.confidence}")
         labels = [bound.percentile for bound in self.bounds]
@@ -435,12 +505,25 @@ class LatencyBar:
         ordered = sorted(self.bounds, key=lambda b: PERCENTILE_LEVELS[b.percentile])
         if list(self.bounds) != ordered:
             raise ValueError("latency bounds must be declared in percentile order")
+        explicit = self.origin is ThresholdSource.EXPLICIT
+        if explicit != (self.baseline is None):
+            raise ValueError("a baseline-derived latency bar, and only one, carries its baseline")
+        if any((bound.threshold_ms is None) == explicit for bound in self.bounds):
+            raise ValueError(
+                "explicit latency bounds declare their ceilings; baseline-derived ones "
+                "derive them after the run"
+            )
         thresholds = [bound.threshold_ms for bound in self.bounds]
-        if thresholds != sorted(thresholds):
+        if explicit and thresholds != sorted(thresholds):  # type: ignore[type-var]
             raise ValueError(
                 "latency thresholds must be non-decreasing across percentiles: a "
                 "tighter bound on a higher percentile contradicts itself"
             )
+
+    @property
+    def alpha(self) -> float:
+        """The one-sided level ``1 - confidence``."""
+        return alpha_from_confidence(self.confidence)
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,9 +546,9 @@ class ServiceContract(Generic[RequestT]):
             ``"raw"`` is reserved for the untransformed response and never
             appears here.
         latency: The contract's latency dimension, when one is asserted:
-            resolved per-percentile bounds judged over passing samples'
-            durations, gating the composite verdict by conjunction with
-            the functional criteria.
+            per-percentile constraints judged over the passing samples'
+            durations, composed with the functional criteria into the
+            test's verdict.
     """
 
     contract_id: str
@@ -496,6 +579,6 @@ class ServiceContract(Generic[RequestT]):
         object.__setattr__(self, "views", MappingProxyType(dict(self.views)))
 
     @property
-    def thresholded_criteria(self) -> tuple[Criterion, ...]:
-        """The criteria that declare a threshold and therefore receive verdicts."""
-        return tuple(c for c in self.criteria if c.is_thresholded)
+    def judged_criteria(self) -> tuple[Criterion, ...]:
+        """The criteria that carry a bar and therefore receive verdicts."""
+        return tuple(c for c in self.criteria if c.is_judged)

@@ -1,4 +1,4 @@
-"""Run execution: preflight, sampling loop, judgement, composite.
+"""Run execution: preflight, sampling loop, judgement, the test verdict.
 
 The package's public surface is re-exported here; its concerns live in sibling
 modules — ``model`` (the value types and vocabulary), ``feasibility``,
@@ -7,12 +7,14 @@ modules — ``model`` (the value types and vocabulary), ``feasibility``,
 
 from .attainment import BarAttainment, bar_attainment
 from .execute import execute
-from .feasibility import InfeasibleRunError, derive_minimum_samples
+from .feasibility import ConfigurationRefusedError, derive_minimum_samples, refused_parts
 from .identity import inputs_fingerprint
 from .model import (
     CriterionResult,
-    InfeasibleCriterion,
+    Decision,
     Intent,
+    PowerDisclosure,
+    RefusedPart,
     RunKind,
     RunPlan,
     RunResult,
@@ -21,10 +23,12 @@ from .model import (
 
 __all__ = [
     "BarAttainment",
+    "ConfigurationRefusedError",
     "CriterionResult",
-    "InfeasibleCriterion",
-    "InfeasibleRunError",
+    "Decision",
     "Intent",
+    "PowerDisclosure",
+    "RefusedPart",
     "RunKind",
     "RunPlan",
     "RunResult",
@@ -33,4 +37,5 @@ __all__ = [
     "derive_minimum_samples",
     "execute",
     "inputs_fingerprint",
+    "refused_parts",
 ]

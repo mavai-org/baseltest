@@ -13,7 +13,7 @@ from xml.etree import ElementTree
 
 from baseltest.baseline import BaselineRecord, render_baseline
 from baseltest.contract import Criterion, OptionalSlack, ServiceContract, contains
-from baseltest.engine import RunKind, RunPlan, execute
+from baseltest.engine import Intent, RunKind, RunPlan, execute
 from baseltest.observation import RunObservation, observation_lines
 from baseltest.reporting.console import render_run
 from baseltest.reporting.verdict_xml import render_verdict_record
@@ -30,7 +30,10 @@ def contract() -> ServiceContract[str]:
 
 
 def run(samples: int = 4, kind: RunKind = RunKind.MEASURE):  # type: ignore[no-untyped-def]
-    return execute(contract(), RunPlan(samples=samples, inputs=("a", "b"), kind=kind))
+    # Four samples cannot demonstrate a 0.5 requirement (five can), so the
+    # small test runs as a smoke check rather than being refused.
+    plan = RunPlan(samples=samples, inputs=("a", "b"), kind=kind, intent=Intent.SMOKE)
+    return execute(contract(), plan)
 
 
 class TestStandingsTally:
@@ -152,7 +155,7 @@ class TestPartialCreditFacts:
     def _run(self, slack: OptionalSlack):  # type: ignore[no-untyped-def]
         return execute(
             self._contract(slack),
-            RunPlan(samples=4, inputs=("a", "b"), kind=RunKind.TEST),
+            RunPlan(samples=4, inputs=("a", "b"), kind=RunKind.TEST, intent=Intent.SMOKE),
         )
 
     def test_the_flag_and_slack_state_verbatim_in_every_shape(self) -> None:
