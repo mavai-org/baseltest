@@ -1,57 +1,38 @@
-"""Edge-case and validation tests for feasibility checking."""
+"""Edge-case and validation tests for the exact-binomial feasibility gate."""
 
 import pytest
 
-from baseltest.statistics import check_feasibility
+from baseltest.statistics import check_feasibility, minimum_feasible_samples
 
 
-def test_large_sample_size_is_always_feasible() -> None:
-    result = check_feasibility(sample_size=1_000_000, target_proportion=0.9, confidence_level=0.95)
-    assert result.feasible
+@pytest.mark.parametrize(
+    ("requirement", "minimum"),
+    [(0.50, 5), (0.80, 14), (0.90, 29), (0.95, 59), (0.99, 299), (0.995, 598), (0.999, 2995)],
+)
+def test_minimum_matches_the_companion_table_at_alpha_005(requirement: float, minimum: int) -> None:
+    assert minimum_feasible_samples(requirement, 0.05) == minimum
 
 
-def test_single_sample_is_infeasible_for_a_meaningful_target() -> None:
-    result = check_feasibility(sample_size=1, target_proportion=0.9, confidence_level=0.95)
-    assert not result.feasible
+def test_feasible_iff_at_or_above_the_minimum() -> None:
+    assert check_feasibility(0.95, 59, 0.05).feasible
+    assert not check_feasibility(0.95, 58, 0.05).feasible
 
 
-def test_zero_target_is_trivially_feasible() -> None:
-    result = check_feasibility(sample_size=5, target_proportion=0.0, confidence_level=0.95)
-    assert result.feasible
-    assert result.minimum_samples == 0
+def test_an_exact_boundary_is_feasible_under_the_inclusive_rule() -> None:
+    # 0.5 ** 5 == 1/32 == alpha exactly.
+    assert check_feasibility(0.5, 5, 0.03125).feasible
 
 
-def test_target_close_to_one_needs_a_large_sample_size() -> None:
-    result = check_feasibility(sample_size=100, target_proportion=0.999, confidence_level=0.95)
-    assert not result.feasible
-    assert result.minimum_samples > 100
+def test_the_criterion_is_named() -> None:
+    assert check_feasibility(0.9, 30, 0.05).criterion == "exact_binomial_pass_possible"
 
 
-def test_undersized_configuration_reports_both_component_checks() -> None:
-    result = check_feasibility(sample_size=5, target_proportion=0.9, confidence_level=0.95)
-    assert result.feasible is (result.meets_confidence_floor and result.sample_size_adequate)
-
-
-def test_confidence_below_soundness_floor_is_infeasible_even_with_ample_samples() -> None:
-    result = check_feasibility(sample_size=1_000_000, target_proportion=0.5, confidence_level=0.5)
-    assert not result.meets_confidence_floor
-    assert not result.feasible
-
-
-def test_rejects_non_positive_sample_size() -> None:
+@pytest.mark.parametrize("requirement", [0.0, 1.0, float("nan")])
+def test_rejects_a_requirement_outside_the_open_interval(requirement: float) -> None:
     with pytest.raises(ValueError):
-        check_feasibility(sample_size=0, target_proportion=0.9, confidence_level=0.95)
+        check_feasibility(requirement, 10, 0.05)
 
 
-@pytest.mark.parametrize("target_proportion", [-0.1, 1.0, 1.1])
-def test_rejects_target_outside_unit_interval(target_proportion: float) -> None:
-    with pytest.raises(ValueError):
-        check_feasibility(
-            sample_size=10, target_proportion=target_proportion, confidence_level=0.95
-        )
-
-
-@pytest.mark.parametrize("confidence_level", [0.0, 1.0, -0.1, 1.1])
-def test_rejects_confidence_outside_open_unit_interval(confidence_level: float) -> None:
-    with pytest.raises(ValueError):
-        check_feasibility(sample_size=10, target_proportion=0.9, confidence_level=confidence_level)
+def test_rejects_a_non_positive_sample_size() -> None:
+    with pytest.raises(ValueError, match="sample_size"):
+        check_feasibility(0.9, 0, 0.05)

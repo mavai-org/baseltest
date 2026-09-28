@@ -1,273 +1,216 @@
-"""Risk-driven sample sizing against a moving acceptance floor.
+"""Risk-driven sizing of a regression test against the operative rule (§5.4.1).
 
-A baseline-derived test does not judge against a fixed bar: its acceptance
-floor is the one-sided Wilson lower bound of the baseline rate computed at
-the test's *own* sample size, so the floor falls as the sample shrinks -- a
-small sample proves less, so less is demanded of it. The closed-form power
-pair in `power` holds the threshold constant and therefore overstates the
-power of small designs; the functions here put the moving floor inside the
-calculation.
+A regression test's cutoff is derived at the test's own size, so sizing is
+done against the cutoff the test will actually apply. Two operations answer
+different questions and are named apart:
 
-The caller declares a **minimum acceptable rate** -- the worst true pass
-rate they are willing to tolerate; a declared bound, not a measured
-estimate. `power_at` prices the probability that a service truly at that
-rate fails a test of a given size; `required_samples_for_power` finds the
-smallest size meeting a target power; `detectable_rate` inverts the
-question for a fixed, affordable size.
+- **Design sizing**, before the baseline exists: the baseline is planned at
+  ``n_b`` trials and an expected rate ``p0``, and the design power averages
+  over the baseline count yet to be drawn.
+- **Resolved sizing**, against an existing baseline: its observed count
+  fixes the cutoff for every candidate test size, and the resolved power
+  decides. Once a baseline exists, ``BASELINE_TOO_SMALL`` is judged by it.
 
-The floor and the power calculation share one z convention: the floor is
-computed by `wilson.wilson_lower_bound_from_rate`, the same one-sided
-construction used for threshold derivation throughout this package.
+The **design alternative rate** ``p_design`` is the true rate at which the
+test must reach its target power — a declared design input, not a measured
+estimate and not a tolerance: the test still flags any degradation from the
+baseline, including one to a rate above ``p_design``.
 
-The construction is defined for a minimum acceptable rate strictly below
-the baseline rate only. At or above it, the floor sits below the tolerated
-rate at every sample size, power falls as the sample grows, and no size
-achieves a useful target power -- such a design asks the test to detect a
-"degradation" the baseline already exceeds. Callers should re-measure the
-baseline rather than asserting improvement through the tolerance.
+Exact power is a sawtooth in the test size, so the required size is the
+smallest ``n_t`` from which power *stays* at or above the target for every
+larger test up to the baseline size — not the first crossing — subject to
+the design rule ``n_t <= n_b``.
 """
 
-import math
-from enum import Enum
+from dataclasses import dataclass
+from enum import StrEnum
 
-from scipy.stats import norm
+import numpy as np
+from scipy.stats import binom
 
-from ._constants import DEFAULT_CONFIDENCE_LEVEL, DEFAULT_POWER
-from ._validation import validate_unit_interval
-from .wilson import wilson_lower_bound_from_rate
-
-# A requirement beyond this is a misconfigured tolerance, not a plan.
-_REQUIRED_SAMPLES_CAP = 10_000_000
+from ._arrays import IntArray
+from .regression import (
+    _cutoffs_near,
+    _fail_probability,
+    baseline_window,
+    design_power,
+    fisher_cutoffs,
+)
 
 # Bisection resolution for the detectable-rate inversion.
 _DETECTABLE_RATE_TOLERANCE = 1e-10
 
 
-class SizingRefusal(Enum):
-    """Why a sizing design cannot be priced.
-
-    The domain restriction of companion 5.4.1 is reached by two routes,
-    and they call for different corrective action. Carrying the cause as
-    data rather than only as prose lets a caller -- a diagnostic, a
-    report, a conformance run -- tell them apart without parsing a
-    message.
-    """
+class SizingRefusal(StrEnum):
+    """Why a sizing design cannot be priced; the value is the reported category."""
 
     ZERO_BASELINE = "ZERO_BASELINE"
-    """The baseline observed no successes, so its effective rate is exactly
-    0 at every sample size (companion 4.3.4) and no declared tolerance can
-    sit below it. *Measure a baseline before sizing against it.*"""
+    """The baseline observed (or expects) no successes (§4.3.4): there is no
+    rate below it to detect. *Measure a baseline before sizing against it.*"""
 
-    EMPTY_TOLERANCE_INTERVAL = "EMPTY_TOLERANCE_INTERVAL"
-    """The baseline is usable, but the declared tolerance does not sit
-    strictly below it, so there is no degradation to detect. *Re-measure
-    the baseline rather than raising the tolerance.*"""
+    ALTERNATIVE_NOT_BELOW_BASELINE = "ALTERNATIVE_NOT_BELOW_BASELINE"
+    """The design alternative rate is not below the baseline rate, so there
+    is no degradation to detect. *Re-measure rather than raise the rate.*"""
 
-    def message(self, baseline_rate: float, minimum_acceptable_rate: float) -> str:
-        """The operator-facing explanation, naming the corrective action."""
-        if self is SizingRefusal.ZERO_BASELINE:
-            return (
-                "baseline_rate is exactly 0: the baseline observed no successes, so its "
-                "effective rate is 0 at every sample size and there is no tolerated rate "
-                "below it to detect. No sample size can price this design. Measure a "
-                "baseline with at least one success before sizing against it"
-            )
-        return (
-            f"minimum_acceptable_rate ({minimum_acceptable_rate}) must sit strictly "
-            f"below baseline_rate ({baseline_rate}): the tolerance declares how far "
-            "below the measured baseline a true rate may drop; to demand more than "
-            "the baseline delivered, re-measure the baseline rather than raising "
-            "the tolerance"
-        )
+    TEST_LARGER_THAN_BASELINE = "TEST_LARGER_THAN_BASELINE"
+    """A candidate test larger than the baseline the design rule admits."""
+
+    BASELINE_TOO_SMALL = "BASELINE_TOO_SMALL"
+    """No test the design rule admits reaches and holds the target power:
+    a larger baseline is needed."""
 
 
 def check_sizing_domain(
-    baseline_rate: float, minimum_acceptable_rate: float
+    baseline_rate: float,
+    baseline_trials: int,
+    design_alternative_rate: float | None = None,
+    test_samples: int | None = None,
 ) -> SizingRefusal | None:
-    """Report whether a sizing design can be priced, and why not if it cannot.
-
-    The sizing entry points raise on an inadmissible design, which is the
-    right response to a misconfiguration discovered before any sample is
-    taken. This is the same decision offered as a value, for a caller that
-    would rather ask than handle an exception.
-
-    Returns `None` when the design is admissible.
-
-    Raises:
-        ValueError: If either rate is malformed -- outside `[0, 1)` or not
-            positive. That is a different statement from a refusal: a
-            refusal says a well-formed design cannot be priced.
-    """
+    """The refusal a sizing design meets before any power is computed, or ``None``."""
     if baseline_rate == 0.0:
         return SizingRefusal.ZERO_BASELINE
-    validate_unit_interval("baseline_rate", baseline_rate)
-    validate_unit_interval("minimum_acceptable_rate", minimum_acceptable_rate)
-    if minimum_acceptable_rate >= baseline_rate:
-        return SizingRefusal.EMPTY_TOLERANCE_INTERVAL
+    if design_alternative_rate is not None and design_alternative_rate >= baseline_rate:
+        return SizingRefusal.ALTERNATIVE_NOT_BELOW_BASELINE
+    if test_samples is not None and test_samples > baseline_trials:
+        return SizingRefusal.TEST_LARGER_THAN_BASELINE
     return None
 
 
-def _validate_sizing_domain(baseline_rate: float, minimum_acceptable_rate: float) -> None:
-    refusal = check_sizing_domain(baseline_rate, minimum_acceptable_rate)
-    if refusal is not None:
-        raise ValueError(refusal.message(baseline_rate, minimum_acceptable_rate))
+@dataclass(frozen=True, slots=True)
+class DesignSizing:
+    """The required test size under design sizing, and its power there."""
+
+    required_samples: int
+    power: float
 
 
-def power_at(
-    sample_size: int,
+def design_required_samples(
     baseline_rate: float,
-    minimum_acceptable_rate: float,
-    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
-) -> float:
-    """Compute the self-consistent power of a test of `sample_size` samples.
+    baseline_trials: int,
+    design_alternative_rate: float,
+    alpha: float,
+    target_power: float,
+) -> DesignSizing | None:
+    """The smallest ``n_t <= n_b`` from which design power stays at target.
 
-    The acceptance floor is the one-sided Wilson lower bound of
-    `baseline_rate` at `sample_size` itself -- the bar this test would
-    actually apply. The result is the probability that a service whose
-    true rate is `minimum_acceptable_rate` fails the test, i.e. that a
-    degradation at least that severe is detected.
-
-    Args:
-        sample_size: The candidate test sample size. Must be positive.
-        baseline_rate: The *effective* baseline rate (see
-            `effective_baseline_rate`), strictly between 0 and 1. The
-            effective rate itself ranges over [0, 1); the open bound here is
-            the construction's, not the quantity's -- with a baseline of
-            zero there is no tolerated rate below it to solve for, so such a
-            baseline must be refused by the caller rather than sized.
-        minimum_acceptable_rate: The declared worst tolerable true rate,
-            strictly between 0 and `baseline_rate`.
-        confidence_level: The confidence the acceptance floor is derived
-            at, strictly between 0 and 1.
-
-    Returns:
-        The power, in `[0, 1]`.
-
-    Raises:
-        ValueError: If `sample_size` is not positive, any rate is out of
-            range, or `minimum_acceptable_rate` does not sit strictly
-            below `baseline_rate`.
+    Scans down from ``n_b`` to the first size whose power falls short; the
+    answer is the next size up. ``None`` (``BASELINE_TOO_SMALL``) when the
+    power at ``n_b`` itself is short. The domain is the caller's to check
+    first (:func:`check_sizing_domain`).
     """
-    if sample_size <= 0:
-        raise ValueError("sample_size must be a positive integer")
-    _validate_sizing_domain(baseline_rate, minimum_acceptable_rate)
-    validate_unit_interval("confidence_level", confidence_level)
+    counts = baseline_window(baseline_trials, baseline_rate)
+    cutoffs = fisher_cutoffs(counts, baseline_trials, baseline_trials, alpha)
+    held: DesignSizing | None = None
+    for test_samples in range(baseline_trials, 0, -1):
+        if test_samples < baseline_trials:
+            guess = np.rint(cutoffs * test_samples / (test_samples + 1)).astype(np.int64)
+            cutoffs = _cutoffs_near(counts, baseline_trials, test_samples, alpha, guess)
+        power = _fail_probability(
+            cutoffs, counts, baseline_trials, baseline_rate, test_samples, design_alternative_rate
+        )
+        if power < target_power:
+            return held
+        held = DesignSizing(required_samples=test_samples, power=power)
+    return held
 
-    floor = wilson_lower_bound_from_rate(baseline_rate, sample_size, confidence_level)
-    standard_error = math.sqrt(
-        minimum_acceptable_rate * (1 - minimum_acceptable_rate) / sample_size
+
+def design_detectable_rate(
+    test_samples: int,
+    baseline_rate: float,
+    baseline_trials: int,
+    alpha: float,
+    target_power: float,
+) -> float | None:
+    """The largest design alternative rate detectable at the target design power.
+
+    Power falls as ``p_design`` rises toward ``p0``, so bisection over
+    ``(0, p0)`` to ``1e-10``; ``None`` when even ``p_design = 0`` falls short.
+    """
+    counts = baseline_window(baseline_trials, baseline_rate)
+    cutoffs = fisher_cutoffs(counts, baseline_trials, test_samples, alpha)
+
+    def power_at(rate: float) -> float:
+        return _fail_probability(
+            cutoffs, counts, baseline_trials, baseline_rate, test_samples, rate
+        )
+
+    if power_at(0.0) < target_power:
+        return None
+    low, high = 0.0, baseline_rate
+    while high - low > _DETECTABLE_RATE_TOLERANCE:
+        mid = (low + high) / 2
+        if power_at(mid) >= target_power:
+            low = mid
+        else:
+            high = mid
+    return low
+
+
+def design_power_at(
+    test_samples: int,
+    baseline_rate: float,
+    baseline_trials: int,
+    design_alternative_rate: float,
+    alpha: float,
+) -> float:
+    """The design power at a candidate test size (see ``regression.design_power``)."""
+    return design_power(
+        baseline_trials, test_samples, alpha, baseline_rate, design_alternative_rate
     )
-    return float(norm.cdf((floor - minimum_acceptable_rate) / standard_error))
 
 
-def required_samples_for_power(
-    baseline_rate: float,
-    minimum_acceptable_rate: float,
-    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
-    target_power: float = DEFAULT_POWER,
-) -> int:
-    """Compute the smallest sample size whose self-consistent power meets
-    `target_power`.
+@dataclass(frozen=True, slots=True)
+class ResolvedSizing:
+    """The required test size under resolved sizing against an observed baseline.
 
-    Within the domain, growing the sample both raises the acceptance floor
-    toward the baseline rate and shrinks the standard error, so the power
-    is increasing in the sample size and the minimum is well defined. It is
-    found by doubling until the target is met, then bisecting.
-
-    Args:
-        baseline_rate: The measured baseline pass rate, strictly between
-            0 and 1.
-        minimum_acceptable_rate: The declared worst tolerable true rate,
-            strictly between 0 and `baseline_rate`.
-        confidence_level: The confidence the acceptance floor is derived
-            at, strictly between 0 and 1.
-        target_power: The desired detection probability, strictly between
-            0 and 1.
-
-    Returns:
-        The smallest sample size meeting the target power.
-
-    Raises:
-        ValueError: If any input is out of range, or if the requirement
-            exceeds 10,000,000 samples -- a tolerance that tight against
-            that baseline is a misconfiguration, not a plan.
+    Attributes:
+        required_samples: The smallest ``n_t`` from which the resolved power
+            stays at or above the target up to ``n_b``.
+        power: The resolved power at ``required_samples``.
+        first_crossing: The smallest ``n_t`` whose resolved power first
+            reaches the target — reported, never the answer.
     """
-    _validate_sizing_domain(baseline_rate, minimum_acceptable_rate)
-    validate_unit_interval("confidence_level", confidence_level)
-    validate_unit_interval("target_power", target_power)
 
-    def power_of(n: int) -> float:
-        return power_at(n, baseline_rate, minimum_acceptable_rate, confidence_level)
-
-    upper = 1
-    while power_of(upper) < target_power:
-        upper *= 2
-        if upper > _REQUIRED_SAMPLES_CAP:
-            raise ValueError(
-                f"required sample size exceeds {_REQUIRED_SAMPLES_CAP}: "
-                f"minimum_acceptable_rate ({minimum_acceptable_rate}) is too close "
-                f"to baseline_rate ({baseline_rate}) to detect at power "
-                f"{target_power}"
-            )
-    if upper == 1:
-        return 1
-
-    # Invariant: power(lower) < target_power <= power(upper).
-    lower = upper // 2
-    while lower + 1 < upper:
-        mid = (lower + upper) // 2
-        if power_of(mid) >= target_power:
-            upper = mid
-        else:
-            lower = mid
-    return upper
+    required_samples: int
+    power: float
+    first_crossing: int
 
 
-def detectable_rate(
-    sample_size: int,
-    baseline_rate: float,
-    confidence_level: float = DEFAULT_CONFIDENCE_LEVEL,
-    target_power: float = DEFAULT_POWER,
-) -> float:
-    """Compute the largest tolerable true rate detectable at `target_power`
-    with `sample_size` samples.
+def resolved_cutoffs(baseline_successes: int, baseline_trials: int, alpha: float) -> IntArray:
+    """The cutoff against an observed baseline at every test size ``1..n_b``.
 
-    The inversion of `required_samples_for_power` for a fixed, affordable
-    sample size: the highest minimum acceptable rate (the smallest drop
-    from the baseline) at which the self-consistent power still meets the
-    target. Found by bisection over `(0, baseline_rate)` to an absolute
-    tolerance of 1e-10.
-
-    Args:
-        sample_size: The fixed test sample size. Must be positive.
-        baseline_rate: The measured baseline pass rate, strictly between
-            0 and 1.
-        confidence_level: The confidence the acceptance floor is derived
-            at, strictly between 0 and 1.
-        target_power: The desired detection probability, strictly between
-            0 and 1.
-
-    Returns:
-        The detectable rate, strictly between 0 and `baseline_rate`.
-
-    Raises:
-        ValueError: If `sample_size` is not positive or any other input is
-            out of range.
+    Element ``i`` is the cutoff at ``n_t = i + 1``; each size's cutoff is
+    walked from its predecessor's, one or two p-values apart.
     """
-    if sample_size <= 0:
-        raise ValueError("sample_size must be a positive integer")
-    if baseline_rate == 0.0:
-        raise ValueError(SizingRefusal.ZERO_BASELINE.message(baseline_rate, float("nan")))
-    validate_unit_interval("baseline_rate", baseline_rate)
-    validate_unit_interval("confidence_level", confidence_level)
-    validate_unit_interval("target_power", target_power)
+    k_b = np.array([baseline_successes], dtype=np.int64)
+    cutoffs = np.empty(baseline_trials, dtype=np.int64)
+    cutoff = fisher_cutoffs(k_b, baseline_trials, 1, alpha)
+    cutoffs[0] = cutoff[0]
+    for test_samples in range(2, baseline_trials + 1):
+        cutoff = _cutoffs_near(k_b, baseline_trials, test_samples, alpha, cutoff)
+        cutoffs[test_samples - 1] = cutoff[0]
+    return cutoffs
 
-    lower = 1e-9
-    upper = baseline_rate - 1e-9
-    while upper - lower > _DETECTABLE_RATE_TOLERANCE:
-        mid = (lower + upper) / 2
-        if power_at(sample_size, baseline_rate, mid, confidence_level) >= target_power:
-            lower = mid
-        else:
-            upper = mid
-    return lower
+
+def resolved_sizing(
+    baseline_successes: int,
+    baseline_trials: int,
+    design_alternative_rate: float,
+    alpha: float,
+    target_power: float,
+) -> ResolvedSizing | None:
+    """Resolved sizing: ``None`` (``BASELINE_TOO_SMALL``) when no ``n_t <= n_b``
+    reaches and holds the target. The domain is the caller's to check first."""
+    cutoffs = resolved_cutoffs(baseline_successes, baseline_trials, alpha)
+    sizes = np.arange(1, baseline_trials + 1)
+    powers = binom.cdf(cutoffs - 1, sizes, design_alternative_rate)
+    below = np.flatnonzero(powers < target_power)
+    if below.size and below[-1] == baseline_trials - 1:
+        return None
+    start = int(below[-1]) + 1 if below.size else 0
+    crossing = int(np.flatnonzero(powers >= target_power)[0])
+    return ResolvedSizing(
+        required_samples=start + 1,
+        power=float(powers[start]),
+        first_crossing=crossing + 1,
+    )

@@ -1,94 +1,43 @@
-"""Edge-case and validation tests for risk-driven sizing against the moving floor."""
+"""Edge-case tests for design and resolved sizing under regression/fisher."""
 
-import pytest
+from baseltest.statistics import (
+    SizingRefusal,
+    check_sizing_domain,
+    resolved_detectable_rate,
+    resolved_power,
+    resolved_sizing,
+)
 
-from baseltest.statistics import detectable_rate, power_at, required_samples_for_power
+
+def test_domain_refusals_in_order_of_precedence() -> None:
+    assert check_sizing_domain(0.0, 100, 0.5, 200) is SizingRefusal.ZERO_BASELINE
+    assert check_sizing_domain(0.9, 100, 0.9, 200) is SizingRefusal.ALTERNATIVE_NOT_BELOW_BASELINE
+    assert check_sizing_domain(0.9, 100, 0.8, 200) is SizingRefusal.TEST_LARGER_THAN_BASELINE
+    assert check_sizing_domain(0.9, 100, 0.8, 100) is None
 
 
-def test_power_increases_with_sample_size() -> None:
-    powers = [power_at(n, 0.96, 0.93, 0.95) for n in (50, 150, 405, 1000)]
+def test_resolved_sizing_stays_at_the_target_rather_than_first_crossing() -> None:
+    sizing = resolved_sizing(951, 1000, 0.925, 0.05, 0.80)
+    assert sizing is not None
+    assert (sizing.required_samples, sizing.first_crossing) == (966, 868)
+    assert sizing.power >= 0.80
+
+
+def test_resolved_sizing_refuses_a_baseline_too_small() -> None:
+    assert resolved_sizing(288, 300, 0.93, 0.05, 0.80) is None
+
+
+def test_resolved_power_rises_with_the_size_of_the_drop() -> None:
+    powers = [resolved_power(951, 1000, 400, 0.05, rate) for rate in (0.94, 0.92, 0.90)]
     assert powers == sorted(powers)
-    assert powers[0] < powers[-1]
 
 
-def test_power_is_a_probability() -> None:
-    for n in (1, 10, 100, 5000):
-        assert 0.0 <= power_at(n, 0.9, 0.8, 0.95) <= 1.0
+def test_resolved_detectable_rate_inverts_the_resolved_power() -> None:
+    rate = resolved_detectable_rate(951, 1000, 400, 0.05, 0.80)
+    assert rate is not None
+    assert resolved_power(951, 1000, 400, 0.05, rate) >= 0.80
+    assert resolved_power(951, 1000, 400, 0.05, rate + 1e-6) < 0.80
 
 
-def test_power_rejects_non_positive_sample_size() -> None:
-    with pytest.raises(ValueError, match="sample_size"):
-        power_at(0, 0.9, 0.8, 0.95)
-
-
-def test_power_rejects_tolerance_at_or_above_baseline() -> None:
-    with pytest.raises(ValueError, match="re-measure the baseline"):
-        power_at(100, 0.9, 0.9, 0.95)
-    with pytest.raises(ValueError, match="re-measure the baseline"):
-        power_at(100, 0.9, 0.95, 0.95)
-
-
-def test_power_rejects_perfect_baseline() -> None:
-    with pytest.raises(ValueError, match="baseline_rate"):
-        power_at(100, 1.0, 0.9, 0.95)
-
-
-def test_required_samples_is_minimal() -> None:
-    n = required_samples_for_power(0.87, 0.84, 0.95, 0.8)
-    assert power_at(n, 0.87, 0.84, 0.95) >= 0.8
-    assert power_at(n - 1, 0.87, 0.84, 0.95) < 0.8
-
-
-def test_tighter_tolerance_requires_more_samples() -> None:
-    wide = required_samples_for_power(0.96, 0.90, 0.95, 0.8)
-    tight = required_samples_for_power(0.96, 0.93, 0.95, 0.8)
-    assert tight > wide
-
-
-def test_higher_target_power_requires_more_samples() -> None:
-    modest = required_samples_for_power(0.96, 0.93, 0.95, 0.8)
-    demanding = required_samples_for_power(0.96, 0.93, 0.95, 0.9)
-    assert demanding > modest
-
-
-def test_required_samples_rejects_tolerance_at_baseline() -> None:
-    with pytest.raises(ValueError, match="re-measure the baseline"):
-        required_samples_for_power(0.9, 0.9, 0.95, 0.8)
-
-
-def test_required_samples_rejects_invalid_target_power() -> None:
-    with pytest.raises(ValueError, match="target_power"):
-        required_samples_for_power(0.9, 0.8, 0.95, 1.0)
-
-
-def test_required_samples_caps_a_hopeless_search_with_a_clear_message() -> None:
-    with pytest.raises(ValueError, match="too close"):
-        required_samples_for_power(0.9, 0.8999999999, 0.95, 0.8)
-
-
-def test_detectable_rate_round_trips_through_required_samples() -> None:
-    n = required_samples_for_power(0.87, 0.84, 0.95, 0.8)
-    rate = detectable_rate(n, 0.87, 0.95, 0.8)
-    assert rate == pytest.approx(0.84, abs=1e-3)
-    assert power_at(n, 0.87, rate, 0.95) >= 0.8
-
-
-def test_detectable_rate_rises_with_sample_size() -> None:
-    coarse = detectable_rate(100, 0.87, 0.95, 0.8)
-    fine = detectable_rate(891, 0.87, 0.95, 0.8)
-    assert fine > coarse
-
-
-def test_detectable_rate_stays_below_baseline() -> None:
-    rate = detectable_rate(10_000, 0.87, 0.95, 0.8)
-    assert 0.0 < rate < 0.87
-
-
-def test_detectable_rate_rejects_non_positive_sample_size() -> None:
-    with pytest.raises(ValueError, match="sample_size"):
-        detectable_rate(0, 0.9, 0.95, 0.8)
-
-
-def test_detectable_rate_rejects_degenerate_baseline() -> None:
-    with pytest.raises(ValueError, match="baseline_rate"):
-        detectable_rate(100, 1.0, 0.95, 0.8)
+def test_nothing_is_detectable_against_a_zero_cutoff() -> None:
+    assert resolved_detectable_rate(0, 100, 50, 0.05, 0.80) is None
