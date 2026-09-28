@@ -390,7 +390,8 @@ inputs:
         def teller(name: str) -> str:
             return f"a fortune for {name}"
 
-        result = run(contract, samples=4, bindings=bindings, emit=False)
+        # Five samples are the fewest that can demonstrate a 0.5 requirement.
+        result = run(contract, samples=6, bindings=bindings, emit=False)
         record = BaselineRecord.from_run_result(result, service_name="teller")
         written = write_baseline(record, tmp_path)
 

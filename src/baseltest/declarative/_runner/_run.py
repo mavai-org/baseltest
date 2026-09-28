@@ -4,20 +4,31 @@ Persistence strictly precedes rendering and any downstream assertion: for a
 measure run the baseline artefact is on disk before ``run`` returns.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from baseltest.baseline import BaselineRecord, write_baseline
-from baseltest.engine import RunKind, RunResult, execute
+from baseltest.engine import (
+    ConfigurationRefusedError,
+    RunKind,
+    RunResult,
+    execute,
+    inputs_fingerprint,
+    plan_latency,
+)
 from baseltest.reporting import (
     RISK_DRIVEN_APPROACH,
     BaselineDisclosure,
     ClaimDisclosure,
     RunDesign,
+    render_latency_planning,
     render_run,
     render_run_plan,
+    write_refused_record,
     write_verdict_record,
 )
+from baseltest.statistics import RegressionVerdict
 
 from .._instantiate import BaselineContext, descriptive_view_fingerprints, instantiate
 from .._parser import FORMAT_IDENTIFIER
@@ -69,8 +80,11 @@ def run(
     Raises:
         ContractConfigurationError: The file (or its registrations) is not
             runnable as declared — refused before any invocation.
-        InfeasibleRunError: The declared sample count cannot support every
-            declared threshold under verification intent.
+        ConfigurationRefusedError: The configuration is refused before any
+            invocation — a test larger than its baseline, or a requirement
+            no outcome of this size can demonstrate under verification
+            intent — naming every applicable code. Under ``test`` with a
+            verdict directory, the refused record is written first.
     """
     run_mode = RunKind(mode) if isinstance(mode, str) else mode
     if sizing_resolution is not None:
@@ -90,6 +104,9 @@ def run(
         samples=samples,
         baseline_dir=Path(baseline_dir),
         samples_provenance=samples_provenance,
+        design_alternative_rates=(
+            sizing_resolution.design_alternative_rates if sizing_resolution is not None else None
+        ),
     )
     contract = instantiation.contract
     plan = instantiation.plan
@@ -97,9 +114,6 @@ def run(
     service_provenance = instantiation.service_provenance
     skipped = instantiation.skipped
     baseline_context = instantiation.baseline_context
-    design = None
-    if run_mode is RunKind.TEST:
-        design = _run_design(sizing_resolution, baseline_context)
     # A risk-driven run already opened with the sizing block, whose title
     # line states n and its provenance — no separate run-plan line.
     if emit and sizing.provenance != "risk-driven":
@@ -111,16 +125,32 @@ def run(
                 threshold=sizing.threshold,
             )
         )
-    result = execute(
-        contract,
-        plan,
-        on_sample=_tty_progress(declaration.service) if emit else None,
-        # A measure run's baseline needs per-sample durations for its
-        # latency block; test runs consume no per-sample observations.
-        record_samples=run_mode is RunKind.MEASURE,
-    )
+    if emit and contract.latency is not None and run_mode is RunKind.TEST:
+        for line in render_latency_planning(plan_latency(contract.latency, plan.samples)):
+            print(line)
+    try:
+        result = execute(
+            contract,
+            plan,
+            on_sample=_tty_progress(declaration.service) if emit else None,
+            # A measure run's baseline needs per-sample durations for its
+            # latency block; test runs consume no per-sample observations.
+            record_samples=run_mode is RunKind.MEASURE,
+        )
+    except ConfigurationRefusedError as refused:
+        if verdict_dir is not None and run_mode is RunKind.TEST:
+            write_refused_record(
+                contract,
+                plan,
+                inputs_fingerprint(plan.inputs),
+                refused,
+                Path(verdict_dir),
+                datetime.now(tz=UTC).isoformat(),
+            )
+        raise
 
     if verdict_dir is not None and run_mode is RunKind.TEST:
+        design = _run_design(sizing_resolution, baseline_context, result)
         verdict_path = write_verdict_record(result, Path(verdict_dir), design)
         if emit:
             print(f"verdict record written: {verdict_path.as_posix()}\n")
@@ -155,13 +185,17 @@ def run(
 def _run_design(
     sizing_resolution: ResolvedSizing | None,
     baseline_context: BaselineContext | None,
+    result: RunResult,
 ) -> RunDesign:
     """The recorded design facts a test's verdict record carries.
 
     The approach comes from the sizing conversation when one happened;
     otherwise it is the design fact the instantiation itself establishes —
-    empirical criteria mean the size came first and the bar was derived at
-    it (sample-size-first), declared bars alone are threshold-first.
+    empirical criteria mean the size came first and the cutoff was derived
+    at it (sample-size-first), declared bars alone are threshold-first. The
+    baseline disclosure names the weakest regression criterion — the lowest
+    baseline rate, the one downsizing hurts first — and its derived
+    threshold ``c / n_t``.
     """
     approach = sizing_resolution.approach if sizing_resolution is not None else None
     if approach is None:
@@ -174,7 +208,7 @@ def _run_design(
             ClaimDisclosure(
                 criterion=claim.criterion,
                 baseline_rate=claim.baseline_rate,
-                tolerated_rate=claim.tolerated_rate,
+                design_alternative_rate=claim.design_alternative_rate,
                 confidence=claim.confidence,
                 target_power=claim.target_power,
                 required_n=claim.required_n,
@@ -182,13 +216,17 @@ def _run_design(
             for claim in sizing_resolution.claims
         )
     baseline = None
-    if baseline_context is not None:
+    regressions = [
+        r.decision for r in result.criterion_results if isinstance(r.decision, RegressionVerdict)
+    ]
+    if baseline_context is not None and regressions:
+        weakest = min(regressions, key=lambda d: d.baseline_successes / d.baseline_trials)
         baseline = BaselineDisclosure(
             source_file=baseline_context.source_file,
             generated_at=baseline_context.generated_at,
             samples=baseline_context.samples,
-            baseline_rate=baseline_context.weakest_effective_rate,
-            derived_threshold=baseline_context.weakest_threshold,
+            baseline_rate=weakest.baseline_successes / weakest.baseline_trials,
+            derived_threshold=weakest.derivation.threshold_real,
         )
     return RunDesign(approach=approach, claims=claims, governing=governing, baseline=baseline)
 

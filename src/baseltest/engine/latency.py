@@ -1,4 +1,4 @@
-"""The gated aggregate-latency summary shared by the experiment artefacts.
+"""Latency over a run: the gated summary the artefacts share, and the judgement.
 
 Latency is conditioned on success throughout the family: only samples that
 passed contribute durations, because the timing of incorrect behaviour does
@@ -16,20 +16,20 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from baseltest.contract import PERCENTILE_LEVELS, LatencyBar, LatencyBound
-from baseltest.statistics import latency_percentile
-from baseltest.statistics.verdict import Verdict
-
-
-class BoundStatus(StrEnum):
-    """One asserted latency bound's outcome over a run.
-
-    ``INFEASIBLE`` means too few samples passed to estimate the percentile
-    at all — no judgement was possible, distinct from a breach.
-    """
-
-    PASS = "pass"
-    FAIL = "fail"
-    INFEASIBLE = "infeasible"
+from baseltest.statistics import (
+    Intent,
+    LatencyJudgement,
+    LatencyMode,
+    NondegeneracyPlanning,
+    PrecedencePlanning,
+    Verdict,
+    judge_latency_constraint,
+    latency_percentile,
+    plan_nondegeneracy,
+    plan_precedence,
+    structural_composite,
+)
+from baseltest.statistics import minimum_contributing_samples as _minimum_for_level
 
 
 class LatencyBasis(StrEnum):
@@ -48,13 +48,11 @@ if TYPE_CHECKING:  # a type-only edge: the run module imports this one at runtim
 # The family's per-percentile minimum-contributing-samples rule (the
 # Statistical Companion's non-degeneracy gate): below the minimum the
 # percentile is omitted from the artefact entirely rather than carrying a
-# number that looks authoritative but is noise. The values are
-# conformance-locked to the mavai-R latency_percentile_minimums fixture.
-_PERCENTILES: tuple[tuple[str, float, int], ...] = (
-    ("p50Ms", 0.50, 5),
-    ("p90Ms", 0.90, 10),
-    ("p95Ms", 0.95, 20),
-    ("p99Ms", 0.99, 100),
+# number that looks authoritative but is noise. The minimums are the
+# statistics core's, conformance-locked to the mavai-R
+# latency_percentile_minimums fixture.
+_PERCENTILES: tuple[tuple[str, float, int], ...] = tuple(
+    (f"{label}Ms", level, _minimum_for_level(level)) for label, level in PERCENTILE_LEVELS.items()
 )
 
 
@@ -101,29 +99,30 @@ def minimum_contributing_samples(percentile: str) -> int:
 
 @dataclass(frozen=True, slots=True)
 class BoundEvaluation:
-    """One asserted latency bound's outcome over a run.
+    """One asserted latency constraint's outcome over a run.
 
     Attributes:
-        bound: The bound as asserted (with its derivation facts, for a
-            baseline-derived bound).
-        observed_ms: The observed nearest-rank percentile over passing
-            samples, or ``None`` when too few samples passed to estimate
-            this percentile at all.
-        status: :class:`BoundStatus` — ``PASS`` (observed at or below the
-            bound), ``FAIL`` (observed above it), or ``INFEASIBLE`` (not
-            enough passing samples to estimate the percentile).
-        reason: For an infeasible outcome, the plain-language why.
+        bound: The constraint as asserted.
+        judgement: The statistics core's judgement: the rule that decided,
+            its decision artefact (``y_min`` and the within-threshold count
+            for an explicit requirement; the rank, the derived threshold and
+            the test's percentile, or saturation, for a baseline-derived
+            one) and the verdict.
     """
 
     bound: LatencyBound
-    observed_ms: int | None
-    status: BoundStatus
-    reason: str | None = None
+    judgement: LatencyJudgement
+
+    @property
+    def verdict(self) -> Verdict:
+        """The constraint's verdict; every constraint baseltest judges is enforced."""
+        assert self.judgement.verdict is not None
+        return self.judgement.verdict
 
 
 @dataclass(frozen=True, slots=True)
 class LatencyEvaluation:
-    """The latency dimension's outcome: observed percentiles and per-bound judgements.
+    """The latency dimension's outcome: observed percentiles and per-constraint judgements.
 
     Attributes:
         bar: The contract's latency bar as asserted.
@@ -132,7 +131,7 @@ class LatencyEvaluation:
         observed: The gated observed percentiles (``(label, ms)`` for every
             supported percentile the contributing count can estimate) —
             descriptive context, independent of which were asserted.
-        evaluations: One outcome per asserted bound, in tail order.
+        evaluations: One outcome per asserted constraint, in tail order.
     """
 
     bar: LatencyBar
@@ -143,26 +142,19 @@ class LatencyEvaluation:
 
     @property
     def verdict(self) -> Verdict:
-        """FAIL if any bound is breached; INCONCLUSIVE if any could not be
-        judged; PASS when every asserted bound held."""
-        statuses = {evaluation.status for evaluation in self.evaluations}
-        if BoundStatus.FAIL in statuses:
-            return Verdict.FAIL
-        if BoundStatus.INFEASIBLE in statuses:
-            return Verdict.INCONCLUSIVE
-        return Verdict.PASS
+        """``V_latency``: the structural composite of the enforced constraints."""
+        return structural_composite(evaluation.verdict for evaluation in self.evaluations)
 
 
 def evaluate_latency(
-    bar: LatencyBar, passing_durations_ms: Sequence[int], total_samples: int
+    bar: LatencyBar, passing_durations_ms: Sequence[int], total_samples: int, intent: Intent
 ) -> LatencyEvaluation:
     """Judge a latency bar against a run's passing-sample durations.
 
     Latency is conditioned on functional success (only passing samples'
-    durations are judged), the estimator is the nearest-rank percentile,
-    and a bound passes iff ``observed <= threshold`` — one-sided, equality
-    passes. A percentile whose minimum-contributing-samples rule is unmet
-    by the run yields an infeasible outcome rather than a judgement.
+    durations are judged). Each constraint is decided after the run on the
+    actual number of successful latencies, by the rule for its threshold
+    source (see ``statistics.judge_latency_constraint``).
     """
     contributing = sorted(passing_durations_ms)
     observed = tuple(
@@ -170,37 +162,69 @@ def evaluate_latency(
         for key, level, minimum in _PERCENTILES
         if len(contributing) >= minimum
     )
-    evaluations = []
-    for bound in bar.bounds:
-        minimum = minimum_contributing_samples(bound.percentile)
-        if len(contributing) < minimum:
-            evaluations.append(
-                BoundEvaluation(
-                    bound=bound,
-                    observed_ms=None,
-                    status=BoundStatus.INFEASIBLE,
-                    reason=(
-                        f"{bound.percentile} needs at least {minimum} passing samples "
-                        f"to estimate; this run had {len(contributing)} of "
-                        f"{total_samples}"
-                    ),
-                )
-            )
-            continue
-        observed_ms = round(latency_percentile(contributing, PERCENTILE_LEVELS[bound.percentile]))
-        evaluations.append(
-            BoundEvaluation(
-                bound=bound,
-                observed_ms=observed_ms,
-                status=BoundStatus.PASS if observed_ms <= bound.threshold_ms else BoundStatus.FAIL,
-            )
+    baseline = bar.baseline.sorted_latencies_ms if bar.baseline is not None else ()
+    evaluations = tuple(
+        BoundEvaluation(
+            bound=bound,
+            judgement=judge_latency_constraint(
+                contributing,
+                bound.level,
+                bar.alpha,
+                source=bar.origin,
+                mode=LatencyMode.ENFORCED,
+                intent=intent,
+                threshold_ms=bound.threshold_ms,
+                baseline_latencies=baseline,
+            ),
         )
+        for bound in bar.bounds
+    )
     return LatencyEvaluation(
         bar=bar,
         contributing_samples=len(contributing),
         total_samples=total_samples,
         observed=observed,
-        evaluations=tuple(evaluations),
+        evaluations=evaluations,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class LatencyPlanning:
+    """The pre-run planning checks of one baseline-derived constraint (§12.5.3).
+
+    Warnings and planning figures on the *expected* number of successful
+    latencies — never a refusal and never a verdict: both decisions are
+    made after the run on the actual count.
+    """
+
+    bound: LatencyBound
+    nondegeneracy: NondegeneracyPlanning
+    precedence: PrecedencePlanning
+
+    @property
+    def warns(self) -> bool:
+        """Whether either check falls short at the expected count."""
+        return self.nondegeneracy.warning or self.precedence.warning
+
+
+def plan_latency(bar: LatencyBar, planned_samples: int) -> tuple[LatencyPlanning, ...]:
+    """The planning checks for each baseline-derived constraint; none for explicit ones.
+
+    An explicit requirement's only pre-run check is its exact-binomial
+    feasibility, a configuration error judged in preflight.
+    """
+    if bar.baseline is None:
+        return ()
+    rate = bar.baseline.passing_rate
+    return tuple(
+        LatencyPlanning(
+            bound=bound,
+            nondegeneracy=plan_nondegeneracy(bound.level, planned_samples, rate),
+            precedence=plan_precedence(
+                len(bar.baseline.sorted_latencies_ms), planned_samples, rate, bound.level, bar.alpha
+            ),
+        )
+        for bound in bar.bounds
     )
 
 

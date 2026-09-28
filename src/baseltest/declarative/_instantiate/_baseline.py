@@ -2,12 +2,12 @@
 
 Under ``test``, a criterion without a declared threshold is an empirical
 criterion: when the baseline directory holds a matching baseline (same
-contract, inputs fingerprint, and covariates), its bar is derived from
-the baseline's recorded evidence at this run's own sample size — the
-companion's sample-size-first rule.
+contract, inputs fingerprint, and covariates), it carries the baseline's
+recorded evidence, and the engine derives its ``regression/fisher`` cutoff
+at the run's own sample size.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import replace as _replace
 from pathlib import Path
@@ -18,9 +18,8 @@ from baseltest.baseline import (
     StoredCriterion,
     resolve_baseline,
 )
-from baseltest.contract import Criterion, Postcondition, ThresholdProvenance
+from baseltest.contract import BaselineCount, Criterion, Postcondition, ThresholdProvenance
 from baseltest.engine import inputs_fingerprint
-from baseltest.statistics import derive_sample_size_first, wilson_lower_bound
 
 from .._parser import ContractDeclaration, CriterionDeclaration
 from .._registry import Registry
@@ -29,22 +28,12 @@ from ._postconditions import _build_criterion
 
 @dataclass(frozen=True, slots=True)
 class BaselineContext:
-    """The resolved baseline a test's empirical criteria judged against —
-    the identity and the weakest criterion's standing, for the report's
-    sizing disclosures.
-
-    ``weakest_effective_rate`` is the lowest effective baseline rate among
-    the judged empirical criteria (the criterion closest to any tolerance,
-    hence the one downsizing hurts first); ``weakest_threshold`` is that
-    criterion's derived bar at this run's size.
-    """
+    """The resolved baseline a test's empirical criteria are judged against —
+    its identity, for the report's sizing disclosures."""
 
     source_file: str
     generated_at: str
     samples: int
-    weakest_criterion: str
-    weakest_effective_rate: float
-    weakest_threshold: float
 
 
 def _resolve_matching_baseline(
@@ -103,45 +92,35 @@ def _judge_against_baseline(
     entry: CriterionDeclaration,
     stored: StoredBaseline,
     evidence: StoredCriterion,
-    samples: int,
     confidence: float,
+    design_alternative_rate: float | None,
     expected: Sequence[Postcondition],
     transforms: dict[str, str],
     registry: Registry,
-) -> tuple[Criterion, float, float]:
-    """One empirical criterion made judgeable: bar derived at this run's size.
-
-    Returns the criterion, its effective baseline rate (the Wilson lower
-    bound stands in for a perfect baseline), and the derived bar.
-    """
+) -> Criterion:
+    """One empirical criterion made judgeable: it carries its baseline evidence."""
     built = _build_criterion(entry, confidence, expected, transforms, registry)
-    derivation = derive_sample_size_first(
-        evidence.successes, evidence.trials, samples, built.confidence
-    )
-    criterion = _replace(
+    return _replace(
         built,
-        threshold=derivation.min_pass_rate,
-        cutoff=derivation.cutoff,
+        baseline=BaselineCount(successes=evidence.successes, trials=evidence.trials),
+        design_alternative_rate=design_alternative_rate,
         provenance=ThresholdProvenance(origin="empirical", contract_ref=stored.path.name),
     )
-    effective_rate = (
-        wilson_lower_bound(evidence.successes, evidence.trials, built.confidence)
-        if evidence.successes == evidence.trials
-        else evidence.successes / evidence.trials
-    )
-    return criterion, effective_rate, derivation.min_pass_rate
 
 
 def _empirical_criteria(
     declared: Sequence[CriterionDeclaration],
     resolution: BaselineResolution | None,
-    samples: int,
     confidence: float,
+    design_alternative_rates: Mapping[str, float],
     expected: Sequence[Postcondition],
     transforms: dict[str, str],
     registry: Registry,
 ) -> tuple[list[Criterion], list[tuple[str, str]], "BaselineContext | None"]:
     """Judge every declared empirical criterion against the resolved baseline.
+
+    A criterion's design alternative rate is the one the sizing
+    conversation resolved for it, else its own ``tolerate:`` declaration.
 
     Returns the judgeable criteria, the ``(name, reason)`` pairs for those
     that could not be judged, and the baseline context for the report's
@@ -149,37 +128,31 @@ def _empirical_criteria(
     """
     judged: list[Criterion] = []
     skipped: list[tuple[str, str]] = []
-    weakest: tuple[float, str, float] | None = None  # (effective rate, name, threshold)
     for entry in declared:
         located = _baseline_evidence(entry, resolution)
         if isinstance(located, str):
             skipped.append((entry.name, located))
             continue
         stored, evidence = located
-        criterion, effective_rate, threshold = _judge_against_baseline(
-            entry, stored, evidence, samples, confidence, expected, transforms, registry
+        judged.append(
+            _judge_against_baseline(
+                entry,
+                stored,
+                evidence,
+                confidence,
+                design_alternative_rates.get(entry.name, entry.tolerate),
+                expected,
+                transforms,
+                registry,
+            )
         )
-        judged.append(criterion)
-        # The weakest criterion is the one closest to any tolerance —
-        # the one downsizing hurts first.
-        if weakest is None or effective_rate < weakest[0]:
-            weakest = (effective_rate, entry.name, threshold)
-    return judged, skipped, _baseline_context(resolution, weakest)
-
-
-def _baseline_context(
-    resolution: BaselineResolution | None, weakest: tuple[float, str, float] | None
-) -> "BaselineContext | None":
-    """The judged baseline's identity and weakest standing, or ``None``."""
-    if weakest is None:
-        return None
-    assert resolution is not None and resolution.baseline is not None
-    stored = resolution.baseline
-    return BaselineContext(
-        source_file=stored.path.name,
-        generated_at=stored.generated_at,
-        samples=stored.sample_count,
-        weakest_criterion=weakest[1],
-        weakest_effective_rate=weakest[0],
-        weakest_threshold=weakest[2],
-    )
+    context = None
+    if judged:
+        assert resolution is not None and resolution.baseline is not None
+        stored = resolution.baseline
+        context = BaselineContext(
+            source_file=stored.path.name,
+            generated_at=stored.generated_at,
+            samples=stored.sample_count,
+        )
+    return judged, skipped, context

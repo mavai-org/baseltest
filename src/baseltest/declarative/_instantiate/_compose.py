@@ -6,6 +6,7 @@ The run mode is supplied by the invocation (the verb), never by the file:
 ``measure`` instantiates a measure experiment over every criterion.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +59,7 @@ def instantiate(
     samples: int | None = None,
     baseline_dir: Path | None = None,
     samples_provenance: str | None = None,
+    design_alternative_rates: Mapping[str, float] | None = None,
 ) -> Instantiation:
     """Instantiate the contract and plan for a contract declaration under a run mode.
 
@@ -70,16 +72,19 @@ def instantiate(
 
     Under ``test``, a criterion without a declared threshold is an
     empirical criterion: when ``baseline_dir`` holds a matching baseline
-    (same contract, inputs fingerprint, and covariates), its bar is derived
-    from the baseline's recorded evidence at this run's own sample size —
-    the companion's sample-size-first rule — and it is judged like its
-    normative siblings, with provenance naming the artefact.
+    (same contract, inputs fingerprint, and covariates), it carries the
+    baseline's recorded evidence and is judged by ``regression/fisher`` at
+    this run's own sample size, with provenance naming the artefact.
+    ``design_alternative_rates`` are the rates the sizing conversation
+    resolved, by criterion name.
 
     Raises:
         ContractConfigurationError: On any load-time refusal — before any
             invocation. In particular, a ``test`` where nothing is
             judgeable, a silently derived N above the derivation gate's
             limit, and a ``measure`` without an explicit sample count.
+            Configuration errors proper (a test larger than its baseline,
+            an infeasible requirement) are the engine's preflight.
     """
     resolved, service_provenance = _resolve_service(declaration.service, services or {}, registry)
     _validate_inputs(declaration.service, resolved, declaration.inputs)
@@ -106,12 +111,12 @@ def instantiate(
         resolution = _resolve_matching_baseline(
             declaration, empirical_declared, service_provenance, baseline_dir
         )
-        latency_bar = _latency_bar(declaration, sizing.samples, resolution)
+        latency_bar = _latency_bar(declaration, resolution)
         empirical, skipped, baseline_context = _empirical_criteria(
             empirical_declared,
             resolution,
-            sizing.samples,
             declaration.confidence,
+            design_alternative_rates or {},
             expected,
             transforms,
             registry,

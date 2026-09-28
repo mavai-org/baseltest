@@ -94,13 +94,17 @@ class TestExitCodeContract:
         contract = write_files(tmp_path, "latency:\n  p50: 1\n")
         assert main(["test", str(contract), "--samples", "10"]) == 1
 
-    def test_percentile_unsupported_by_planned_n_is_refused(
+    def test_explicit_requirement_no_plan_can_demonstrate_is_refused(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
     ) -> None:
         monkeypatch.chdir(tmp_path)
+        # A p99 requirement needs 299 successful latencies to be demonstrable
+        # at 95%; a verification test planned at 10 is refused before it runs.
         contract = write_files(tmp_path, "latency:\n  p99: 60000\n")
         assert main(["test", str(contract), "--samples", "10"]) == 2
-        assert "needs at least 100 passing samples" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert "COMPLIANCE_INFEASIBLE: latency p99" in err
+        assert "from 299 samples" in err
 
     def test_empirical_without_baseline_is_refused(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
@@ -118,16 +122,21 @@ class TestExitCodeContract:
         assert main(["measure", str(contract), "--samples", "30"]) == 0
         assert main(["test", str(contract), "--samples", "10"]) == 0
 
-    def test_saturation_at_the_requested_confidence_is_refused(
+    def test_saturation_is_a_pre_run_warning_and_a_post_run_inconclusive(
         self, tmp_path: Path, monkeypatch: Any, capsys: Any
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        # A 30-sample measure yields ~27 passing — below the 59 a
-        # non-saturated 95% bound on the 95th percentile requires.
+        # A 30-sample measure yields 27 successful latencies: too few for any
+        # baseline rank to bound a p95 of the ~22 a 25-sample test returns.
+        # The pre-run check warns and the run goes ahead; the post-run
+        # decision on the actual count is INCONCLUSIVE (saturated).
         contract = write_files(tmp_path, "latency:\n  empirical: [p95]\n")
         assert main(["measure", str(contract), "--samples", "30"]) == 0
-        assert main(["test", str(contract), "--samples", "25"]) == 2
-        assert "at least 59 are needed" in capsys.readouterr().err
+        capsys.readouterr()
+        assert main(["test", str(contract), "--samples", "25"]) == 3
+        out = capsys.readouterr().out
+        assert "warning: latency p95: no baseline rank achieves alpha" in out
+        assert "(saturated)" in out
 
     def test_too_few_passing_samples_is_unsupportable_not_a_verdict(
         self, tmp_path: Path, monkeypatch: Any
@@ -173,6 +182,6 @@ class TestExitCodeContract:
         assert "sortedPassingLatenciesMs:" in baseline
 
 
-def test_gating_table_backs_the_planned_n_refusal() -> None:
-    # The refusal threshold and the emission gate are the same table.
+def test_gating_table_backs_the_non_degeneracy_planning() -> None:
+    # The planning check and the emission gate read the same table.
     assert minimum_contributing_samples("p99") == 100

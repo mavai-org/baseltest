@@ -2,7 +2,7 @@
 # claim; the invocation sizes the run.
 #   basel test fortune-teller.yaml                  -> does it clear its bar? (verdict,
 #                                                          at the bar's derived minimum)
-#   basel measure fortune-teller.yaml --samples 200 -> what does it actually do?
+#   basel measure fortune-teller.yaml --samples 1000 -> what does it actually do?
 #                                                          (baseline persisted)
 format: mavai-contract/1
 contract: fortune-teller-is-usually-encouraging

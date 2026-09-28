@@ -206,7 +206,7 @@ def _parse_design(root: ElementTree.Element) -> RunDesign | None:
             ClaimDisclosure(
                 criterion=key.removeprefix("sizing-claim:"),
                 baseline_rate=float(body["baselineRate"]),
-                tolerated_rate=float(body["toleratedRate"]),
+                design_alternative_rate=float(body["designAlternativeRate"]),
                 confidence=float(body["confidence"]),
                 target_power=float(body["targetPower"]),
                 required_n=int(body["requiredN"]) if body.get("requiredN") is not None else None,

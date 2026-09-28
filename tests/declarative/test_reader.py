@@ -9,7 +9,7 @@ from baseltest.declarative import Bindings, run
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._materialise import materialise
 from baseltest.declarative._parser import load_contract, parse_contract
-from baseltest.engine import InfeasibleRunError, Verdict
+from baseltest.engine import ConfigurationRefusedError, Verdict
 
 
 def write_contract(tmp_path: Path, text: str) -> Path:
@@ -69,7 +69,7 @@ class TestFirstContactPath:
         assert "derived" in out and f"n = {result.plan.samples}" in out
         from baseltest.statistics import check_feasibility
 
-        assert result.plan.samples == check_feasibility(1, 0.5, 0.95).minimum_samples
+        assert result.plan.samples == check_feasibility(0.5, 1, 0.05).minimum_samples
 
     def test_a_withdrawn_sizing_key_is_refused_naming_the_flag(self) -> None:
         with pytest.raises(ContractConfigurationError, match="--samples"):
@@ -279,7 +279,7 @@ inputs:
             return f"hello {value}"
 
         contract = GREETING_CONTRACT.replace("threshold: 0.5", "threshold: 0.99")
-        with pytest.raises(InfeasibleRunError):
+        with pytest.raises(ConfigurationRefusedError):
             run(write_contract(tmp_path, contract), samples=30, bindings=bindings)
 
     def test_tolerate_alongside_threshold_is_refused(self) -> None:
@@ -690,11 +690,14 @@ inputs: ["a", "b"]
         assert judged.criterion.provenance.contract_ref.endswith(".yaml")
         out = capsys.readouterr().out
         assert "empirical" in out and ".yaml" in out
-        # the bar is the companion's sample-size-first derivation at this N
-        from baseltest.statistics import derive_sample_size_first
+        # the criterion carries its baseline evidence, and the cutoff is the
+        # regression/fisher cutoff derived at this N
+        from baseltest.contract import BaselineCount
+        from baseltest.statistics import RegressionVerdict, fisher_cutoff
 
-        expected = derive_sample_size_first(200, 200, 200, 0.95).min_pass_rate
-        assert judged.criterion.threshold == pytest.approx(expected)
+        assert judged.criterion.baseline == BaselineCount(200, 200)
+        assert isinstance(judged.decision, RegressionVerdict)
+        assert judged.decision.cutoff == fisher_cutoff(200, 200, 200, 0.05)
 
     def test_baseline_criterion_missing_skips_with_reason(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -754,10 +757,10 @@ inputs: ["a", "b"]
         )
         judged = result.criterion_results[0]
         assert judged.criterion.confidence == 0.99
-        from baseltest.statistics import derive_sample_size_first
+        from baseltest.statistics import RegressionVerdict, fisher_cutoff
 
-        expected = derive_sample_size_first(200, 200, 200, 0.99).min_pass_rate
-        assert judged.criterion.threshold == pytest.approx(expected)
+        assert isinstance(judged.decision, RegressionVerdict)
+        assert judged.decision.cutoff == fisher_cutoff(200, 200, 200, 0.01)
 
     def test_mixed_contract_judges_normative_and_empirical_together(self, tmp_path: Path) -> None:
         bindings = self._bind()

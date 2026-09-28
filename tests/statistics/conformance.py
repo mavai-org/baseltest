@@ -37,7 +37,13 @@ class ConformanceLedger:
         scope = json.loads((fixtures_dir / "SCOPE.json").read_text())
         self.scope_suites: tuple[str, ...] = tuple(scope["suites"])
         self.mandatory_suites: tuple[str, ...] = tuple(self.manifest["familyMandatory"])
+        self.methodology_version: str = self.manifest["methodologyVersion"]
         self.asserted: set[Triple] = set()
+
+    @property
+    def configuration_errors(self) -> tuple[str, ...]:
+        """The configuration-error codes the manifest publishes, in its order."""
+        return tuple(self.manifest["configurationErrors"])
 
     # -- recording ---------------------------------------------------------
 
@@ -103,7 +109,7 @@ class ConformanceLedger:
         scoped = self.obligations(tuple(s for s in self.scope_suites))
         unaddressed = self.unaddressed_suites()
         parts = [
-            f"fixtures v{self.manifest['fixtureVersion']}",
+            f"fixtures v{self.manifest['fixtureVersion']} (methodology {self.methodology_version})",
             f"mandatory {len(mandatory & self.asserted)}/{len(mandatory)} binding assertions"
             f" over {len(self.mandatory_suites)} suites",
             f"scope {len(scoped & self.asserted)}/{len(scoped)}"
@@ -120,6 +126,7 @@ class ConformanceLedger:
         return {
             "fixtureVersion": self.manifest["fixtureVersion"],
             "manifestVersion": self.manifest["manifestVersion"],
+            "methodologyVersion": self.methodology_version,
             "mandatorySuites": list(self.mandatory_suites),
             "scopeSuites": list(self.scope_suites),
             "assertedTriples": len(self.asserted),

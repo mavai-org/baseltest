@@ -110,7 +110,9 @@ def resolve_test_sizing(
         return ResolvedSizing(samples=samples)
 
     over_reaching = [
-        c for c in criteria if c.tolerated_rate is not None and c.tolerated_rate >= c.baseline_rate
+        c
+        for c in criteria
+        if c.design_alternative_rate is not None and c.design_alternative_rate >= c.baseline_rate
     ]
     if over_reaching:
         return _over_reach_mode(criteria, over_reaching[0], samples, target_power, interaction)
@@ -118,14 +120,14 @@ def resolve_test_sizing(
     if samples is not None:
         return _explicit_samples_mode(criteria, samples, target_power, interaction)
 
-    unclaimed = [c for c in criteria if c.tolerated_rate is None]
+    unclaimed = [c for c in criteria if c.design_alternative_rate is None]
     if not unclaimed:
         return _risk_driven_mode(criteria, declaration, target_power, interaction, prompted=False)
 
     if not interaction.interactive:
         flags = " ".join(f"--tolerate {c.name}=RATE" for c in unclaimed)
         raise SizingRefusalError(
-            "cannot size the run: no tolerance is declared for "
+            "cannot size the run: no rate to catch is declared for "
             f"{', '.join(c.name for c in unclaimed)} and there is no terminal to ask "
             f"on. Declare the claim in the contract file (`tolerate:`) or pass "
             f"flags, e.g. `basel test <contract> {flags} --confidence 95`, or size "
@@ -135,7 +137,7 @@ def resolve_test_sizing(
     session_confidence: float | None = confidence_flag
     resolved: list[_EmpiricalCriterion] = []
     for criterion in criteria:
-        if criterion.tolerated_rate is not None:
+        if criterion.design_alternative_rate is not None:
             resolved.append(criterion)
             continue
         if session_confidence is None and _needs_confidence_prompt(declaration, criterion.name):
@@ -145,24 +147,26 @@ def resolve_test_sizing(
             if session_confidence is None
             else _EmpiricalCriterion(
                 name=criterion.name,
-                baseline_rate=criterion.baseline_rate,
+                baseline_successes=criterion.baseline_successes,
                 baseline_trials=criterion.baseline_trials,
                 confidence=session_confidence,
-                tolerated_rate=None,
+                design_alternative_rate=None,
             )
         )
         rate = _prompt_rate(interaction, effective)
         resolved.append(
             _EmpiricalCriterion(
                 name=effective.name,
-                baseline_rate=effective.baseline_rate,
+                baseline_successes=effective.baseline_successes,
                 baseline_trials=effective.baseline_trials,
                 confidence=effective.confidence,
-                tolerated_rate=rate,
+                design_alternative_rate=rate,
             )
         )
     over = [
-        c for c in resolved if c.tolerated_rate is not None and c.tolerated_rate >= c.baseline_rate
+        c
+        for c in resolved
+        if c.design_alternative_rate is not None and c.design_alternative_rate >= c.baseline_rate
     ]
     if over:  # unreachable via prompt validation, reachable via keys+prompt mixes
         return _over_reach_mode(resolved, over[0], samples, target_power, interaction)

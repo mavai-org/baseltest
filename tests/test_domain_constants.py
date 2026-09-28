@@ -12,13 +12,12 @@ import inspect
 
 from baseltest.contract.model import PERCENTILE_LEVELS
 from baseltest.declarative import _parser, _registry, _structured
-from baseltest.reporting import verdict_reader, verdict_xml
+from baseltest.engine import METHODOLOGY_VERSION as ENGINE_METHODOLOGY_VERSION
+from baseltest.reporting import console, verdict_reader, verdict_xml
 from baseltest.statistics import (
     DEFAULT_CONFIDENCE_LEVEL,
     DEFAULT_POWER,
-    derive_confidence_first,
-    evaluate_compliance,
-    required_samples_for_power,
+    METHODOLOGY_VERSION,
     wilson_interval,
     wilson_lower_bound,
     wilson_lower_bound_from_rate,
@@ -34,14 +33,21 @@ def test_statistics_confidence_defaults_bind_to_the_shared_constant() -> None:
         wilson_interval,
         wilson_lower_bound,
         wilson_lower_bound_from_rate,
-        evaluate_compliance,
     ):
         assert _default(func, "confidence_level") == DEFAULT_CONFIDENCE_LEVEL
 
 
-def test_statistics_power_defaults_bind_to_the_shared_constant() -> None:
-    assert _default(required_samples_for_power, "target_power") == DEFAULT_POWER
-    assert _default(derive_confidence_first, "power") == DEFAULT_POWER
+def test_the_sizing_resolver_defaults_to_the_shared_power() -> None:
+    from baseltest.declarative._sizing import _resolve
+
+    assert _resolve.DEFAULT_POWER is DEFAULT_POWER
+
+
+def test_the_methodology_version_is_one_constant() -> None:
+    # Reporting reads it through the engine; neither restates the literal.
+    assert ENGINE_METHODOLOGY_VERSION is METHODOLOGY_VERSION
+    assert console.METHODOLOGY_VERSION is METHODOLOGY_VERSION
+    assert verdict_xml.METHODOLOGY_VERSION is METHODOLOGY_VERSION
 
 
 def test_percentile_keys_derive_from_the_level_map() -> None:

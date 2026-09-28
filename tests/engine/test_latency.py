@@ -1,7 +1,15 @@
 """The shared latency summary: passing-samples basis, gating, sorted vector."""
 
-from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
+from baseltest.contract import (
+    Criterion,
+    LatencyBar,
+    LatencyBaseline,
+    LatencyBound,
+    ServiceContract,
+    contains,
+)
 from baseltest.engine import (
+    Intent,
     RunKind,
     RunPlan,
     SampleRecord,
@@ -9,7 +17,9 @@ from baseltest.engine import (
     evaluate_latency,
     execute,
     latency_block,
+    plan_latency,
 )
+from baseltest.statistics import ThresholdSource
 
 
 def sample(ms: int, passed: bool = True) -> SampleRecord:
@@ -68,45 +78,104 @@ class TestLatencyBlock:
         assert block.percentiles == (("p50Ms", 30),)
 
 
-def bar(*bounds: LatencyBound, origin: str = "explicit") -> LatencyBar:
-    return LatencyBar(bounds=bounds, origin=origin)
+def bar(*bounds: LatencyBound) -> LatencyBar:
+    return LatencyBar(bounds=bounds)
 
 
-class TestEvaluateLatency:
-    def test_one_sided_upper_equality_passes(self) -> None:
-        evaluation = evaluate_latency(bar(LatencyBound("p50", 30)), [10, 20, 30, 40, 50], 5)
-        assert evaluation.evaluations[0].observed_ms == 30
-        assert evaluation.evaluations[0].status == "pass"
+def derived_bar(*labels: str, baseline: tuple[int, ...], samples: int) -> LatencyBar:
+    return LatencyBar(
+        bounds=tuple(LatencyBound(label) for label in labels),
+        origin=ThresholdSource.BASELINE_DERIVED,
+        baseline=LatencyBaseline(baseline, samples),
+    )
+
+
+class TestExplicitRequirements:
+    """An explicit ceiling is decided by latency/compliance-exact-binomial on
+    the count of successful latencies within it."""
+
+    def test_compliance_is_demonstrated_by_the_count_within(self) -> None:
+        # p50 <= 30 over 5 latencies at alpha 0.05: y_min is 5 (1/32 <= 0.05),
+        # and only 3 are within — though the raw median (30) meets the ceiling.
+        evaluation = evaluate_latency(
+            bar(LatencyBound("p50", 30)), [10, 20, 30, 40, 50], 5, Intent.VERIFICATION
+        )
+        outcome = evaluation.evaluations[0]
+        compliance = outcome.judgement.compliance
+        assert compliance is not None
+        assert (compliance.within_threshold, compliance.minimum_within) == (3, 5)
+        assert compliance.advisory_percentile_pass is True
+        assert outcome.verdict is Verdict.FAIL
+        assert outcome.judgement.rule == "latency/compliance-exact-binomial"
+
+    def test_every_latency_within_passes(self) -> None:
+        evaluation = evaluate_latency(
+            bar(LatencyBound("p50", 50)), [10, 20, 30, 40, 50], 5, Intent.VERIFICATION
+        )
         assert evaluation.verdict is Verdict.PASS
 
-    def test_breach_fails_the_dimension(self) -> None:
-        evaluation = evaluate_latency(bar(LatencyBound("p50", 29)), [10, 20, 30, 40, 50], 5)
-        assert evaluation.evaluations[0].status == "fail"
-        assert evaluation.verdict is Verdict.FAIL
-
-    def test_too_few_passing_samples_is_infeasible_not_a_judgement(self) -> None:
-        evaluation = evaluate_latency(bar(LatencyBound("p50", 100)), [10, 20], 8)
-        outcome = evaluation.evaluations[0]
-        assert outcome.status == "infeasible"
-        assert outcome.observed_ms is None
-        assert outcome.reason is not None and "at least 5 passing samples" in outcome.reason
+    def test_too_few_successful_latencies_is_inconclusive_not_a_judgement(self) -> None:
+        evaluation = evaluate_latency(
+            bar(LatencyBound("p50", 100)), [10, 20], 8, Intent.VERIFICATION
+        )
+        compliance = evaluation.evaluations[0].judgement.compliance
+        assert compliance is not None and not compliance.pass_possible
         assert evaluation.verdict is Verdict.INCONCLUSIVE
 
-    def test_a_breach_outranks_an_infeasible_sibling(self) -> None:
+    def test_a_breach_outranks_an_inconclusive_sibling(self) -> None:
         evaluation = evaluate_latency(
             bar(LatencyBound("p50", 1), LatencyBound("p95", 1000)),
             [10, 20, 30, 40, 50],
             5,
+            Intent.VERIFICATION,
         )
-        statuses = {e.bound.percentile: e.status for e in evaluation.evaluations}
-        assert statuses == {"p50": "fail", "p95": "infeasible"}
+        verdicts = {e.bound.percentile: e.verdict for e in evaluation.evaluations}
+        assert verdicts == {"p50": Verdict.FAIL, "p95": Verdict.INCONCLUSIVE}
         assert evaluation.verdict is Verdict.FAIL
 
     def test_observed_percentiles_are_gated_descriptive_context(self) -> None:
-        evaluation = evaluate_latency(bar(LatencyBound("p50", 100)), list(range(1, 13)), 12)
+        evaluation = evaluate_latency(
+            bar(LatencyBound("p50", 100)), list(range(1, 13)), 12, Intent.VERIFICATION
+        )
         assert [label for label, _ in evaluation.observed] == ["p50", "p90"]
 
-    def test_two_dimensional_composite_through_the_engine(self) -> None:
+
+class TestBaselineDerived:
+    """A baseline-derived constraint is decided by latency/precedence after the
+    run, for the number of successful latencies the run actually returned."""
+
+    def test_threshold_is_derived_for_the_actual_count(self) -> None:
+        latency_bar = derived_bar("p50", baseline=tuple(range(1, 201)), samples=200)
+        evaluation = evaluate_latency(latency_bar, list(range(1, 51)), 50, Intent.VERIFICATION)
+        judgement = evaluation.evaluations[0].judgement
+        assert judgement.precedence is not None and judgement.precedence.rank is not None
+        # Baseline latency k is k here, so the threshold is the rank itself.
+        assert judgement.threshold_ms == judgement.precedence.rank
+        assert evaluation.verdict is Verdict.PASS
+
+    def test_saturated_is_inconclusive(self) -> None:
+        # A p90 test of 10 against 32 baseline latencies: no rank achieves 0.05.
+        latency_bar = derived_bar("p90", baseline=tuple(range(1, 33)), samples=32)
+        evaluation = evaluate_latency(latency_bar, list(range(1, 11)), 10, Intent.VERIFICATION)
+        judgement = evaluation.evaluations[0].judgement
+        assert judgement.precedence is not None and judgement.precedence.saturated
+        assert evaluation.verdict is Verdict.INCONCLUSIVE
+
+    def test_degenerate_percentile_is_inconclusive_under_verification(self) -> None:
+        latency_bar = derived_bar("p95", baseline=tuple(range(1, 1001)), samples=1000)
+        evaluation = evaluate_latency(latency_bar, list(range(1, 16)), 15, Intent.VERIFICATION)
+        assert evaluation.verdict is Verdict.INCONCLUSIVE
+
+    def test_planning_warns_before_the_run_without_refusing(self) -> None:
+        latency_bar = derived_bar("p99", baseline=tuple(range(1, 401)), samples=500)
+        (planning,) = plan_latency(latency_bar, 200)
+        assert planning.warns
+        assert planning.precedence.expected_test_samples == 160
+        assert plan_latency(bar(LatencyBound("p99", 500)), 200) == ()
+
+
+class TestThroughTheEngine:
+    def test_two_dimensional_verdict_through_the_engine(self) -> None:
         contract = ServiceContract(
             contract_id="svc",
             invoke=lambda v: "ok",
@@ -118,17 +187,24 @@ class TestEvaluateLatency:
         assert result.latency.contributing_samples == 10
         assert result.latency.verdict is Verdict.PASS
         assert result.composite is Verdict.PASS
+        assert result.overall is not None and result.overall.latency_verdict is Verdict.PASS
 
-    def test_infeasible_latency_makes_the_composite_inconclusive(self) -> None:
+    def test_inconclusive_latency_makes_the_test_inconclusive(self) -> None:
+        # Every sample succeeds and the functional criterion passes, but no
+        # count of 5 latencies can demonstrate a p50 requirement at alpha
+        # 0.03 (1/32 > 0.03): the latency dimension, and the test, are
+        # INCONCLUSIVE — decided on the actual count, so smoke runs it.
         contract = ServiceContract(
             contract_id="svc",
             invoke=lambda v: "ok",
             criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
-            latency=bar(LatencyBound("p50", 60_000)),
+            latency=LatencyBar(bounds=(LatencyBound("p50", 60_000),), confidence=0.97),
         )
-        # 4 samples: the functional criterion passes, but the median needs
-        # 5 passing samples — no latency judgement, so no composite pass.
-        result = execute(contract, RunPlan(samples=4, inputs=("a",), kind=RunKind.TEST))
+        result = execute(
+            contract, RunPlan(samples=5, inputs=("a",), kind=RunKind.TEST, intent=Intent.SMOKE)
+        )
         assert result.latency is not None
         assert result.latency.verdict is Verdict.INCONCLUSIVE
         assert result.composite is Verdict.INCONCLUSIVE
+        assert result.overall is not None
+        assert [t.id for t in result.overall.triggering] == ["latency p50"]

@@ -26,7 +26,7 @@ from baseltest.contract import (
     Provenance,
     ServiceContract,
 )
-from baseltest.statistics.verdict import Verdict
+from baseltest.statistics import compose_overall_verdict
 
 from ..latency import evaluate_latency
 from ..naming import bounded_key
@@ -283,40 +283,40 @@ def execute(
     results = []
     for criterion in contract.criteria:
         tally = tallies[criterion.name]
-        bound, verdict = _judge(criterion, tally)
+        bound, decision, power = _judge(criterion, tally)
         results.append(
             CriterionResult(
                 criterion=criterion,
                 tally=tally,
                 lower_bound=bound,
-                verdict=verdict,
+                decision=decision,
                 standings=standings[criterion.name],
+                power=power,
             )
         )
     latency_evaluation = None
     if contract.latency is not None:
-        latency_evaluation = evaluate_latency(contract.latency, passing_durations_ms, plan.samples)
+        latency_evaluation = evaluate_latency(
+            contract.latency, passing_durations_ms, plan.samples, plan.intent
+        )
 
-    verdicts = [r.verdict for r in results if r.verdict is not None]
-    if latency_evaluation is not None:
-        verdicts.append(latency_evaluation.verdict)
-    composite = None
-    if verdicts:
-        # Conjunction across dimensions: any FAIL fails; an unjudgeable
-        # latency bound (INCONCLUSIVE) never counts as a pass.
-        if Verdict.FAIL in verdicts:
-            composite = Verdict.FAIL
-        elif Verdict.INCONCLUSIVE in verdicts:
-            composite = Verdict.INCONCLUSIVE
-        else:
-            composite = Verdict.PASS
+    # The test's verdict composes the functional dimension (the judged
+    # criteria) and the latency dimension (its enforced constraints) by the
+    # structural rule, twice (companion §12.3.2).
+    judged = [(r.name, r.verdict) for r in results if r.verdict is not None]
+    enforced = (
+        [(f"latency {e.bound.percentile}", e.verdict) for e in latency_evaluation.evaluations]
+        if latency_evaluation is not None
+        else []
+    )
+    overall = compose_overall_verdict(judged, enforced) if judged or enforced else None
 
     return RunResult(
         contract_id=contract.contract_id,
         kind=plan.kind,
         plan=plan,
         criterion_results=tuple(results),
-        composite=composite,
+        overall=overall,
         started_at=started_at,
         latency=latency_evaluation,
         finished_at=finished_at,

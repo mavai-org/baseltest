@@ -91,4 +91,4 @@ class TestFailedDelivery:
             criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
         )
         with pytest.raises(RuntimeError):
-            execute(contract, RunPlan(samples=3, inputs=("x",), kind=RunKind.TEST))
+            execute(contract, RunPlan(samples=5, inputs=("x",), kind=RunKind.TEST))

@@ -17,12 +17,12 @@ from baseltest.contract import (
 from baseltest.declarative._errors import ContractConfigurationError
 from baseltest.declarative._providers import ProviderResponseError
 from baseltest.declarative._sizing import SizingRefusalError
-from baseltest.engine import DefectDiagnosisError, InfeasibleRunError
+from baseltest.engine import ConfigurationRefusedError, DefectDiagnosisError
 
 DOMAIN_ERRORS = (
     TransformError,
     ServiceDeliveryError,
-    InfeasibleRunError,
+    ConfigurationRefusedError,
     SizingRefusalError,
     ContractConfigurationError,
     ProviderResponseError,

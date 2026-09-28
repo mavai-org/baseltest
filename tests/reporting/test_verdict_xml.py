@@ -1,21 +1,45 @@
 """The canonical verdict record: family schema shape, mavai namespace."""
 
+import shutil
+import subprocess
+from itertools import count
 from pathlib import Path
 from xml.etree import ElementTree
 
+import pytest
+
 import baseltest
-from baseltest.contract import Criterion, LatencyBar, LatencyBound, ServiceContract, contains
-from baseltest.engine import Intent, RunKind, RunPlan, execute
+from baseltest.contract import (
+    BaselineCount,
+    Criterion,
+    LatencyBar,
+    LatencyBaseline,
+    LatencyBound,
+    ServiceContract,
+    contains,
+)
+from baseltest.engine import (
+    METHODOLOGY_VERSION,
+    ConfigurationRefusedError,
+    Intent,
+    RunKind,
+    RunPlan,
+    RunResult,
+    execute,
+)
 from baseltest.reporting import (
     BaselineDisclosure,
     ClaimDisclosure,
     RunDesign,
     parse_verdict_record,
+    render_refused_record,
     render_verdict_record,
     write_verdict_record,
 )
+from baseltest.statistics import ThresholdSource
 
 NS = "{http://mavai.org/verdict/1.0}"
+XSD = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.7.xsd"
 
 RISK_DRIVEN_DESIGN = RunDesign(
     approach="confidence-first (risk-driven)",
@@ -23,7 +47,7 @@ RISK_DRIVEN_DESIGN = RunDesign(
         ClaimDisclosure(
             criterion="keeps-up",
             baseline_rate=0.9,
-            tolerated_rate=0.84,
+            design_alternative_rate=0.84,
             confidence=0.95,
             target_power=0.8,
             required_n=214,
@@ -40,7 +64,7 @@ RISK_DRIVEN_DESIGN = RunDesign(
 )
 
 
-def run_result():  # type: ignore[no-untyped-def]
+def run_result() -> RunResult:
     contract = ServiceContract(
         contract_id="refund-confirmation",
         invoke=lambda v: f"refund {v}",
@@ -55,12 +79,50 @@ def run_result():  # type: ignore[no-untyped-def]
     )
 
 
+def exact_service(successes: int) -> object:
+    counter = count(1)
+    return lambda _value: "ok" if next(counter) <= successes else "bad"
+
+
+def regression_result(design_alternative_rate: float | None = None) -> RunResult:
+    criterion = Criterion(
+        name="extraction",
+        postconditions=(contains("ok"),),
+        baseline=BaselineCount(951, 1000),
+        design_alternative_rate=design_alternative_rate,
+    )
+    contract = ServiceContract(
+        contract_id="offer-extraction",
+        invoke=exact_service(93),  # type: ignore[arg-type]
+        criteria=(criterion,),
+    )
+    return execute(contract, RunPlan(samples=100, inputs=("a",), kind=RunKind.TEST))
+
+
+def assert_valid(tmp_path: Path, text: str) -> None:
+    """Validate a record against this package's vendored family XSD — never
+    another framework's embedded copy reached across repositories."""
+    assert XSD.is_file(), f"vendored family XSD missing: {XSD}"
+    xmllint = shutil.which("xmllint")
+    if xmllint is None:
+        pytest.skip("xmllint not available on this machine")
+    record = tmp_path / "record.xml"
+    record.write_text(text, encoding="utf-8")
+    completed = subprocess.run(
+        [xmllint, "--noout", "--schema", str(XSD), str(record)],
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 class TestVerdictRecord:
     def test_record_shape(self) -> None:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.6"
+        assert root.get("version") == "1.7"
+        assert root.get("methodology-version") == METHODOLOGY_VERSION
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
         identity = root.find(f"{NS}identity")
@@ -87,19 +149,24 @@ class TestVerdictRecord:
         assert per_criterion is not None
         rows = per_criterion.findall(f"{NS}criterion")
         assert [r.get("id") for r in rows] == ["relevant", "prompt-echo"]
-        assert all(r.get("verdict") == "PASS" for r in rows[:1])
+        assert rows[0].get("verdict") == "PASS"
+        assert {r.get("decision-rule") for r in rows} == {"compliance/exact-binomial"}
+        assert {r.get("decision-rule-version") for r in rows} == {"1"}
         composite = per_criterion.find(f"{NS}composite")
         assert composite is not None
 
         verdict = root.find(f"{NS}verdict")
         assert verdict is not None and verdict.get("value") in ("PASS", "FAIL")
+        # One rule decided the whole test, so the verdict states it.
+        assert verdict.get("decision-rule") == "compliance/exact-binomial"
+        assert verdict.get("configuration-error") is None
 
         covariates = root.find(f"{NS}covariates")
         assert covariates is not None and covariates.get("aligned") == "true"
         termination = root.find(f"{NS}termination")
         assert termination is not None and termination.get("reason") == "COMPLETED"
 
-    def test_single_criterion_emits_statistics(self) -> None:
+    def test_single_compliance_criterion_emits_statistics(self) -> None:
         contract = ServiceContract(
             contract_id="solo",
             invoke=lambda v: "ok",
@@ -112,6 +179,30 @@ class TestVerdictRecord:
         assert statistics.get("threshold") == "0.5"
         assert statistics.get("threshold-origin") == "UNSPECIFIED"
         assert float(statistics.get("wilson-lower") or 0) > 0.9
+        assert statistics.get("design-power") is None
+
+    def test_a_regression_criterion_states_its_cutoff_and_both_powers(self, tmp_path: Path) -> None:
+        text = render_verdict_record(regression_result(0.90))
+        root = ElementTree.fromstring(text)
+        statistics = root.find(f"{NS}statistics")
+        assert statistics is not None
+        assert statistics.get("threshold") == "0.91"  # the cutoff 91 of 100
+        assert float(statistics.get("size-at-assumed-common-rate") or 0) == pytest.approx(
+            0.0339673926, abs=1e-9
+        )
+        assert statistics.get("design-alternative-rate") == "0.9"
+        assert float(statistics.get("design-power") or 0) == pytest.approx(0.55, abs=0.01)
+        assert float(statistics.get("resolved-test-power") or 0) == pytest.approx(0.549, abs=0.001)
+        row = root.find(f"{NS}per-criterion/{NS}criterion")
+        assert row is not None and row.get("decision-rule") == "regression/fisher"
+        assert_valid(tmp_path, text)
+
+    def test_without_a_design_alternative_no_power_is_stated(self) -> None:
+        root = ElementTree.fromstring(render_verdict_record(regression_result()))
+        statistics = root.find(f"{NS}statistics")
+        assert statistics is not None
+        assert statistics.get("design-power") is None
+        assert statistics.get("resolved-test-power") is None
 
     def test_written_file_is_identity_named(self, tmp_path: Path) -> None:
         result = run_result()
@@ -126,29 +217,61 @@ class TestVerdictRecord:
         clauses = failures.findall(f"{NS}clause")
         assert clauses and all(int(c.get("count") or 0) > 0 for c in clauses)
 
-    def test_validates_against_the_family_xsd_when_xmllint_available(self, tmp_path: Path) -> None:
-        # The XSD is this package's own vendored snapshot of the published
-        # family schema (tests/conformance/interchange/, pinned per mavai-R
-        # release) — never another framework's embedded copy reached across
-        # repositories, which only resolved in one workspace layout.
-        import shutil
-        import subprocess
+    def test_validates_against_the_family_xsd(self, tmp_path: Path) -> None:
+        assert_valid(tmp_path, render_verdict_record(run_result()))
 
-        import pytest
 
-        xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.6.xsd"
-        assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
-        if xmllint is None:
-            pytest.skip("xmllint not available on this machine")
-        record = tmp_path / "record.xml"
-        record.write_text(render_verdict_record(run_result()), encoding="utf-8")
-        completed = subprocess.run(
-            [xmllint, "--noout", "--schema", str(xsd), str(record)],
-            capture_output=True,
-            text=True,
+class TestTwoCriteria:
+    def test_a_requirement_and_a_baseline_state_their_rules_on_the_rows_only(
+        self, tmp_path: Path
+    ) -> None:
+        compliance = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.8)
+        regression = Criterion(
+            name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(951, 1000)
         )
-        assert completed.returncode == 0, completed.stderr
+        contract = ServiceContract(
+            contract_id="two",
+            invoke=exact_service(93),  # type: ignore[arg-type]
+            criteria=(compliance, regression),
+        )
+        result = execute(contract, RunPlan(samples=100, inputs=("a",)))
+        text = render_verdict_record(result)
+        root = ElementTree.fromstring(text)
+        rows = root.findall(f"{NS}per-criterion/{NS}criterion")
+        assert [r.get("decision-rule") for r in rows] == [
+            "compliance/exact-binomial",
+            "regression/fisher",
+        ]
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("decision-rule") is None
+        assert_valid(tmp_path, text)
+
+
+class TestRefusedRecord:
+    def test_a_refused_configuration_states_every_code_and_no_verdict(self, tmp_path: Path) -> None:
+        compliance = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.999)
+        regression = Criterion(
+            name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(95, 100)
+        )
+        contract = ServiceContract(
+            contract_id="refused", invoke=lambda v: "ok", criteria=(compliance, regression)
+        )
+        plan = RunPlan(samples=200, inputs=("a",))
+        with pytest.raises(ConfigurationRefusedError) as refused:
+            execute(contract, plan)
+        text = render_refused_record(contract, plan, refused.value, "2026-09-28T10:00:00+00:00")
+        root = ElementTree.fromstring(text)
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None
+        assert verdict.get("value") is None
+        assert verdict.get("configuration-error") == (
+            "TEST_LARGER_THAN_BASELINE COMPLIANCE_INFEASIBLE"
+        )
+        termination = root.find(f"{NS}termination")
+        assert termination is not None and termination.get("reason") == "CONFIGURATION_REFUSED"
+        execution = root.find(f"{NS}execution")
+        assert execution is not None and execution.get("samples-executed") == "0"
+        assert_valid(tmp_path, text)
 
 
 class TestRunDesignRecording:
@@ -161,9 +284,9 @@ class TestRunDesignRecording:
         assert baseline.get("source-file") == "sized-one-abc.yaml"
         environment = root.find(f"{NS}environment")
         assert environment is not None
-        keys = {e.get("key") for e in environment.findall(f"{NS}entry")}
-        assert "sizing-approach" in keys
-        assert "sizing-claim:keeps-up" in keys
+        entries = {e.get("key"): e.get("value") for e in environment.findall(f"{NS}entry")}
+        assert "sizing-approach" in entries
+        assert "designAlternativeRate" in (entries.get("sizing-claim:keeps-up") or "")
 
         parsed = parse_verdict_record(text)
         assert parsed.design == RISK_DRIVEN_DESIGN
@@ -177,81 +300,87 @@ class TestRunDesignRecording:
         assert parse_verdict_record(render_verdict_record(run_result())).design is None
 
     def test_designed_record_still_validates_against_the_family_xsd(self, tmp_path: Path) -> None:
-        import shutil
-        import subprocess
-
-        import pytest
-
-        xmllint = shutil.which("xmllint")
-        xsd = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.6.xsd"
-        assert xsd.is_file(), f"vendored family XSD missing: {xsd}"
-        if xmllint is None:
-            pytest.skip("xmllint not available on this machine")
-        record = tmp_path / "record.xml"
-        record.write_text(render_verdict_record(run_result(), RISK_DRIVEN_DESIGN), encoding="utf-8")
-        completed = subprocess.run(
-            [xmllint, "--noout", "--schema", str(xsd), str(record)],
-            capture_output=True,
-            text=True,
-        )
-        assert completed.returncode == 0, completed.stderr
+        assert_valid(tmp_path, render_verdict_record(run_result(), RISK_DRIVEN_DESIGN))
 
 
 class TestLatencyElement:
-    def _result_with_latency(self, bar: LatencyBar):  # type: ignore[no-untyped-def]
+    def _result_with_latency(self, bar: LatencyBar, samples: int = 10) -> RunResult:
         contract = ServiceContract(
             contract_id="paced",
             invoke=lambda v: "ok",
             criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
             latency=bar,
         )
-        return execute(contract, RunPlan(samples=10, inputs=("a",), kind=RunKind.TEST))
+        return execute(contract, RunPlan(samples=samples, inputs=("a",), kind=RunKind.TEST))
 
-    def test_explicit_bounds_emit_the_family_latency_element(self) -> None:
-        bar = LatencyBar(bounds=(LatencyBound("p50", 60_000),), origin="explicit")
-        root = ElementTree.fromstring(render_verdict_record(self._result_with_latency(bar)))
+    def test_explicit_bounds_emit_the_family_latency_element(self, tmp_path: Path) -> None:
+        bar = LatencyBar(bounds=(LatencyBound("p50", 60_000),))
+        text = render_verdict_record(self._result_with_latency(bar))
+        root = ElementTree.fromstring(text)
         latency = root.find(f"{NS}latency")
         assert latency is not None
         assert latency.get("successful-samples") == "10"
         assert latency.get("strict-violations") == "0"
         assert latency.get("advisory-violations") == "0"
+        assert latency.get("verdict") == "PASS"
         observed = latency.find(f"{NS}observed")
         assert observed is not None
         labels = [p.get("label") for p in observed.findall(f"{NS}percentile")]
         assert labels == ["p50", "p90"]  # gated at 10 contributing samples
-        evaluations = latency.find(f"{NS}evaluations")
-        assert evaluations is not None
-        row = evaluations.findall(f"{NS}evaluation")[0]
+        row = latency.find(f"{NS}evaluations/{NS}evaluation")
+        assert row is not None
         assert row.get("percentile") == "p50"
         assert row.get("provenance") == "explicit"
         assert row.get("mode") == "strict"
         assert row.get("status") == "PASS"
+        assert row.get("decision-rule") == "latency/compliance-exact-binomial"
+        assert (row.get("within-threshold"), row.get("required-within")) == ("10", "9")
         assert row.get("baseline-rank") is None
+        # Two rules decided the test: the verdict states none.
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("decision-rule") is None
+        assert_valid(tmp_path, text)
 
-    def test_baseline_derived_bounds_carry_derivation_attributes(self) -> None:
+    def test_baseline_derived_bounds_carry_the_precedence_rank(self, tmp_path: Path) -> None:
         bar = LatencyBar(
-            bounds=(
-                LatencyBound(
-                    "p50",
-                    60_000,
-                    rank=35,
-                    baseline_percentile_ms=10,
-                    baseline_samples=56,
-                ),
-            ),
-            origin="baseline-derived",
-            confidence=0.95,
+            bounds=(LatencyBound("p50"),),
+            origin=ThresholdSource.BASELINE_DERIVED,
+            baseline=LatencyBaseline(tuple([60_000] * 56), samples=56),
         )
-        root = ElementTree.fromstring(render_verdict_record(self._result_with_latency(bar)))
-        latency = root.find(f"{NS}latency")
-        assert latency is not None
-        evaluations = latency.find(f"{NS}evaluations")
-        assert evaluations is not None
-        row = evaluations.findall(f"{NS}evaluation")[0]
+        text = render_verdict_record(self._result_with_latency(bar))
+        root = ElementTree.fromstring(text)
+        row = root.find(f"{NS}latency/{NS}evaluations/{NS}evaluation")
+        assert row is not None
         assert row.get("provenance") == "baseline-derived"
         assert row.get("baseline-confidence") == "0.95"
-        assert row.get("baseline-rank") == "35"
+        assert row.get("baseline-rank") is not None
         assert row.get("baseline-n") == "56"
+        assert row.get("threshold-ms") == "60000"
+        assert row.get("decision-rule") == "latency/precedence"
+        assert_valid(tmp_path, text)
+
+    def test_a_saturated_constraint_is_recorded_without_a_threshold(self, tmp_path: Path) -> None:
+        # A p90 test of 10 against 32 baseline latencies: no rank achieves
+        # alpha, so there is no threshold to state and none is manufactured.
+        bar = LatencyBar(
+            bounds=(LatencyBound("p90"),),
+            origin=ThresholdSource.BASELINE_DERIVED,
+            baseline=LatencyBaseline(tuple(range(1, 33)), samples=32),
+        )
+        text = render_verdict_record(self._result_with_latency(bar))
+        root = ElementTree.fromstring(text)
+        latency = root.find(f"{NS}latency")
+        assert latency is not None and latency.get("verdict") == "INCONCLUSIVE"
+        (row,) = latency.findall(f"{NS}evaluations/{NS}evaluation")
+        assert row.get("status") == "SATURATED"
+        assert row.get("provenance") == "baseline-derived"
+        assert row.get("threshold-ms") is None
+        assert row.get("baseline-rank") is None
+        assert row.get("baseline-n") == "32"
+        assert row.get("decision-rule") == "latency/precedence"
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("value") == "INCONCLUSIVE"
+        assert_valid(tmp_path, text)
 
     def test_no_latency_element_without_a_bar(self) -> None:
         root = ElementTree.fromstring(render_verdict_record(run_result()))

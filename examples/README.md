@@ -26,12 +26,12 @@ cd examples/simulated-service
 
 basel test fortune-teller.yaml                  # verdict against the 0.8 threshold,
                                                     #   at the bar's derived minimum
-basel measure fortune-teller.yaml --samples 200 # everything recorded, baseline persisted
+basel measure fortune-teller.yaml --samples 1000 # everything recorded, baseline persisted
 ```
 
-Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence. At n = 11 only a *perfect* run clears the 0.8 bar, so this ≈0.9-rate service fails honestly much of the time: the derived minimum is the weakest design the bar admits, shown on every run so the trade-off is yours. `--samples 100` gives it slack by hand; the empirical criterion below gets a size computed from your stated tolerance.
+Run the test a few times: the observed rate moves, the verdict logic doesn't — it is a claim about the true rate at 95% confidence. At n = 14 only a *perfect* run demonstrates the 0.8 requirement, so this ≈0.9-rate service fails honestly much of the time: the derived minimum is the weakest design the bar admits, shown on every run so the trade-off is yours. `--samples 100` gives it slack by hand; the empirical criterion below gets a size computed from the drop you want caught.
 
-Then run them **in order** — `measure` first, `test` second — and watch the ratchet: the bar-less `spirits-stay-polite` criterion is skipped by the first test (*requires a baseline*), but after a measure run the next test judges it **against the baseline** — no worse than measured, the artefact named on the verdict line. With a baseline in play the test also stops guessing its size: `basel test fortune-teller.yaml --tolerate 84` (or `tolerate: 0.84` in the file, or answer the questions it asks on a terminal) computes the smallest n at which a genuine drop to 84% fails the test about four times out of five, explained in plain language. An explicit `--samples` still works on its own, but the run states what it buys and asks before running a weak design.
+Then run them **in order** — `measure` first, `test` second — and watch the ratchet: the bar-less `spirits-stay-polite` criterion is skipped by the first test (*requires a baseline*), but after a measure run the next test judges it **against the baseline** — no worse than measured, the artefact named on the verdict line. With a baseline in play the test also stops guessing its size: `basel test fortune-teller.yaml --tolerate 84` (or `tolerate: 0.84` in the file, or answer the questions it asks on a terminal) computes, against the measured baseline, the smallest n from which a genuine drop to 84% fails the test at least four times out of five, explained in plain language. (Measure generously: a test may not be larger than the baseline it consumes, and a baseline too small for any such test to catch the drop reliably is refused by the sizing — `BASELINE_TOO_SMALL`.) An explicit `--samples` still works on its own, but the run states what it buys and asks before running a weak design.
 
 Every test run you just made persisted a verdict record, so a shareable report is one command away — no re-execution. Render it with the [mavai](https://github.com/mavai-org/mavai-report) tool:
 
@@ -77,7 +77,7 @@ Run the full loop (offline, like the simulated service):
 ```bash
 cd examples/rule-driven-service
 basel check request-triage.yaml                   # every join, zero samples
-basel measure request-triage.yaml --samples 200   # pins the identity (both feeds)
+basel measure request-triage.yaml --samples 1000  # pins the identity (both feeds)
 basel test request-triage.yaml --tolerate 84      # judged against the baseline
 
 basel explore request-triage.yaml                 # the whole grid, descriptively

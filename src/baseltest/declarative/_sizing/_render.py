@@ -1,12 +1,13 @@
 """Disclosure rendering: the plain-language and machine-readable sizing blocks.
 
 The single-claim explanation sentence, the multi-criterion aligned table,
-and the JSON payload — all priced at the actual run size. These format
-already-computed claims; the statistics they read (floor, power, detectable
-drop) are pure functions of the claim and the size.
+and the JSON payload — all priced at the actual run size against the
+observed baseline. These format already-priced claims; the statistics they
+read (the cutoff, the resolved power, the rate the size can reliably catch)
+are pure functions of the claim and the size.
 """
 
-from baseltest.statistics import detectable_rate, power_at, wilson_lower_bound_from_rate
+from baseltest.statistics import fisher_cutoff, resolved_detectable_rate, resolved_power
 
 from ._model import SizingClaim, _UnsizeableCriterion
 from ._rates import _percent
@@ -34,20 +35,36 @@ def _nothing_to_defend(unsizeable: list[_UnsizeableCriterion]) -> str:
     )
 
 
+def _cutoff(claim: SizingClaim, samples: int) -> int:
+    return fisher_cutoff(claim.baseline_successes, claim.baseline_trials, samples, claim.alpha)
+
+
+def _power(claim: SizingClaim, samples: int) -> float:
+    return resolved_power(
+        claim.baseline_successes,
+        claim.baseline_trials,
+        samples,
+        claim.alpha,
+        claim.design_alternative_rate,
+    )
+
+
 def _explanation(
     claim: SizingClaim, samples: int, *, governing: bool, several: bool, only_catch: bool = False
 ) -> str:
     """The plain-language explanation sentence, at the actual run size."""
-    floor = wilson_lower_bound_from_rate(claim.baseline_rate, samples, claim.confidence)
-    power = power_at(samples, claim.baseline_rate, claim.tolerated_rate, claim.confidence)
+    cutoff = _cutoff(claim, samples)
+    power = _power(claim, samples)
     prefix = f"criterion {claim.criterion}: " if several else ""
     suffix = " (this criterion set the run size)" if governing and several else ""
     verb = "only catch" if only_catch else "catch"
     return (
-        f"{prefix}If this test passes, you can be {_percent(claim.confidence)} confident "
-        f"the true pass rate is at least {_percent(floor)}. This design will {verb} a "
-        f"genuine drop to {_percent(claim.tolerated_rate)} about {_percent(power)} of "
-        f"the time.{suffix}"
+        f"{prefix}Against your baseline of {claim.baseline_successes} of "
+        f"{claim.baseline_trials}, this test passes when at least {cutoff} of its "
+        f"{samples} samples succeed; an unchanged service is flagged at most "
+        f"{_percent(1 - claim.confidence)} of the time. This design will {verb} a genuine "
+        f"drop to {_percent(claim.design_alternative_rate)} about {_percent(power)} of the "
+        f"time (its resolved power); a smaller drop is still flagged, less often.{suffix}"
     )
 
 
@@ -56,23 +73,21 @@ def _sizing_table(claims: list[SizingClaim], samples: int, governing: str) -> li
     claim, priced at the governing run size, the governing row marked."""
     headers = (
         "criterion",
-        "tolerates",
+        "catch a drop to",
         "confidence",
         "drop caught",
-        "a pass proves",
+        "passes at",
         "needs alone",
     )
     rows = []
     for claim in claims:
-        floor = wilson_lower_bound_from_rate(claim.baseline_rate, samples, claim.confidence)
-        power = power_at(samples, claim.baseline_rate, claim.tolerated_rate, claim.confidence)
         rows.append(
             (
                 claim.criterion,
-                _percent(claim.tolerated_rate),
+                _percent(claim.design_alternative_rate),
                 _percent(claim.confidence),
-                f"about {_percent(power)}",
-                f"at least {_percent(floor)}",
+                f"about {_percent(_power(claim, samples))}",
+                f"{_cutoff(claim, samples)} of {samples}",
                 str(claim.required_n or 0),
             )
         )
@@ -98,33 +113,34 @@ def _json_payload(
     summary, and the flat single-criterion convenience fields."""
     criteria = []
     for claim in claims:
-        floor = wilson_lower_bound_from_rate(claim.baseline_rate, samples, claim.confidence)
-        power = power_at(samples, claim.baseline_rate, claim.tolerated_rate, claim.confidence)
         criteria.append(
             {
                 "criterion": claim.criterion,
-                "baseline_rate": claim.baseline_rate,
-                "tolerated_rate": claim.tolerated_rate,
+                "baseline_successes": claim.baseline_successes,
+                "baseline_trials": claim.baseline_trials,
+                "design_alternative_rate": claim.design_alternative_rate,
                 "confidence": claim.confidence,
                 "required_n": claim.required_n,
-                "floor": floor,
-                "power": power,
+                "cutoff": _cutoff(claim, samples),
+                "resolved_power": _power(claim, samples),
             }
         )
     lead = next((c for c in claims if c.criterion == governing), claims[0])
     lead_row = next(row for row in criteria if row["criterion"] == lead.criterion)
     return {
         "approach": "confidence-first (risk-driven)",
+        "decisionRule": "regression/fisher",
         "criteria": criteria,
         "governing": {"criterion": governing, "samples": samples},
         "baseline": lead.baseline_rate,
         "confidence": lead.confidence,
-        "tolerableRate": lead.tolerated_rate,
+        "designAlternativeRate": lead.design_alternative_rate,
         "targetPower": lead.target_power,
         "requiredSamples": lead.required_n,
-        "acceptanceFloor": lead_row["floor"],
-        "detectableDrop": detectable_rate(
-            samples, lead.baseline_rate, lead.confidence, lead.target_power
+        "cutoff": lead_row["cutoff"],
+        "resolvedPower": lead_row["resolved_power"],
+        "resolvedDetectableRate": resolved_detectable_rate(
+            lead.baseline_successes, lead.baseline_trials, samples, lead.alpha, lead.target_power
         ),
         "explanation": "\n".join(explanations),
     }

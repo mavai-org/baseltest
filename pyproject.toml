@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "baseltest"
-version = "0.25.0.dev0"
+version = "0.25.0"
 description = "Python-native framework for probabilistic testing of stochastic services"
 readme = "README.md"
 license = "Apache-2.0"
@@ -21,6 +21,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
 ]
 dependencies = [
+    "numpy>=1.25",
     "scipy>=1.11",
     "statsmodels>=0.14",
 ]
@@ -86,6 +87,14 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = ["statsmodels.*", "scipy.*", "ruamel.*", "jsonpath_rfc9535.*", "elementpath.*"]
 ignore_missing_imports = true
+
+# numpy's inline stubs use Python 3.12 type-statement syntax, which this
+# project's 3.11 mypy target cannot parse — the same incompatibility that keeps
+# scipy's stubs out. numpy is treated as untyped at its import seam instead.
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true
 
 [tool.importlinter]
 root_package = "baseltest"

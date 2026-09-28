@@ -2,13 +2,13 @@
 
 Statistically honest testing for stochastic services, in Python.
 
-Services built on LLMs, ML models, or randomised algorithms do not pass or fail a single invocation — they succeed at a rate. baseltest treats that rate as the thing under test: run the service repeatedly, judge each response against declared criteria, and render a verdict backed by real statistics (Wilson confidence bounds, feasibility-checked sample sizes) rather than a green tick over a lucky sample.
+Services built on LLMs, ML models, or randomised algorithms do not pass or fail a single invocation — they succeed at a rate. baseltest treats that rate as the thing under test: run the service repeatedly, judge each response against declared criteria, and render a verdict backed by exact statistics (the Fisher exact test against a measured baseline, the exact binomial test against a stated requirement, feasibility-checked sample sizes) rather than a green tick over a lucky sample.
 
 baseltest is the Python member of the [mavai](https://mavai.org) framework family, alongside [punit](https://github.com/mavai-org/punit) (Java) and [feotest](https://github.com/mavai-org/feotest) (Rust). It shares their statistical methodology — every formula is validated against the family's [statistical oracle](https://github.com/mavai-org/mavai-R) — and expresses it in Python idioms rather than porting either framework.
 
 ## Where the project stands
 
-The **statistics core** (`baseltest.statistics`) is implemented and conformance-validated against the oracle's published reference cases: Wilson score construction, threshold derivation, feasibility checking, and sampling-power arithmetic, built on scipy/statsmodels.
+The **statistics core** (`baseltest.statistics`) is implemented and conformance-validated against the oracle's published reference cases: the decision rules of Statistical Companion 1.5.0 (`regression/fisher`, `compliance/exact-binomial`, `latency/precedence`, `latency/compliance-exact-binomial`) with the exact-boundary convention, feasibility checking, design and resolved power and sizing, and the descriptive Wilson interval, built on scipy/statsmodels.
 
 The framework around it is in active development.
 
