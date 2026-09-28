@@ -15,11 +15,11 @@ RISK_DRIVEN_APPROACH = "confidence-first (risk-driven)"
 # The canonical operational-approach glosses, in the plain register.
 APPROACH_GLOSSES = {
     RISK_DRIVEN_APPROACH: (
-        "the run size was computed from the declared tolerance and confidence, "
-        "priced against the acceptance bar this very size derives"
+        "the run size was computed from the declared rate to catch and confidence, "
+        "priced by resolved power against the cutoff the observed baseline fixes"
     ),
     "sample-size-first": (
-        "the sample size was chosen first; the acceptance bar was derived honestly at that size"
+        "the sample size was chosen first; the cutoff was derived from the baseline at that size"
     ),
     "threshold-first": (
         "the pass bar is externally stipulated; the run judges the evidence against it"
@@ -29,11 +29,16 @@ APPROACH_GLOSSES = {
 
 @dataclass(frozen=True, slots=True)
 class ClaimDisclosure:
-    """One risk-driven claim as recorded: what the operator declared."""
+    """One risk-driven claim as recorded: what the operator declared.
+
+    ``design_alternative_rate`` is the true rate at which the test is to
+    reach ``target_power`` (``designAlternativeRate``); ``required_n`` is the
+    resolved-sizing answer against the observed baseline.
+    """
 
     criterion: str
     baseline_rate: float
-    tolerated_rate: float
+    design_alternative_rate: float
     confidence: float
     target_power: float
     required_n: int | None
@@ -43,10 +48,9 @@ class ClaimDisclosure:
 class BaselineDisclosure:
     """The resolved baseline's identity, for the sizing trade disclosures.
 
-    ``baseline_rate`` is the effective rate sizing runs against (the
-    measured rate, or a perfect run's own lower bound), for the weakest
+    ``baseline_rate`` is the observed rate ``K_b / n_b`` of the weakest
     empirical criterion the run judged; ``derived_threshold`` is that
-    criterion's bar at the executed size.
+    criterion's cutoff as a rate, ``c / n_t``, at the executed size.
     """
 
     source_file: str

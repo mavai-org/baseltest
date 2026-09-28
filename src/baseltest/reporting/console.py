@@ -4,9 +4,15 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 
 from baseltest.engine import (
+    METHODOLOGY_VERSION,
+    BoundEvaluation,
+    ComplianceVerdict,
+    ConfigurationError,
+    ConfigurationRefusedError,
     CriterionResult,
-    InfeasibleRunError,
     LatencyEvaluation,
+    LatencyPlanning,
+    RegressionVerdict,
     RunKind,
     RunResult,
     Verdict,
@@ -14,66 +20,95 @@ from baseltest.engine import (
 )
 
 
-def _percent(confidence: float) -> str:
-    percent = confidence * 100
-    return f"{percent:.0f}%" if percent == int(percent) else f"{percent}%"
-
-
-def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str]:
+def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str, str]:
     """One judged criterion's table cells: name, verdict, passed, required,
-    threshold, basis."""
+    threshold, rule, basis."""
     criterion = result.criterion
     tally = result.tally
-    assert result.verdict is not None and criterion.threshold is not None
-    if criterion.cutoff is not None:
-        # Regression posture: the integer cutoff is the stated decision
-        # artefact; the derived threshold is its construction.
-        required = str(criterion.cutoff)
-        threshold = f"{criterion.threshold:.4f}"
+    decision = result.decision
+    assert decision is not None
+    if isinstance(decision, RegressionVerdict):
+        # The integer cutoff is the decision artefact; c / n_t displays it.
+        required = str(decision.cutoff)
+        threshold = f"{decision.derivation.threshold_real:.4f}"
     else:
-        required = "—"
-        threshold = f"{criterion.threshold:g}"
+        required = "—" if decision.minimum_passing is None else str(decision.minimum_passing)
+        threshold = f"{decision.requirement:g}"
     basis = criterion.provenance.origin
     if criterion.provenance.contract_ref is not None:
         basis = f"{basis} — {criterion.provenance.contract_ref}"
-    if criterion.cutoff is None and result.lower_bound is not None:
-        # A declared bar is judged by the run's own bound clearing it; the
-        # bound is this row's evidence and the table carries it.
-        basis = f"{basis} (wilson lower {result.lower_bound:.4f})"
     return (
         criterion.name,
-        result.verdict.value.upper(),
+        decision.verdict.value.upper(),
         f"{tally.successes}/{tally.trials}",
         required,
         threshold,
+        decision.rule.value,
         basis,
     )
 
 
 def _verdict_table(results: Sequence[CriterionResult]) -> list[str]:
     """The judged criteria as one aligned table, a row per criterion; the
-    most common failure reasons stay indented beneath a FAIL row."""
-    all_empirical = all(r.criterion.cutoff is not None for r in results)
-    headers = (
-        "criterion",
-        "verdict",
-        "passed",
-        "required",
-        "derived threshold" if all_empirical else "threshold",
-        "basis",
-    )
+    decision's disclosures and the most common failure reasons stay
+    indented beneath each row."""
+    headers = ("criterion", "verdict", "passed", "required", "threshold", "rule", "basis")
     rows = [_verdict_row(result) for result in results]
     widths = [max(len(header), *(len(row[i]) for row in rows)) for i, header in enumerate(headers)]
     lines = ["  " + "  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True)).rstrip()]
-    left_aligned = {0, 1, len(headers) - 1}
+    left_aligned = {0, 1, len(headers) - 2, len(headers) - 1}
     for result, row in zip(results, rows, strict=True):
         cells = [
             cell.ljust(width) if i in left_aligned else cell.rjust(width)
             for i, (cell, width) in enumerate(zip(row, widths, strict=True))
         ]
         lines.append(("  " + "  ".join(cells)).rstrip())
+        lines.extend(_decision_lines(result))
         if result.verdict is Verdict.FAIL:
             lines.extend(_failure_reason_lines(result))
+    return lines
+
+
+def _decision_lines(result: CriterionResult) -> list[str]:
+    """What a decision discloses beside its verdict: for compliance, whether
+    a pass was possible and the Clopper–Pearson bound; for regression, the
+    size at the assumed common rate and what the design can detect."""
+    decision = result.decision
+    if isinstance(decision, ComplianceVerdict):
+        if not decision.pass_possible:
+            return [
+                f"      PASS not possible at this size (n = {decision.trials}): this result "
+                "carries no evidence about the service"
+            ]
+        return [
+            f"      one-sided Clopper–Pearson lower bound {decision.clopper_pearson_lower:.4f}"
+            f" at alpha {decision.alpha:g}"
+        ]
+    assert isinstance(decision, RegressionVerdict)
+    lines = []
+    size = decision.derivation.size_at_assumed_common_rate
+    if size is not None:
+        lines.append(
+            f"      size at the assumed common rate {size:.4f} (were the true rate the "
+            "baseline's observed rate; not a property of this run)"
+        )
+    power = result.power
+    if power is not None:
+        if power.design_alternative_rate is not None:
+            assert power.design_power is not None and power.resolved_power is not None
+            lines.append(
+                f"      at the design alternative rate {power.design_alternative_rate:g}: "
+                f"design power {power.design_power:.3f}, resolved power "
+                f"{power.resolved_power:.3f}"
+            )
+        mdd = power.minimum_detectable_degradation
+        if mdd is None:
+            lines.append("      minimum detectable degradation: none at 80% design power")
+        else:
+            lines.append(
+                f"      minimum detectable degradation {mdd:.4f} at 80% power "
+                "(inverts the design power)"
+            )
     return lines
 
 
@@ -131,20 +166,20 @@ def _characterised_lines(
 
 def _recorded_bar_lines(result: CriterionResult) -> list[str]:
     """A declared bar under measure: noted against the evidence — data, not a verdict."""
-    criterion = result.criterion
-    assert result.lower_bound is not None and criterion.threshold is not None
+    decision = result.decision
+    assert isinstance(decision, ComplianceVerdict)
     standing = bar_attainment(result)
     if standing == "unsupportable":
         note = (
-            f"    declared bar {criterion.threshold}: judgement unsupportable at "
-            f"{result.tally.trials} samples — even a perfect run of this size could "
-            "not support the bar — recorded, not a verdict"
+            f"    declared bar {decision.requirement}: judgement unsupportable at "
+            f"{result.tally.trials} samples — no outcome of this size can demonstrate "
+            "it — recorded, not a verdict"
         )
     else:
         note = (
-            f"    declared bar {criterion.threshold}: the evidence records it as "
-            f"{standing} ({_percent(criterion.confidence)} lower bound "
-            f"{result.lower_bound:.4f}) — recorded, not a verdict"
+            f"    declared bar {decision.requirement}: the evidence records it as "
+            f"{standing} (at least {decision.minimum_passing} of {decision.trials} needed, "
+            f"{decision.rule.value}) — recorded, not a verdict"
         )
     lines = _characterised_lines(result, label="bar declared")
     lines.insert(2, note)
@@ -152,46 +187,135 @@ def _recorded_bar_lines(result: CriterionResult) -> list[str]:
 
 
 def _latency_lines(evaluation: LatencyEvaluation) -> list[str]:
-    """The latency dimension: observed percentiles and per-bound outcomes."""
+    """The latency dimension: its verdict, and one line per enforced constraint."""
     bar = evaluation.bar
-    source = "declared ceiling"
+    source = "declared ceilings"
     if bar.origin == "baseline-derived":
-        source = (
-            f"no worse than measured ({_percent(bar.confidence)} bound from "
-            f"{bar.provenance.contract_ref})"
-        )
+        source = f"no worse than measured (baseline {bar.provenance.contract_ref})"
     elif bar.provenance.contract_ref is not None:
-        source = f"declared ceiling ({bar.provenance.origin}, {bar.provenance.contract_ref})"
+        source = f"declared ceilings ({bar.provenance.origin}, {bar.provenance.contract_ref})"
     lines = [
-        f"  latency: {evaluation.verdict.value.upper()} — {source}",
+        f"  latency: {evaluation.verdict.value.upper()} — {source}, alpha {bar.alpha:g}",
         (
             f"    {evaluation.contributing_samples} of {evaluation.total_samples} "
             "samples passed and contribute durations"
         ),
     ]
-    for outcome in evaluation.evaluations:
-        bound = outcome.bound
-        if outcome.status == "infeasible":
-            lines.append(f"    {bound.percentile}: no judgement — {outcome.reason}")
-            continue
-        relation = "within" if outcome.status == "pass" else "breaches"
-        detail = ""
-        if bound.rank is not None and bound.baseline_samples is not None:
-            detail = (
-                f" (bound is the baseline's {_ordinal(bound.rank)} of "
-                f"{bound.baseline_samples} sorted latencies; "
-                f"baseline {bound.percentile} was {bound.baseline_percentile_ms}ms)"
+    lines.extend(_constraint_line(outcome) for outcome in evaluation.evaluations)
+    return lines
+
+
+def _constraint_line(outcome: BoundEvaluation) -> str:
+    """One enforced constraint: its verdict and its decision artefact."""
+    judgement = outcome.judgement
+    label = outcome.bound.percentile
+    verdict = outcome.verdict.value.upper()
+    n_s = judgement.successful_latencies
+    rule = judgement.rule.value if judgement.rule is not None else "advisory"
+    if judgement.compliance is not None:
+        decided = judgement.compliance
+        head = f"    {label} ≤ {outcome.bound.threshold_ms}ms: {verdict} ({rule})"
+        if decided.minimum_within is None:
+            return (
+                f"{head} — {n_s} successful latencies; no count of {n_s} can demonstrate "
+                "the requirement"
             )
-        lines.append(
-            f"    {bound.percentile}: observed {outcome.observed_ms}ms {relation} "
-            f"the {bound.threshold_ms}ms bound{detail}"
+        raw = ""
+        if decided.observed_percentile_ms is not None:
+            raw = (
+                f"; raw {label} {round(decided.observed_percentile_ms)}ms "
+                "(a raw percentile comparison, advisory)"
+            )
+        return (
+            f"{head} — {decided.within_threshold} of {n_s} successful latencies within, "
+            f"at least {decided.minimum_within} needed{raw}"
         )
+    head = f"    {label}: {verdict} ({rule})"
+    indicative = " — indicative only" if judgement.indicative else ""
+    nondegeneracy = judgement.nondegeneracy
+    if nondegeneracy is not None and nondegeneracy.outcome == "INCONCLUSIVE":
+        return (
+            f"{head} — {n_s} successful latencies, below the {label} minimum; "
+            "the percentile is degenerate"
+        )
+    precedence = judgement.precedence
+    if precedence is None or precedence.saturated or judgement.observed_ms is None:
+        return (
+            f"{head} — no baseline rank achieves alpha for {n_s} successful latencies (saturated)"
+        )
+    assert precedence.rank is not None and precedence.threshold is not None
+    relation = "within" if outcome.verdict is Verdict.PASS else "breaches"
+    return (
+        f"{head} — observed {round(judgement.observed_ms)}ms {relation} the "
+        f"{round(precedence.threshold)}ms threshold (the baseline's "
+        f"{_ordinal(precedence.rank)} of {precedence.n} latencies, derived for "
+        f"{n_s} successful latencies; baseline {label} was "
+        f"{round(precedence.baseline_percentile)}ms){indicative}"
+    )
+
+
+def render_latency_planning(plans: Sequence[LatencyPlanning]) -> list[str]:
+    """The pre-run latency warnings: planning figures on the expected count,
+    never a refusal — both decisions are made after the run."""
+    lines = []
+    for plan in plans:
+        label = plan.bound.percentile
+        expected = plan.nondegeneracy.expected_test_samples
+        if plan.nondegeneracy.warning:
+            lines.append(
+                f"warning: latency {label} expects {expected} successful latencies, below "
+                f"its minimum of {plan.nondegeneracy.minimum_contributing_samples}; "
+                f"{plan.nondegeneracy.planned_samples_needed} planned samples would expect "
+                "enough (decided after the run on the actual count)"
+            )
+        if plan.precedence.warning:
+            figure = plan.precedence.minimum_baseline_trials
+            needed = (
+                f"; a baseline of at least {figure} latencies supports one"
+                if figure is not None
+                else ""
+            )
+            lines.append(
+                f"warning: latency {label}: no baseline rank achieves alpha for the "
+                f"{expected} successful latencies expected{needed} (decided after the "
+                "run on the actual count)"
+            )
     return lines
 
 
 def _ordinal(rank: int) -> str:
     suffix = "th" if 10 <= rank % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(rank % 10, "th")
     return f"{rank}{suffix}"
+
+
+def _verdict_header(result: RunResult) -> list[str]:
+    """The test verdict at the top: V_test, what triggered it, the two
+    dimensions, and the Type-I envelopes by direction."""
+    overall = result.overall
+    assert overall is not None
+    lines = [
+        f"contract {result.contract_id} — verdict: {overall.verdict.value.upper()} "
+        f"(methodology {METHODOLOGY_VERSION})"
+    ]
+    if overall.triggering:
+        named = ", ".join(
+            f"criterion {t.id}" if t.kind == "criterion" else t.id for t in overall.triggering
+        )
+        lines.append(f"  decided by: {named}")
+    if overall.rate_verdict is not None and overall.latency_verdict is not None:
+        lines.append(
+            f"  functional: {overall.rate_verdict.value.upper()} · "
+            f"latency: {overall.latency_verdict.value.upper()}"
+        )
+    envelopes = result.envelopes
+    parts = []
+    if envelopes.false_degradation_signal is not None:
+        parts.append(f"false degradation signal ≤ {envelopes.false_degradation_signal:g}")
+    if envelopes.false_compliance is not None:
+        parts.append(f"false compliance ≤ {envelopes.false_compliance:g}")
+    if parts:
+        lines.append("  Type-I envelopes: " + "; ".join(parts))
+    return lines
 
 
 # mavai-ref: JVI-51ASAR0 — do not remove (resolves in mavai-orchestrator)
@@ -212,13 +336,13 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
             "(a measure run records; it renders no verdict)"
         )
         for criterion_result in result.criterion_results:
-            if criterion_result.criterion.threshold is not None:
+            if criterion_result.decision is not None:
                 lines.extend(_recorded_bar_lines(criterion_result))
             else:
                 lines.extend(_characterised_lines(criterion_result))
             lines.extend(_standings_lines(criterion_result))
-    elif result.composite is not None:
-        lines.append(f"contract {result.contract_id} — verdict: {result.composite.value.upper()}")
+    elif result.overall is not None:
+        lines.extend(_verdict_header(result))
         judged = [r for r in result.criterion_results if r.verdict is not None]
         if judged:
             lines.append("")
@@ -374,17 +498,28 @@ def render_optimization_run(
     return "\n".join(lines)
 
 
-def render_infeasible(contract_name: str, error: InfeasibleRunError) -> str:
-    """Render the constructive refusal for an infeasible verification run."""
-    lines = [f"contract {contract_name}: cannot run as declared"]
-    for criterion in error.infeasible:
-        lines.append(
-            f"  {error.samples} samples cannot support criterion "
-            f"{criterion.name}'s threshold of {criterion.threshold} at "
-            f"{_percent(criterion.confidence)} confidence."
-        )
-    lines.append(
-        f"  Either raise samples to at least {error.governing_minimum}, or declare "
-        "`intent: smoke` to run an informal check that renders no statistical verdict."
-    )
+def render_refusal(contract_name: str, error: ConfigurationRefusedError) -> str:
+    """Render the constructive refusal of a configuration refused before any sample ran.
+
+    Every applicable code is named, in the fixed order, so every part can
+    be corrected at once.
+    """
+    codes = " ".join(error.errors)
+    lines = [f"contract {contract_name}: configuration refused before any sample ran ({codes})"]
+    for part in error.parts:
+        if part.code is ConfigurationError.TEST_LARGER_THAN_BASELINE:
+            lines.append(
+                f"  TEST_LARGER_THAN_BASELINE: {part.subject} — the test is planned at "
+                f"{part.planned_samples} samples, larger than its baseline run of "
+                f"{part.limit}; a baseline must be at least as large as any test that "
+                "consumes it. Run at most "
+                f"{part.limit} samples, or measure a larger baseline."
+            )
+        else:
+            lines.append(
+                f"  COMPLIANCE_INFEASIBLE: {part.subject} — no outcome of "
+                f"{part.planned_samples} samples can demonstrate {part.requirement:g}; a pass "
+                f"is possible from {part.limit} samples. Raise the sample count, or declare "
+                "`intent: smoke` for a sentinel check that reports PASS is not possible."
+            )
     return "\n".join(lines)

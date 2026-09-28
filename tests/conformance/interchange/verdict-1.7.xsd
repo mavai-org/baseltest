@@ -48,13 +48,56 @@
       <xs:element name="postcondition-standings" type="tns:PostconditionStandingsType" minOccurs="0"/>
       <xs:element name="verdict"      type="tns:VerdictType"/>
     </xs:all>
-    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", or "1.6". 1.2 emitters set version="1.2"
+    <!-- version: "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", or "1.7". 1.2 emitters set version="1.2"
          when <per-criterion> content is populated; otherwise stay
          at "1.0" so consumers inspecting the version attribute
          remain correctly informed. 1.3 emitters set version="1.3":
          the <postcondition-standings> element is available (emitted
          whenever the run produced standings). -->
-    <!-- 1.6 additions, both additive and both optional, so a 1.5-shaped
+    <!-- 1.7 additions (Statistical Companion 1.5.0), which name the
+         decision behind the verdict:
+
+         @methodology-version on the record, required — the companion
+         methodology whose decision rules produced the verdict ("1.5.0").
+         A 1.6-shaped record lacks it and is therefore not a 1.7 record:
+         the verdict it carries was produced under different rules.
+
+         @decision-rule and @decision-rule-version on <verdict> — the
+         versioned rule that decided: regression/fisher (an empirical,
+         baseline-derived threshold), compliance/exact-binomial (a given,
+         normative threshold), latency/precedence (a baseline-derived
+         latency threshold) or latency/compliance-exact-binomial (an
+         explicit latency requirement). Stated when one rule decided the
+         whole test; when several did (functional criteria of different
+         directions, or enforced latency constraints beside functional
+         criteria), each is stated where it decided — on the criterion rows
+         and the latency evaluations — and <verdict> states none. A service
+         judged against both a requirement and its
+         baseline carries two criteria over the same postconditions, a
+         compliance criterion and a regression criterion, each on its own
+         criterion row with its own rule and verdict; the record's verdict
+         is their structural composite, and <verdict> then states no rule.
+
+         @value on <verdict> — the overall test verdict V_test: the
+         structural composite of the functional dimension (the criteria's
+         composite, <per-criterion>/<composite>) and the latency dimension
+         (<latency>/@verdict, the composite of the strict evaluations) —
+         PASS if both pass, FAIL if either fails, INCONCLUSIVE otherwise; a
+         dimension the test does not carry is left out. Advisory latency
+         evaluations never enter it.
+
+         @configuration-error on <verdict> — a configuration refused before
+         any sample ran: every applicable code, as a space-separated list in
+         the fixed order TEST_LARGER_THAN_BASELINE, COMPLIANCE_INFEASIBLE
+         (the list's order is an emitter obligation). A refused
+         record states the codes and no @value (there is no verdict; the
+         refusal is not INCONCLUSIVE, which is a data-dependent outcome such
+         as latency saturation); every other record states @value and no
+         code. XSD 1.0 cannot express the exclusivity, so it is an emitter
+         obligation. The termination reason of a refused record is
+         CONFIGURATION_REFUSED.
+
+         1.6 additions, both additive and both optional, so a 1.5-shaped
          record is a valid 1.6 record:
 
          <inputs> — how each input the run drove presents itself. Every
@@ -105,6 +148,7 @@
          encountered in 1.1-shaped content from older emitters in
          service. -->
     <xs:attribute name="version"        type="xs:string"   use="required"/>
+    <xs:attribute name="methodology-version" type="tns:MethodologyVersionType" use="required"/>
     <xs:attribute name="timestamp"      type="xs:dateTime"  use="required"/>
     <xs:attribute name="generator"      type="xs:string"    use="required"/>
     <xs:attribute name="correlation-id" type="xs:string"    use="optional"/>
@@ -250,6 +294,9 @@
        Latency dimension
        =================================================================== -->
 
+  <!-- 1.7: latency describes the samples that pass every functional
+       criterion (Statistical Companion §12.2.1); @successful-samples counts
+       them. -->
   <xs:complexType name="LatencyType">
     <xs:sequence>
       <xs:element name="observed"    type="tns:ObservedPercentilesType" minOccurs="0"/>
@@ -258,6 +305,13 @@
     <xs:attribute name="successful-samples"  type="xs:int" use="required"/>
     <xs:attribute name="strict-violations"   type="xs:int" use="required"/>
     <xs:attribute name="advisory-violations" type="xs:int" use="required"/>
+    <!-- 1.7: the latency dimension's verdict V_latency, the structural
+         composite of the strict (enforced) evaluations: PASS if every one
+         passes, FAIL if any is STRICT_FAIL, INCONCLUSIVE otherwise (an
+         evaluation with status INFEASIBLE is inconclusive). Absent when the
+         test enforces no latency constraint; advisory evaluations never
+         enter it. -->
+    <xs:attribute name="verdict"             type="tns:VerdictEnum" use="optional"/>
   </xs:complexType>
 
   <xs:complexType name="ObservedPercentilesType">
@@ -290,6 +344,20 @@
     <xs:attribute name="baseline-confidence" type="xs:double"                 use="optional"/>
     <xs:attribute name="baseline-rank"       type="xs:int"                    use="optional"/>
     <xs:attribute name="baseline-n"          type="xs:int"                    use="optional"/>
+    <!-- 1.7: the rule that decided a strict evaluation. An explicit
+         requirement enforced in strict mode is decided by
+         latency/compliance-exact-binomial: @within-threshold is the count
+         of successful latencies at or below @threshold-ms, @required-within
+         the smallest count that demonstrates compliance; status PASS or
+         STRICT_FAIL, and INFEASIBLE when too few successful latencies
+         arrived for any count to pass (no @required-within). A
+         baseline-derived threshold is decided by latency/precedence. An
+         advisory evaluation compares @observed-ms with @threshold-ms, is
+         decided by no rule and never enters the composite. -->
+    <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum" use="optional"/>
+    <xs:attribute name="decision-rule-version" type="xs:positiveInteger"   use="optional"/>
+    <xs:attribute name="within-threshold"      type="xs:int"               use="optional"/>
+    <xs:attribute name="required-within"       type="xs:int"               use="optional"/>
   </xs:complexType>
 
   <xs:simpleType name="PercentileLabelEnum">
@@ -336,6 +404,21 @@
     <xs:attribute name="threshold-origin" type="tns:ThresholdOriginEnum" use="required"/>
     <xs:attribute name="test-statistic"   type="xs:double"               use="optional"/>
     <xs:attribute name="p-value"          type="xs:double"               use="optional"/>
+    <!-- 1.7, regression/fisher only, all informational:
+         @size-at-assumed-common-rate — the procedure's unconditional
+         false-degradation-signal probability were the unknown common rate
+         equal to the baseline's observed rate; not a property of the run.
+         @design-alternative-rate — the true rate at which the test is to
+         reach its target power (the test still flags any degradation from
+         the baseline). @design-power — the power at that rate with the
+         baseline and the test both yet to be drawn. @resolved-test-power —
+         the power at that rate of the test resolved against the observed
+         baseline, whose cutoff is fixed. The two powers answer different
+         questions and are named apart. -->
+    <xs:attribute name="size-at-assumed-common-rate" type="xs:double" use="optional"/>
+    <xs:attribute name="design-alternative-rate"     type="xs:double" use="optional"/>
+    <xs:attribute name="design-power"                type="xs:double" use="optional"/>
+    <xs:attribute name="resolved-test-power"         type="xs:double" use="optional"/>
   </xs:complexType>
 
   <xs:simpleType name="ThresholdOriginEnum">
@@ -423,6 +506,8 @@
       <xs:enumeration value="SUCCESS_GUARANTEED"/>
       <xs:enumeration value="TIME_BUDGET_EXHAUSTED"/>
       <xs:enumeration value="TOKEN_BUDGET_EXHAUSTED"/>
+      <!-- 1.7: the configuration was refused before any sample ran. -->
+      <xs:enumeration value="CONFIGURATION_REFUSED"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -511,9 +596,48 @@
        =================================================================== -->
 
   <xs:complexType name="VerdictType">
-    <xs:attribute name="value"  type="tns:VerdictEnum" use="required"/>
+    <!-- 1.7: @value is absent exactly when @configuration-error is present. -->
+    <xs:attribute name="value"  type="tns:VerdictEnum" use="optional"/>
     <xs:attribute name="reason" type="xs:string"       use="optional"/>
+    <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum"       use="optional"/>
+    <xs:attribute name="decision-rule-version" type="xs:positiveInteger"         use="optional"/>
+    <xs:attribute name="configuration-error"   type="tns:ConfigurationErrorListType" use="optional"/>
   </xs:complexType>
+
+  <!-- 1.7: the methodology version, major.minor.patch. -->
+  <xs:simpleType name="MethodologyVersionType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]+\.[0-9]+\.[0-9]+"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- 1.7: the versioned decision rules of methodology 1.5.0. -->
+  <xs:simpleType name="DecisionRuleEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="regression/fisher"/>
+      <xs:enumeration value="compliance/exact-binomial"/>
+      <xs:enumeration value="latency/precedence"/>
+      <xs:enumeration value="latency/compliance-exact-binomial"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- 1.7: configurations refused before any sample runs. -->
+  <xs:simpleType name="ConfigurationErrorEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="TEST_LARGER_THAN_BASELINE"/>
+      <xs:enumeration value="COMPLIANCE_INFEASIBLE"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- 1.7: every applicable code, at least one, in the fixed order above. -->
+  <xs:simpleType name="ConfigurationErrorListType">
+    <xs:restriction>
+      <xs:simpleType>
+        <xs:list itemType="tns:ConfigurationErrorEnum"/>
+      </xs:simpleType>
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
 
   <xs:simpleType name="VerdictEnum">
     <xs:restriction base="xs:string">
@@ -562,6 +686,9 @@
          resolved). Emitters omit the attribute when the value is NaN. -->
     <xs:attribute name="observed-rate" type="xs:double"       use="optional"/>
     <xs:attribute name="threshold"     type="xs:double"       use="optional"/>
+    <!-- 1.7: the rule that decided this criterion, when one did. -->
+    <xs:attribute name="decision-rule"         type="tns:DecisionRuleEnum" use="optional"/>
+    <xs:attribute name="decision-rule-version" type="xs:positiveInteger"   use="optional"/>
   </xs:complexType>
 
   <xs:complexType name="CompositeType">

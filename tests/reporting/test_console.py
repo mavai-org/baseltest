@@ -4,9 +4,15 @@ import re
 
 import pytest
 
-from baseltest.contract import Criterion, ServiceContract, contains
-from baseltest.engine import InfeasibleRunError, RunKind, RunPlan, execute
-from baseltest.reporting import render_infeasible, render_run
+from baseltest.contract import BaselineCount, Criterion, ServiceContract, contains
+from baseltest.engine import (
+    METHODOLOGY_VERSION,
+    ConfigurationRefusedError,
+    RunKind,
+    RunPlan,
+    execute,
+)
+from baseltest.reporting import render_refusal, render_run
 
 VERDICT_VOCABULARY = ["PASS", "FAIL", "pass", "fail", "green", "red"]
 
@@ -21,24 +27,44 @@ def run_result(criteria: tuple[Criterion, ...], samples: int = 300, kind: RunKin
 
 
 class TestVerdictOutput:
-    def test_states_verdict_counts_threshold_and_bound(self) -> None:
+    def test_states_verdict_counts_requirement_and_rule(self) -> None:
         criterion = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         text = render_run(run_result((criterion,)))
         assert "contract refund-confirmation — verdict: PASS" in text
+        assert f"(methodology {METHODOLOGY_VERSION})" in text.splitlines()[0]
         row = next(line for line in text.splitlines() if "relevant" in line)
         assert "PASS" in row
         assert "300/300" in row
         assert "0.95" in row
-        assert "wilson lower" in row
+        assert "compliance/exact-binomial" in row
+        assert "Clopper–Pearson lower bound" in text
+        assert "false compliance ≤ 0.05" in text
+
+    def test_a_regression_row_states_its_cutoff_and_what_the_design_detects(self) -> None:
+        criterion = Criterion(
+            name="extraction",
+            postconditions=(contains("refund"),),
+            baseline=BaselineCount(951, 1000),
+            design_alternative_rate=0.9,
+        )
+        text = render_run(run_result((criterion,), samples=100))
+        row = next(line for line in text.splitlines() if line.strip().startswith("extraction"))
+        assert "regression/fisher" in row
+        assert " 91 " in row  # the cutoff: 91 of 100
+        assert "size at the assumed common rate" in text
+        assert "design power" in text and "resolved power" in text
+        assert "(inverts the design power)" in text
+        assert "false degradation signal ≤ 0.05" in text
 
     def test_multi_criterion_shape_lists_each_stream_and_composite(self) -> None:
         passing = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
         failing = Criterion(name="strict", postconditions=(contains("nope"),), threshold=0.5)
         text = render_run(run_result((passing, failing)))
-        assert text.splitlines()[0] == "contract refund-confirmation — verdict: FAIL"
+        assert text.splitlines()[0].startswith("contract refund-confirmation — verdict: FAIL")
+        assert "decided by: criterion strict" in text
         assert "criterion" in text and "verdict" in text and "basis" in text  # table header
         relevant_row = next(line for line in text.splitlines() if "relevant" in line)
-        strict_row = next(line for line in text.splitlines() if "strict" in line)
+        strict_row = next(line for line in text.splitlines() if line.strip().startswith("strict"))
         assert "PASS" in relevant_row
         assert "FAIL" in strict_row
 
@@ -91,19 +117,35 @@ class TestObservationOutput:
         assert "baseline written: baselines/refund.yaml" in text
 
 
-class TestInfeasibleOutput:
-    def test_refusal_names_criterion_minimum_and_smoke(self) -> None:
+class TestRefusalOutput:
+    def test_refusal_names_the_code_the_minimum_and_smoke(self) -> None:
         criterion = Criterion(name="sla", postconditions=(contains("x"),), threshold=0.99)
         contract = ServiceContract(
             contract_id="payment-meets-sla", invoke=lambda v: v, criteria=(criterion,)
         )
-        with pytest.raises(InfeasibleRunError) as excinfo:
+        with pytest.raises(ConfigurationRefusedError) as excinfo:
             execute(contract, RunPlan(samples=30, inputs=("a",)))
-        text = render_infeasible("payment-meets-sla", excinfo.value)
-        assert "cannot run as declared" in text
-        assert "criterion sla" in text
-        assert str(excinfo.value.governing_minimum) in text
+        text = render_refusal("payment-meets-sla", excinfo.value)
+        assert "configuration refused before any sample ran (COMPLIANCE_INFEASIBLE)" in text
+        assert "sla" in text
+        assert "from 299 samples" in text
         assert "intent: smoke" in text
+
+    def test_refusal_names_every_code_in_order(self) -> None:
+        compliance = Criterion(name="req", postconditions=(contains("x"),), threshold=0.999)
+        regression = Criterion(
+            name="reg", postconditions=(contains("x"),), baseline=BaselineCount(95, 100)
+        )
+        contract = ServiceContract(
+            contract_id="both", invoke=lambda v: v, criteria=(compliance, regression)
+        )
+        with pytest.raises(ConfigurationRefusedError) as excinfo:
+            execute(contract, RunPlan(samples=200, inputs=("a",)))
+        text = render_refusal("both", excinfo.value)
+        assert "(TEST_LARGER_THAN_BASELINE COMPLIANCE_INFEASIBLE)" in text
+        assert text.index("TEST_LARGER_THAN_BASELINE: reg") < text.index(
+            "COMPLIANCE_INFEASIBLE: req"
+        )
 
 
 class TestFailureReasons:

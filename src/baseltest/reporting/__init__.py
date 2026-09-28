@@ -13,8 +13,9 @@ persisted artefacts, for the whole family at once.
 
 from .console import (
     render_explorations,
-    render_infeasible,
+    render_latency_planning,
     render_optimization_run,
+    render_refusal,
     render_run,
     render_run_plan,
 )
@@ -31,7 +32,12 @@ from .verdict_reader import (
     parse_verdict_record,
     read_verdict_directory,
 )
-from .verdict_xml import render_verdict_record, write_verdict_record
+from .verdict_xml import (
+    render_refused_record,
+    render_verdict_record,
+    write_refused_record,
+    write_verdict_record,
+)
 
 __all__ = [
     "RISK_DRIVEN_APPROACH",
@@ -44,10 +50,13 @@ __all__ = [
     "parse_verdict_record",
     "read_verdict_directory",
     "render_explorations",
-    "render_infeasible",
+    "render_latency_planning",
     "render_optimization_run",
+    "render_refusal",
     "render_run",
     "render_run_plan",
+    "render_refused_record",
     "render_verdict_record",
+    "write_refused_record",
     "write_verdict_record",
 ]

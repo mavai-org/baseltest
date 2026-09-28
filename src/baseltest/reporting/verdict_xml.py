@@ -1,13 +1,19 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
 Test runs emit their results in the mavai family's verdict XML
-(``verdict-1.5.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+(``verdict-1.7.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
 every framework's results are readable by the same tooling. baseltest
 emits the subset it has data for; every emitted element conforms.
-``version="1.5"``: the run's failure attribution travels in the
-``functional`` element, one ``check`` per bounded identity with the kind
-that says whether those trials were judged or never delivered anything to
-judge. The per-criterion decomposition is always populated, and the
+``version="1.7"`` names the decision behind the verdict: the methodology
+version on the record, the versioned decision rule on every criterion row
+and strict latency evaluation (and on the verdict when one rule decided the
+whole test), the latency dimension's verdict, and — for a configuration
+refused before any sample ran — the configuration-error list and no verdict
+value. The verdict's value is the test's verdict ``V_test``, the structural
+composite of the functional and latency dimensions. The run's failure
+attribution travels in the ``functional`` element, one ``check`` per
+bounded identity with the kind that says whether those trials were judged
+or never delivered anything to judge. The per-criterion decomposition is always populated, and the
 descriptive postcondition standings travel in the first-class
 ``postcondition-standings`` element — counts, the observed fraction, the
 per-row optional flag, and the declared slack verbatim; never an interval
@@ -20,13 +26,23 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from baseltest._version import __version__
-from baseltest.engine import CriterionResult, RunResult
+from baseltest.contract import ServiceContract
+from baseltest.engine import (
+    METHODOLOGY_VERSION,
+    BoundEvaluation,
+    ConfigurationRefusedError,
+    CriterionResult,
+    RegressionVerdict,
+    RunPlan,
+    RunResult,
+    Verdict,
+)
 from baseltest.engine.naming import bounded_excerpt, bounded_key
 
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.6"
+_FORMAT_VERSION = "1.7"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -43,6 +59,84 @@ def _origin(result: CriterionResult) -> str:
     return result.criterion.provenance.origin.upper()
 
 
+def _threshold(result: CriterionResult) -> str:
+    """The row's threshold: a requirement as declared, a cutoff as ``c / n_t``."""
+    decision = result.decision
+    assert decision is not None
+    if isinstance(decision, RegressionVerdict):
+        return str(decision.derivation.threshold_real)
+    return str(decision.requirement)
+
+
+# The verdict record's evaluation status for a strict constraint's verdict.
+_STRICT_STATUS = {
+    Verdict.PASS: "PASS",
+    Verdict.FAIL: "STRICT_FAIL",
+    Verdict.INCONCLUSIVE: "INFEASIBLE",
+}
+
+
+def _root(timestamp: str) -> ElementTree.Element:
+    ElementTree.register_namespace("", _NAMESPACE)
+    root = ElementTree.Element(f"{{{_NAMESPACE}}}verdict-record")
+    root.set("version", _FORMAT_VERSION)
+    root.set("methodology-version", METHODOLOGY_VERSION)
+    root.set("timestamp", timestamp)
+    root.set("generator", _generator())
+    return root
+
+
+def _child(parent: ElementTree.Element, name: str) -> ElementTree.Element:
+    return ElementTree.SubElement(parent, f"{{{_NAMESPACE}}}{name}")
+
+
+def _document(root: ElementTree.Element) -> str:
+    ElementTree.indent(root, space="  ")
+    body = ElementTree.tostring(root, encoding="unicode")
+    return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}\n'
+
+
+def _evaluation(parent: ElementTree.Element, outcome: BoundEvaluation, confidence: float) -> None:
+    """One strict latency evaluation, with the rule that decided it.
+
+    A saturated baseline-derived constraint — no baseline rank achieves
+    alpha for the test's count — is recorded as ``SATURATED`` with no
+    ``threshold-ms`` and no ``baseline-rank``: there is no threshold, and
+    none is manufactured. A baseline-derived constraint with no successful
+    latency at all has no rank search to report, and no row; its
+    INCONCLUSIVE outcome is carried by the latency element's verdict.
+    """
+    judgement = outcome.judgement
+    precedence = judgement.precedence
+    saturated = precedence is not None and precedence.saturated
+    threshold = judgement.threshold_ms
+    if threshold is None and not saturated:
+        return
+    row = _child(parent, "evaluation")
+    row.set("percentile", outcome.bound.percentile)
+    if judgement.observed_ms is not None:
+        row.set("observed-ms", str(round(judgement.observed_ms)))
+    if threshold is not None:
+        row.set("threshold-ms", str(round(threshold)))
+    row.set("provenance", str(judgement.source))
+    row.set("mode", "strict")
+    row.set("status", "SATURATED" if saturated else _STRICT_STATUS[outcome.verdict])
+    if precedence is not None:
+        row.set("baseline-confidence", str(confidence))
+        if precedence.rank is not None:
+            row.set("baseline-rank", str(precedence.rank))
+        row.set("baseline-n", str(precedence.n))
+    rule = judgement.rule
+    assert rule is not None
+    row.set("decision-rule", rule.value)
+    row.set("decision-rule-version", str(rule.version))
+    compliance = judgement.compliance
+    if compliance is not None:
+        row.set("within-threshold", str(compliance.within_threshold))
+        if compliance.minimum_within is not None:
+            row.set("required-within", str(compliance.minimum_within))
+
+
 def render_verdict_record(result: RunResult, design: RunDesign | None = None) -> str:
     """Render a completed test run as one ``verdict-record`` document.
 
@@ -50,20 +144,14 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     is carried inside the family schema: the resolved baseline in the
     schema's ``baseline`` element, the approach and any risk-driven claims
     as ``environment`` entries."""
-    ElementTree.register_namespace("", _NAMESPACE)
-    root = ElementTree.Element(f"{{{_NAMESPACE}}}verdict-record")
-    root.set("version", _FORMAT_VERSION)
-    root.set("timestamp", result.finished_at.isoformat())
-    root.set("generator", _generator())
-
-    def child(parent: ElementTree.Element, name: str) -> ElementTree.Element:
-        return ElementTree.SubElement(parent, f"{{{_NAMESPACE}}}{name}")
+    root = _root(result.finished_at.isoformat())
+    child = _child
 
     identity = child(root, "identity")
     identity.set("use-case-id", result.contract_id)
 
-    judged = list(result.criterion_results)
-    confidence = judged[0].criterion.confidence if judged else 0.95
+    judged = [r for r in result.criterion_results if r.decision is not None]
+    confidence = judged[0].criterion.confidence if judged else _latency_confidence(result)
     execution = child(root, "execution")
     execution.set("planned-samples", str(result.plan.samples))
     execution.set("samples-executed", str(result.plan.samples))
@@ -77,9 +165,10 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     if result.latency is not None:
         latency = child(root, "latency")
         latency.set("successful-samples", str(result.latency.contributing_samples))
-        strict_violations = sum(1 for e in result.latency.evaluations if e.status == "fail")
+        strict_violations = sum(1 for e in result.latency.evaluations if e.verdict is Verdict.FAIL)
         latency.set("strict-violations", str(strict_violations))
         latency.set("advisory-violations", "0")  # declaring the bar is the opt-in; no advisory mode
+        latency.set("verdict", result.latency.verdict.value.upper())
         observed = child(latency, "observed")
         for label, value_ms in result.latency.observed:
             percentile = child(observed, "percentile")
@@ -87,31 +176,26 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             percentile.set("value-ms", str(value_ms))
         evaluations = child(latency, "evaluations")
         for evaluation in result.latency.evaluations:
-            row = child(evaluations, "evaluation")
-            row.set("percentile", evaluation.bound.percentile)
-            if evaluation.observed_ms is not None:
-                row.set("observed-ms", str(evaluation.observed_ms))
-            row.set("threshold-ms", str(evaluation.bound.threshold_ms))
-            row.set("provenance", result.latency.bar.origin)
-            row.set("mode", "strict")
-            status = {"pass": "PASS", "fail": "STRICT_FAIL", "infeasible": "INFEASIBLE"}
-            row.set("status", status[evaluation.status])
-            if result.latency.bar.origin == "baseline-derived":
-                row.set("baseline-confidence", str(result.latency.bar.confidence))
-                if evaluation.bound.rank is not None:
-                    row.set("baseline-rank", str(evaluation.bound.rank))
-                if evaluation.bound.baseline_samples is not None:
-                    row.set("baseline-n", str(evaluation.bound.baseline_samples))
+            _evaluation(evaluations, evaluation, result.latency.bar.confidence)
 
     if len(judged) == 1:
         only = judged[0]
-        assert only.lower_bound is not None and only.criterion.threshold is not None
+        assert only.lower_bound is not None
         statistics = child(root, "statistics")
         statistics.set("confidence-level", str(only.criterion.confidence))
         statistics.set("standard-error", str(only.tally.standard_error))
         statistics.set("wilson-lower", str(only.lower_bound))
-        statistics.set("threshold", str(only.criterion.threshold))
+        statistics.set("threshold", _threshold(only))
         statistics.set("threshold-origin", _origin(only))
+        if isinstance(only.decision, RegressionVerdict):
+            size = only.decision.derivation.size_at_assumed_common_rate
+            if size is not None:
+                statistics.set("size-at-assumed-common-rate", str(size))
+            power = only.power
+            if power is not None and power.design_alternative_rate is not None:
+                statistics.set("design-alternative-rate", str(power.design_alternative_rate))
+                statistics.set("design-power", str(power.design_power))
+                statistics.set("resolved-test-power", str(power.resolved_power))
 
     covariates = child(root, "covariates")
     covariates.set("aligned", "true")  # a mismatched baseline never judges (skip w/ reason)
@@ -170,7 +254,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
                 json.dumps(
                     {
                         "baselineRate": claim.baseline_rate,
-                        "toleratedRate": claim.tolerated_rate,
+                        "designAlternativeRate": claim.design_alternative_rate,
                         "confidence": claim.confidence,
                         "targetPower": claim.target_power,
                         "requiredN": claim.required_n,
@@ -206,22 +290,27 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             clause.set("description", reason)
             clause.set("count", str(reasons[reason]))
 
-    per_criterion = child(root, "per-criterion")
-    for criterion_result in judged:
-        assert criterion_result.verdict is not None
-        row = child(per_criterion, "criterion")
-        row.set("id", criterion_result.name)
-        row.set("verdict", criterion_result.verdict.value.upper())
-        row.set("pass", str(criterion_result.tally.successes))
-        row.set("fail", str(criterion_result.tally.trials - criterion_result.tally.successes))
-        row.set("inconclusive", "0")
-        row.set("total", str(criterion_result.tally.trials))
-        row.set("observed-rate", str(criterion_result.tally.observed_rate))
-        if criterion_result.criterion.threshold is not None:
-            row.set("threshold", str(criterion_result.criterion.threshold))
-    composite = child(per_criterion, "composite")
-    assert result.composite is not None
-    composite.set("value", result.composite.value.upper())
+    overall = result.overall
+    assert overall is not None
+    if judged:
+        per_criterion = child(root, "per-criterion")
+        for criterion_result in judged:
+            decision = criterion_result.decision
+            assert decision is not None
+            row = child(per_criterion, "criterion")
+            row.set("id", criterion_result.name)
+            row.set("verdict", decision.verdict.value.upper())
+            row.set("pass", str(criterion_result.tally.successes))
+            row.set("fail", str(criterion_result.tally.trials - criterion_result.tally.successes))
+            row.set("inconclusive", "0")
+            row.set("total", str(criterion_result.tally.trials))
+            row.set("observed-rate", str(criterion_result.tally.observed_rate))
+            row.set("threshold", _threshold(criterion_result))
+            row.set("decision-rule", decision.rule.value)
+            row.set("decision-rule-version", str(decision.rule.version))
+        composite = child(per_criterion, "composite")
+        assert overall.rate_verdict is not None
+        composite.set("value", overall.rate_verdict.value.upper())
 
     # The first-class standings element (1.3): descriptive tallies only,
     # the optional flag on every row, the declared slack verbatim and only
@@ -262,11 +351,21 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
                     observed.set("held", "true" if exemplar.held else "false")
 
     verdict = child(root, "verdict")
-    verdict.set("value", result.composite.value.upper())
+    verdict.set("value", overall.verdict.value.upper())
+    rules = {r.decision.rule for r in judged if r.decision is not None}
+    if result.latency is not None:
+        rules.update(e.judgement.rule for e in result.latency.evaluations if e.judgement.rule)
+    if len(rules) == 1:
+        (rule,) = rules
+        verdict.set("decision-rule", rule.value)
+        verdict.set("decision-rule-version", str(rule.version))
+    return _document(root)
 
-    ElementTree.indent(root, space="  ")
-    body = ElementTree.tostring(root, encoding="unicode")
-    return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}\n'
+
+def _latency_confidence(result: RunResult) -> float:
+    """The execution confidence of a test with no functional bar: its latency bar's."""
+    assert result.latency is not None
+    return result.latency.bar.confidence
 
 
 def write_verdict_record(
@@ -276,4 +375,55 @@ def write_verdict_record(
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{result.contract_id}-{result.inputs_identity[:12]}.xml"
     path.write_text(render_verdict_record(result, design), encoding="utf-8")
+    return path
+
+
+def render_refused_record(
+    contract: ServiceContract[object],
+    plan: RunPlan,
+    refused: ConfigurationRefusedError,
+    timestamp: str,
+) -> str:
+    """Render a configuration refused before any sample ran.
+
+    The record states every applicable code, in the fixed order, and no
+    verdict value — there is no verdict, and a refusal is not INCONCLUSIVE —
+    with the termination reason ``CONFIGURATION_REFUSED``.
+    """
+    root = _root(timestamp)
+    identity = _child(root, "identity")
+    identity.set("use-case-id", contract.contract_id)
+    confidences = [c.confidence for c in contract.criteria if c.is_judged]
+    if not confidences and contract.latency is not None:
+        confidences.append(contract.latency.confidence)
+    execution = _child(root, "execution")
+    execution.set("planned-samples", str(plan.samples))
+    execution.set("samples-executed", "0")
+    execution.set("successes", "0")
+    execution.set("failures", "0")
+    execution.set("elapsed-ms", "0")
+    execution.set("intent", plan.intent.name)
+    execution.set("confidence", str(confidences[0] if confidences else 0.95))
+    covariates = _child(root, "covariates")
+    covariates.set("aligned", "true")
+    termination = _child(root, "termination")
+    termination.set("reason", "CONFIGURATION_REFUSED")
+    termination.set("detail", "; ".join(f"{p.code}: {p.subject}" for p in refused.parts))
+    verdict = _child(root, "verdict")
+    verdict.set("configuration-error", " ".join(refused.errors))
+    return _document(root)
+
+
+def write_refused_record(
+    contract: ServiceContract[object],
+    plan: RunPlan,
+    inputs_identity: str,
+    refused: ConfigurationRefusedError,
+    directory: Path,
+    timestamp: str,
+) -> Path:
+    """Write a refused configuration's record beside the run records."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{contract.contract_id}-{inputs_identity[:12]}.xml"
+    path.write_text(render_refused_record(contract, plan, refused, timestamp), encoding="utf-8")
     return path
