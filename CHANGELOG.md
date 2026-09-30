@@ -7,6 +7,12 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.25.1] — 2026-09-30
+
+**A verdict record now states the count each criterion was decided by.** Nothing breaks: contracts, verdicts and every published seam are as they were, and every record is still verdict-1.7. Conformance is against the mavai-R v0.11.2 fixtures and verdict schema.
+
+Every criterion row a rule decided carries `required-pass`: the smallest passing count under that rule — the Fisher cutoff for `regression/fisher`, *k*<sub>min</sub> for `compliance/exact-binomial` — so the row passes exactly when `pass` reaches it. The row's `threshold` could not say this: for a regression it is the cutoff divided by the run size, and for a requirement it is the requirement itself, not the bar. The count is the one the engine judged with, taken from the decision rather than recovered from the threshold. A smoke test too small for any count to pass states none, as the schema requires.
+
 ## [0.25.0] — 2026-09-28
 
 **Breaking: every verdict is now decided by the decision rules of Statistical Companion 1.5.0, and cutoffs, sizes and verdicts change.** Contracts keep their shape, but a test that passed under 0.24 may fail, pass at a different size, be refused before it runs, or come back INCONCLUSIVE. There is no compatibility switch: re-run your tests and read their new run-plan lines. Conformance is against the mavai-R v0.11.1 fixtures and verdict schema.
