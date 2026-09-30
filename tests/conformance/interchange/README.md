@@ -6,7 +6,17 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.11.1`**: verified byte-identical to the
+**Vendored from mavai-R `0.11.2`**: verified byte-identical to the
+`interchange-v0.11.2.zip` release asset when recorded (2026-09-30). The three
+JSON schemas are unchanged; `verdict-1.7.xsd` gains an optional
+`required-pass` on the criterion row: the smallest passing count under the
+rule that decided the criterion (the Fisher cutoff for `regression/fisher`,
+`k_min` for `compliance/exact-binomial`), so a reader states the bar as the
+count the verdict was decided by rather than deriving it from `threshold`. It
+is absent when no rule decided the criterion or no count can pass. The
+emitter writes it from the count the engine decided with.
+
+**Vendored from mavai-R `0.11.1`** (superseded): verified byte-identical to the
 `interchange-v0.11.1.zip` release asset when recorded (2026-09-28). The one
 change from `0.11.0` closes a gap in `verdict-1.7.xsd`: a baseline-derived
 latency constraint with no precedence rank (saturated) has no threshold, so an

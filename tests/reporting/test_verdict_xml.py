@@ -20,8 +20,10 @@ from baseltest.contract import (
 )
 from baseltest.engine import (
     METHODOLOGY_VERSION,
+    ComplianceVerdict,
     ConfigurationRefusedError,
     Intent,
+    RegressionVerdict,
     RunKind,
     RunPlan,
     RunResult,
@@ -244,6 +246,67 @@ class TestTwoCriteria:
         ]
         verdict = root.find(f"{NS}verdict")
         assert verdict is not None and verdict.get("decision-rule") is None
+        assert_valid(tmp_path, text)
+
+
+def two_criteria_result(successes: int) -> RunResult:
+    """A requirement and a baseline over the same postcondition, 100 samples."""
+    compliance = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.8)
+    regression = Criterion(
+        name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(951, 1000)
+    )
+    contract = ServiceContract(
+        contract_id="two",
+        invoke=exact_service(successes),  # type: ignore[arg-type]
+        criteria=(compliance, regression),
+    )
+    return execute(contract, RunPlan(samples=100, inputs=("a",)))
+
+
+class TestRequiredPass:
+    """A criterion row states the count its rule decided by, as the engine decided it."""
+
+    def test_each_row_carries_the_count_its_rule_decided_by(self, tmp_path: Path) -> None:
+        result = two_criteria_result(93)
+        text = render_verdict_record(result)
+        rows = ElementTree.fromstring(text).findall(f"{NS}per-criterion/{NS}criterion")
+        compliance, regression = (r.decision for r in result.criterion_results)
+        assert isinstance(compliance, ComplianceVerdict)
+        assert isinstance(regression, RegressionVerdict)
+        assert [r.get("required-pass") for r in rows] == [
+            str(compliance.minimum_passing),
+            str(regression.cutoff),
+        ]
+        # The regression row is the interchange example's: the cutoff 91 of 100.
+        assert rows[1].get("required-pass") == "91"
+        assert_valid(tmp_path, text)
+
+    @pytest.mark.parametrize("successes", [80, 85, 86, 87, 90, 91, 92, 100])
+    def test_a_row_passes_exactly_when_it_reaches_its_required_count(self, successes: int) -> None:
+        text = render_verdict_record(two_criteria_result(successes))
+        rows = ElementTree.fromstring(text).findall(f"{NS}per-criterion/{NS}criterion")
+        assert len(rows) == 2
+        for row in rows:
+            required = row.get("required-pass")
+            assert required is not None
+            reached = int(row.get("pass") or "") >= int(required)
+            assert (row.get("verdict") == "PASS") is reached
+
+    def test_no_count_is_stated_when_no_count_can_pass(self, tmp_path: Path) -> None:
+        # A smoke test too small for its requirement still runs, and no count
+        # of its size passes: k_min is undefined, so the row states none.
+        contract = ServiceContract(
+            contract_id="too-small",
+            invoke=lambda v: "ok",
+            criteria=(Criterion(name="req", postconditions=(contains("ok"),), threshold=0.99),),
+        )
+        result = execute(contract, RunPlan(samples=10, inputs=("a",), intent=Intent.SMOKE))
+        decision = result.criterion_results[0].decision
+        assert isinstance(decision, ComplianceVerdict) and decision.minimum_passing is None
+        text = render_verdict_record(result)
+        row = ElementTree.fromstring(text).find(f"{NS}per-criterion/{NS}criterion")
+        assert row is not None and row.get("verdict") == "FAIL"
+        assert row.get("required-pass") is None
         assert_valid(tmp_path, text)
 
 
