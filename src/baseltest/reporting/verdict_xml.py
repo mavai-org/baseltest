@@ -7,14 +7,16 @@ emits the subset it has data for; every emitted element conforms.
 ``version="1.7"`` names the decision behind the verdict: the methodology
 version on the record, the versioned decision rule on every criterion row
 and strict latency evaluation (and on the verdict when one rule decided the
-whole test), the latency dimension's verdict, and — for a configuration
-refused before any sample ran — the configuration-error list and no verdict
-value. The verdict's value is the test's verdict ``V_test``, the structural
-composite of the functional and latency dimensions. The run's failure
-attribution travels in the ``functional`` element, one ``check`` per
-bounded identity with the kind that says whether those trials were judged
-or never delivered anything to judge. The per-criterion decomposition is always populated, and the
-descriptive postcondition standings travel in the first-class
+whole test), the smallest passing count on every criterion row (when any
+count can pass), the latency dimension's verdict, and — for a
+configuration refused before any sample ran — the configuration-error list
+and no verdict value. The verdict's value is the test's verdict
+``V_test``, the structural composite of the functional and latency
+dimensions. The run's failure attribution travels in the ``functional``
+element, one ``check`` per bounded identity with the kind that says
+whether those trials were judged or never delivered anything to judge.
+The per-criterion decomposition is always populated, and the descriptive
+postcondition standings travel in the first-class
 ``postcondition-standings`` element — counts, the observed fraction, the
 per-row optional flag, and the declared slack verbatim; never an interval
 or a per-check verdict. The transitional environment-entry carriage some
@@ -66,6 +68,20 @@ def _threshold(result: CriterionResult) -> str:
     if isinstance(decision, RegressionVerdict):
         return str(decision.derivation.threshold_real)
     return str(decision.requirement)
+
+
+def _required_pass(result: CriterionResult) -> int | None:
+    """The smallest count that passes under the row's rule: PASS iff it is reached.
+
+    The Fisher cutoff under ``regression/fisher``, ``k_min`` under
+    ``compliance/exact-binomial`` -- the count the engine judged with, never
+    one recovered from the threshold. ``None`` when no count can pass.
+    """
+    decision = result.decision
+    assert decision is not None
+    if isinstance(decision, RegressionVerdict):
+        return decision.cutoff
+    return decision.minimum_passing
 
 
 # The verdict record's evaluation status for a strict constraint's verdict.
@@ -308,6 +324,9 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             row.set("threshold", _threshold(criterion_result))
             row.set("decision-rule", decision.rule.value)
             row.set("decision-rule-version", str(decision.rule.version))
+            required_pass = _required_pass(criterion_result)
+            if required_pass is not None:
+                row.set("required-pass", str(required_pass))
         composite = child(per_criterion, "composite")
         assert overall.rate_verdict is not None
         composite.set("value", overall.rate_verdict.value.upper())
