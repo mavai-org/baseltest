@@ -6,11 +6,13 @@ upstream `mavai-R/inst/cases/*.json`), used by
 `tests/statistics/test_conformance.py` to validate this package against the
 reference implementation.
 
-Pinned at `mavai-R` **`v0.11.1`**: Statistical Companion 1.5.0, methodology
+Pinned at `mavai-R` **`v0.11.2`**: Statistical Companion 1.5.0, methodology
 1.5.0, fixture schema 2. Every vendored file is byte-identical to the
 release asset; the manifest's content hashes are checked by every run.
-`v0.11.1` changes only the manifest's `fixtureVersion` (its release is a
-verdict-schema fix); every case file is as in `v0.11.0`.
+`v0.11.2` and `v0.11.1` each change only the manifest's `fixtureVersion`
+(both releases are verdict-schema changes: `v0.11.1` admits a saturated
+latency evaluation, `v0.11.2` adds a criterion row's `required-pass`); every
+case file is as in `v0.11.0`.
 
 `v0.11.0` replaces the decision rules, so nearly every suite changed from
 the previous `v0.10.13` pin. Each suite and case now names the versioned
