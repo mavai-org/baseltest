@@ -7,6 +7,10 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.25.2] — 2026-10-01
+
+**The bundled report renderer is mavai 0.22.0, which reads a verdict as decided by its rules.** The verdict page now leads with the rule that decided each criterion and the count it needed, shows a refused test as refused, decides an explicit latency requirement by the count within it, and keeps the Wilson bound as a descriptive figure only. Nothing in baseltest's own behaviour changes: contracts, verdict records and every published seam are as they were.
+
 ## [0.25.1] — 2026-09-30
 
 **A verdict record now states the count each criterion was decided by.** Nothing breaks: contracts, verdicts and every published seam are as they were, and every record is still verdict-1.7. Conformance is against the mavai-R v0.11.2 fixtures and verdict schema.
