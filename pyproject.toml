@@ -33,7 +33,7 @@ Repository = "https://github.com/mavai-org/baseltest"
 [project.optional-dependencies]
 declarative = [
     "ruamel.yaml>=0.18",
-    "jsonpath-rfc9535>=0.1",
+    "jsonpath-rfc9535>=0.1,<2",
     "elementpath>=4.4",
     "jsonschema>=4.21",
 ]
