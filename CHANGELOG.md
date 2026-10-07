@@ -7,6 +7,20 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.26.0] — 2026-10-07
+
+**Breaking: verdict records move to verdict-1.8, and the statistics API loses its latency mode.** Contracts are unchanged, and with no new option every test passes, fails and exits exactly as under 0.25: every declared assertion was already enforced, and still is by default. What breaks is what reads the records and what calls the statistics core directly. Conformance is against the mavai-R v0.12.0 fixtures and verdict schema (Statistical Companion 1.6.0).
+
+**`basel test --advisory` makes the functional or the latency assertions advisory for one run.** Repeat it to name both: `--advisory functional --advisory latency`. An advisory dimension is still decided by its rules (`compliance/exact-binomial` and `regression/fisher` for criteria, `latency/compliance-exact-binomial` and `latency/precedence` for latency constraints), on the same evidence and with the same gates, and its verdict is reported. But it never fails the test. The test's verdict composes the enforced dimensions only, and is PASS when none is enforced. So an advisory FAIL or INCONCLUSIVE never sets exit 1 or 3. Its decisions are left out of the Type-I envelopes and out of what the verdict names as having decided it. A refused configuration (`TEST_LARGER_THAN_BASELINE`, `COMPLIANCE_INFEASIBLE`) is still refused whatever the setting, and smoke intent is unchanged. The option is run-time only: it is not a contract key, and there is no environment variable. The usual reason to use it is a development machine much slower than the production environment a latency requirement was written for. The user guide's new section on enforced and advisory assertions covers that case, what declaring no covariates states, and which baseline a test should consume.
+
+**Verdict records are verdict-1.8.** Each dimension states its mode: `mode="enforced"` or `"advisory"` on the functional composite and on the `latency` element. Every latency evaluation states the rule that decided it and that rule's outcome as its `status`, and no longer carries a `mode`. `STRICT_FAIL` becomes `FAIL`, and `strict-violations` and `advisory-violations` are gone. The record's verdict names a rule only when one rule decided every enforced dimension. The root states `methodology-version="1.6.0"`.
+
+**The statistics API.** `LatencyMode` and `AdvisoryOutcome` are withdrawn. `judge_latency_constraint` loses its `mode` argument, and its judgement always carries a verdict and a rule. `decide_nondegeneracy` loses its `enforced` argument: the gate applies to every baseline-derived assertion alike. `LatencyCompliance.advisory_percentile_pass` is renamed `raw_percentile_pass`. New: `Dimension`, `EnforcementMode` and `enforcement_mode`. `compose_overall_verdict` takes the advisory dimensions, and its result reports each dimension's mode. `RunPlan` and `baseltest.run` take `advisory=`.
+
+**The bundled report renderer is mavai 0.23.0**, which reads verdict-1.8 and shows an advisory dimension beside the verdict, never as deciding it.
+
+**`jsonpath-rfc9535` is held below 2.0.** Its 2.0 release removed the modules the contract loader's schema walk imports, so a fresh install failed at import.
+
 ## [0.25.2] — 2026-10-01
 
 **The bundled report renderer is mavai 0.22.0, which reads a verdict as decided by its rules.** The verdict page now leads with the rule that decided each criterion and the count it needed, shows a refused test as refused, decides an explicit latency requirement by the count within it, and keeps the Wilson bound as a descriptive figure only. Nothing in baseltest's own behaviour changes: contracts, verdict records and every published seam are as they were.
