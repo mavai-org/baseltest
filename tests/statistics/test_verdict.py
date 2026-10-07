@@ -1,9 +1,11 @@
-"""Verdicts under the 1.5.0 rules, and their structural composition."""
+"""Verdicts under the decision rules, and their structural composition."""
 
 import pytest
 
 from baseltest.statistics import (
     DecisionRule,
+    Dimension,
+    EnforcementMode,
     TriggerKind,
     Verdict,
     compose_overall_verdict,
@@ -99,6 +101,50 @@ def test_a_missing_dimension_is_left_out() -> None:
     assert latency_only.rate_verdict is None
     assert latency_only.verdict is Verdict.PASS
     assert latency_only.triggering == ()
+
+
+def test_every_dimension_is_enforced_by_default() -> None:
+    overall = compose_overall_verdict([("a", Verdict.PASS)], [("p95", Verdict.PASS)])
+    assert overall.functional_mode is EnforcementMode.ENFORCED
+    assert overall.latency_mode is EnforcementMode.ENFORCED
+    assert overall.enforced_dimensions == (Dimension.FUNCTIONAL, Dimension.LATENCY)
+
+
+def test_an_advisory_dimension_is_reported_but_never_decides_the_test() -> None:
+    overall = compose_overall_verdict(
+        [("a", Verdict.PASS)], [("p95", Verdict.FAIL)], frozenset({Dimension.LATENCY})
+    )
+    assert overall.latency_verdict is Verdict.FAIL
+    assert overall.latency_mode is EnforcementMode.ADVISORY
+    assert overall.verdict is Verdict.PASS
+    assert overall.triggering == ()
+
+
+def test_the_triggering_list_names_enforced_items_only() -> None:
+    overall = compose_overall_verdict(
+        [("a", Verdict.FAIL)], [("p95", Verdict.FAIL)], frozenset({Dimension.FUNCTIONAL})
+    )
+    assert overall.rate_verdict is Verdict.FAIL
+    assert overall.verdict is Verdict.FAIL
+    assert [t.id for t in overall.triggering] == ["p95"]
+
+
+def test_with_no_enforced_dimension_the_test_passes() -> None:
+    both = frozenset({Dimension.FUNCTIONAL, Dimension.LATENCY})
+    overall = compose_overall_verdict([("a", Verdict.FAIL)], [("p95", Verdict.INCONCLUSIVE)], both)
+    assert (overall.rate_verdict, overall.latency_verdict) == (Verdict.FAIL, Verdict.INCONCLUSIVE)
+    assert overall.verdict is Verdict.PASS
+    assert overall.enforced_dimensions == ()
+    advisory_alone = compose_overall_verdict(
+        [("a", Verdict.FAIL)], [], frozenset({Dimension.FUNCTIONAL})
+    )
+    assert advisory_alone.latency_mode is None
+    assert advisory_alone.verdict is Verdict.PASS
+
+
+def test_a_test_with_nothing_to_compose_is_a_defect() -> None:
+    with pytest.raises(ValueError):
+        compose_overall_verdict([], [])
 
 
 def test_envelopes_split_by_direction() -> None:

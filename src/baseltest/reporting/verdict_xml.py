@@ -1,20 +1,22 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
 Test runs emit their results in the mavai family's verdict XML
-(``verdict-1.7.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+(``verdict-1.8.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
 every framework's results are readable by the same tooling. baseltest
 emits the subset it has data for; every emitted element conforms.
-``version="1.7"`` names the decision behind the verdict: the methodology
+``version="1.8"`` names the decision behind the verdict: the methodology
 version on the record, the versioned decision rule on every criterion row
-and strict latency evaluation (and on the verdict when one rule decided the
-whole test), the smallest passing count on every criterion row (when any
-count can pass), the latency dimension's verdict, and — for a
-configuration refused before any sample ran — the configuration-error list
-and no verdict value. The verdict's value is the test's verdict
-``V_test``, the structural composite of the functional and latency
-dimensions. The run's failure attribution travels in the ``functional``
-element, one ``check`` per bounded identity with the kind that says
-whether those trials were judged or never delivered anything to judge.
+and latency evaluation (and on the verdict when one rule decided every
+enforced dimension), the smallest passing count on every criterion row
+(when any count can pass), each dimension's verdict and whether the run
+enforced it or made it advisory, and — for a configuration refused before
+any sample ran — the configuration-error list and no verdict value. Every
+latency evaluation's status is its rule's outcome, whatever the mode. The
+verdict's value is the test's verdict ``V_test``, the structural composite
+of the enforced dimensions, and PASS when none is enforced. The run's
+failure attribution travels in the ``functional`` element, one ``check``
+per bounded identity with the kind that says whether those trials were
+judged or never delivered anything to judge.
 The per-criterion decomposition is always populated, and the descriptive
 postcondition standings travel in the first-class
 ``postcondition-standings`` element — counts, the observed fraction, the
@@ -34,6 +36,7 @@ from baseltest.engine import (
     BoundEvaluation,
     ConfigurationRefusedError,
     CriterionResult,
+    Dimension,
     RegressionVerdict,
     RunPlan,
     RunResult,
@@ -44,7 +47,7 @@ from baseltest.engine.naming import bounded_excerpt, bounded_key
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.7"
+_FORMAT_VERSION = "1.8"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -84,10 +87,11 @@ def _required_pass(result: CriterionResult) -> int | None:
     return decision.minimum_passing
 
 
-# The verdict record's evaluation status for a strict constraint's verdict.
-_STRICT_STATUS = {
+# A latency evaluation's status: its rule's outcome, enforced or advisory.
+# A saturated precedence search is the other inconclusive status.
+_EVALUATION_STATUS = {
     Verdict.PASS: "PASS",
-    Verdict.FAIL: "STRICT_FAIL",
+    Verdict.FAIL: "FAIL",
     Verdict.INCONCLUSIVE: "INFEASIBLE",
 }
 
@@ -113,7 +117,7 @@ def _document(root: ElementTree.Element) -> str:
 
 
 def _evaluation(parent: ElementTree.Element, outcome: BoundEvaluation, confidence: float) -> None:
-    """One strict latency evaluation, with the rule that decided it.
+    """One latency evaluation, with the rule that decided it.
 
     A saturated baseline-derived constraint — no baseline rank achieves
     alpha for the test's count — is recorded as ``SATURATED`` with no
@@ -135,15 +139,13 @@ def _evaluation(parent: ElementTree.Element, outcome: BoundEvaluation, confidenc
     if threshold is not None:
         row.set("threshold-ms", str(round(threshold)))
     row.set("provenance", str(judgement.source))
-    row.set("mode", "strict")
-    row.set("status", "SATURATED" if saturated else _STRICT_STATUS[outcome.verdict])
+    row.set("status", "SATURATED" if saturated else _EVALUATION_STATUS[outcome.verdict])
     if precedence is not None:
         row.set("baseline-confidence", str(confidence))
         if precedence.rank is not None:
             row.set("baseline-rank", str(precedence.rank))
         row.set("baseline-n", str(precedence.n))
     rule = judgement.rule
-    assert rule is not None
     row.set("decision-rule", rule.value)
     row.set("decision-rule-version", str(rule.version))
     compliance = judgement.compliance
@@ -178,13 +180,14 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     execution.set("intent", result.plan.intent.name)
     execution.set("confidence", str(confidence))
 
+    overall = result.overall
+    assert overall is not None
     if result.latency is not None:
+        assert overall.latency_mode is not None
         latency = child(root, "latency")
         latency.set("successful-samples", str(result.latency.contributing_samples))
-        strict_violations = sum(1 for e in result.latency.evaluations if e.verdict is Verdict.FAIL)
-        latency.set("strict-violations", str(strict_violations))
-        latency.set("advisory-violations", "0")  # declaring the bar is the opt-in; no advisory mode
         latency.set("verdict", result.latency.verdict.value.upper())
+        latency.set("mode", str(overall.latency_mode))
         observed = child(latency, "observed")
         for label, value_ms in result.latency.observed:
             percentile = child(observed, "percentile")
@@ -306,8 +309,6 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             clause.set("description", reason)
             clause.set("count", str(reasons[reason]))
 
-    overall = result.overall
-    assert overall is not None
     if judged:
         per_criterion = child(root, "per-criterion")
         for criterion_result in judged:
@@ -328,8 +329,9 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             if required_pass is not None:
                 row.set("required-pass", str(required_pass))
         composite = child(per_criterion, "composite")
-        assert overall.rate_verdict is not None
+        assert overall.rate_verdict is not None and overall.functional_mode is not None
         composite.set("value", overall.rate_verdict.value.upper())
+        composite.set("mode", str(overall.functional_mode))
 
     # The first-class standings element (1.3): descriptive tallies only,
     # the optional flag on every row, the declared slack verbatim and only
@@ -371,9 +373,16 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
 
     verdict = child(root, "verdict")
     verdict.set("value", overall.verdict.value.upper())
-    rules = {r.decision.rule for r in judged if r.decision is not None}
-    if result.latency is not None:
-        rules.update(e.judgement.rule for e in result.latency.evaluations if e.judgement.rule)
+    # The verdict names a rule only when one decided every enforced
+    # dimension; an advisory dimension's rules do not count.
+    enforced = overall.enforced_dimensions
+    rules = {
+        r.decision.rule
+        for r in judged
+        if r.decision is not None and Dimension.FUNCTIONAL in enforced
+    }
+    if result.latency is not None and Dimension.LATENCY in enforced:
+        rules.update(e.judgement.rule for e in result.latency.evaluations)
     if len(rules) == 1:
         (rule,) = rules
         verdict.set("decision-rule", rule.value)

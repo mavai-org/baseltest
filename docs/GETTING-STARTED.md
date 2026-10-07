@@ -115,7 +115,7 @@ basel test basket-builder.yaml
 
 ```
 n = 59 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 59 samples)
-contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.5.0)
+contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.6.0)
   Type-I envelopes: false compliance ≤ 0.05
 
   criterion                   verdict  passed  required  threshold  rule                       basis
@@ -283,9 +283,11 @@ latency:                 # empirical: no worse than measured
   confidence: 0.95                       # optional; 1 - alpha for every latency decision
 ```
 
-An **explicit** ceiling is your declared requirement, and it is decided like one: by how many successful latencies are at or below it, under the exact binomial test (`latency/compliance-exact-binomial`). "p95 ≤ 500 ms" over 100 successful latencies passes when at least 99 are within 500 ms; the observed p95 itself is shown beside the verdict as an advisory figure, because a p95 that happens to land under the ceiling does not demonstrate the requirement. An **empirical** declaration is decided by `latency/precedence` after the run, for the number of successful latencies the run actually returned: the threshold is the smallest baseline latency (by rank) that an undegraded service would exceed with probability at most alpha — the latency analogue of the functional *no worse than measured* cutoff, and like it honest about sample size. The verdict line names the derivation (`the baseline's 911th of 935 latencies, derived for 192 successful latencies`), and the verdict record carries it.
+An **explicit** ceiling is your declared requirement, and it is decided like one: by how many successful latencies are at or below it, under the exact binomial test (`latency/compliance-exact-binomial`). "p95 ≤ 500 ms" over 100 successful latencies passes when at least 99 are within 500 ms; the observed p95 itself is shown beside the verdict as a raw figure that decides nothing, because a p95 that happens to land under the ceiling does not demonstrate the requirement. An **empirical** declaration is decided by `latency/precedence` after the run, for the number of successful latencies the run actually returned: the threshold is the smallest baseline latency (by rank) that an undegraded service would exceed with probability at most alpha — the latency analogue of the functional *no worse than measured* cutoff, and like it honest about sample size. The verdict line names the derivation (`the baseline's 911th of 935 latencies, derived for 192 successful latencies`), and the verdict record carries it.
 
 The framework refuses up front — before any invocation, exit 2 — what can never be judged: an explicit requirement no outcome of the planned size could demonstrate even if every sample succeeded (p95 needs 59, p99 299, at 95% confidence), a test planned larger than the baseline run an empirical declaration consumes, and an empirical declaration with no matching baseline (or one measured before latency recording existed — re-measure). What depends on how many samples actually pass is decided after the run: before it, the framework only warns when the expected count falls short of a percentile's minimum (the median needs 5 successful latencies, p90 10, p95 20, p99 100) or of what the baseline can support, and names the planning figure. When the actual count is too small — or no baseline rank exists for it (*saturated*) — the latency dimension is INCONCLUSIVE rather than judged, and the run exits 3: no assertion can rest on it. Measure and explore runs never judge a latency block; they record the latency profile the empirical bounds derive from.
+
+Every declared assertion, functional and latency, is enforced by default. When a run cannot honour a bar for reasons outside the service, typically a development machine much slower than the production environment a latency requirement was written for, `basel test --advisory latency` (or `--advisory functional`, or both) keeps that dimension decided and reported but stops it failing the test. The user guide's [Enforced and advisory assertions](USER-GUIDE.md#enforced-and-advisory-assertions) says when to reach for it.
 
 ## Exploring configurations
 

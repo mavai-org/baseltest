@@ -8,6 +8,7 @@ from baseltest._version import __version__
 from baseltest.engine import (
     ConfigurationRefusedError,
     DefectDiagnosisError,
+    Dimension,
     RunResult,
     Verdict,
     bar_attainment,
@@ -188,6 +189,19 @@ def _build_parser() -> argparse.ArgumentParser:
                 dest="emit_json",
                 action="store_true",
                 help="machine-readable sizing output; implies non-interactive",
+            )
+            verb_parser.add_argument(
+                "--advisory",
+                action="append",
+                choices=[str(dimension) for dimension in Dimension],
+                default=[],
+                metavar="{" + ",".join(Dimension) + "}",
+                help=(
+                    "make the functional or the latency assertions advisory for "
+                    "this run: still decided by their rules and reported, but they "
+                    "never fail the test. Repeat to name both. Unset, every "
+                    "assertion is enforced"
+                ),
             )
             verb_parser.add_argument(
                 "--force",
@@ -438,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if exploration.aborted else 0
         verdict_dir = None
         emit = True
+        advisory: frozenset[Dimension] = frozenset()
         # Parse the contract, its registrations, and its services once; the
         # test verb's sizing pass and the run proper both read the same bundle.
         loaded = load_for_run(arguments.contract_file)
@@ -447,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
                 verdict_dir = arguments.verdict_dir
             emit = not arguments.emit_json
             sizing = _resolve_sizing(arguments, loaded)
+            advisory = frozenset(Dimension(name) for name in arguments.advisory)
         result = run(
             arguments.contract_file,
             mode=arguments.command,
@@ -455,6 +471,7 @@ def main(argv: list[str] | None = None) -> int:
             verdict_dir=verdict_dir,
             emit=emit,
             loaded=loaded,
+            advisory=advisory,
         )
         # mavai groups documents by the directory beneath the one it is
         # given. Explorations and optimizations are already written under a
@@ -495,9 +512,11 @@ def main(argv: list[str] | None = None) -> int:
         if result.composite is Verdict.FAIL:
             return 1
         if result.composite is Verdict.INCONCLUSIVE:
-            # Nothing failed, and something could not be decided — a latency
-            # constraint with too few successful latencies, or no precedence
-            # rank for the count the run returned: no assertion can rest on it.
+            # Nothing enforced failed, and something enforced could not be
+            # decided — a latency constraint with too few successful
+            # latencies, or no precedence rank for the count the run
+            # returned: no assertion can rest on it. An advisory dimension
+            # never sets the exit status.
             return 3
         return 0
     if getattr(arguments, "assert_bars", False):

@@ -2,7 +2,7 @@
 
 This package has no dependency on any other `baseltest` package -- it is a
 self-contained library of pure functions and immutable data structures
-implementing the Statistical Companion's methodology 1.5.0:
+implementing the Statistical Companion's methodology 1.6.0:
 
 - the decision rules, configuration errors and test intent (`rules`), and
   the exact-boundary convention every exact rule shares (`_exact`);
@@ -12,7 +12,8 @@ implementing the Statistical Companion's methodology 1.5.0:
   and its feasibility gate (`feasibility`);
 - latency percentiles, ``latency/precedence`` and
   ``latency/compliance-exact-binomial`` (`latency`);
-- verdicts and their composition into the test's verdict (`verdict`);
+- verdicts and their composition into the test's verdict over the enforced
+  dimensions (`verdict`);
 - Wilson score intervals, kept as descriptive intervals (`wilson`).
 
 Every public name here is validated against the mavai-R statistical oracle
@@ -34,10 +35,8 @@ from .compliance import (
 )
 from .feasibility import FeasibilityCheck, check_feasibility
 from .latency import (
-    AdvisoryOutcome,
     LatencyCompliance,
     LatencyJudgement,
-    LatencyMode,
     NondegeneracyDecision,
     NondegeneracyOutcome,
     NondegeneracyPlanning,
@@ -95,7 +94,9 @@ from .sizing import (
 )
 from .verdict import (
     ComplianceVerdict,
+    Dimension,
     Direction,
+    EnforcementMode,
     Envelopes,
     OverallVerdict,
     RegressionVerdict,
@@ -104,6 +105,7 @@ from .verdict import (
     Verdict,
     compose_overall_verdict,
     direction_of,
+    enforcement_mode,
     evaluate_compliance,
     evaluate_regression,
     structural_composite,
@@ -121,21 +123,21 @@ __all__ = [
     "DEFAULT_POWER",
     "MDD_POWER",
     "METHODOLOGY_VERSION",
-    "AdvisoryOutcome",
     "AlternativeKind",
     "ComplianceSizing",
     "ComplianceVerdict",
     "ConfigurationError",
     "DecisionRule",
     "DesignSizing",
+    "Dimension",
     "Direction",
+    "EnforcementMode",
     "Envelopes",
     "FeasibilityCheck",
     "ImpliedAlpha",
     "Intent",
     "LatencyCompliance",
     "LatencyJudgement",
-    "LatencyMode",
     "NondegeneracyDecision",
     "NondegeneracyOutcome",
     "NondegeneracyPlanning",
@@ -168,6 +170,7 @@ __all__ = [
     "design_power_at",
     "design_required_samples",
     "direction_of",
+    "enforcement_mode",
     "evaluate_compliance",
     "evaluate_latency_compliance",
     "evaluate_regression",

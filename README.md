@@ -8,7 +8,7 @@ baseltest is the Python member of the [mavai](https://mavai.org) framework famil
 
 ## Where the project stands
 
-The **statistics core** (`baseltest.statistics`) is implemented and conformance-validated against the oracle's published reference cases: the decision rules of Statistical Companion 1.5.0 (`regression/fisher`, `compliance/exact-binomial`, `latency/precedence`, `latency/compliance-exact-binomial`) with the exact-boundary convention, feasibility checking, design and resolved power and sizing, and the descriptive Wilson interval, built on scipy/statsmodels.
+The **statistics core** (`baseltest.statistics`) is implemented and conformance-validated against the oracle's published reference cases: the decision rules of Statistical Companion 1.6.0 (`regression/fisher`, `compliance/exact-binomial`, `latency/precedence`, `latency/compliance-exact-binomial`) with the exact-boundary convention, feasibility checking, design and resolved power and sizing, and the descriptive Wilson interval, built on scipy/statsmodels.
 
 The framework around it is in active development.
 

@@ -6,9 +6,27 @@ upstream `mavai-R/inst/cases/*.json`), used by
 `tests/statistics/test_conformance.py` to validate this package against the
 reference implementation.
 
-Pinned at `mavai-R` **`v0.11.2`**: Statistical Companion 1.5.0, methodology
-1.5.0, fixture schema 2. Every vendored file is byte-identical to the
+Pinned at `mavai-R` **`v0.12.0`**: Statistical Companion 1.6.0, methodology
+1.6.0, fixture schema 2. Every vendored file is byte-identical to the
 release asset; the manifest's content hashes are checked by every run.
+
+`v0.12.0` keeps the decision rules of `v0.11.0` and changes only which
+verdicts bind: every assertion is enforced by default, and a run-time
+setting makes the functional dimension, the latency dimension or both
+advisory, decided by their rules and reported but never failing the test.
+Every suite declares methodology 1.6.0. In the `verdict` suite the
+`test_verdict` cases gain the input `advisory` (the run's setting: none,
+`functional`, `latency` or both) and the binding outputs `functional_mode`
+and `latency_mode`; the latency constraints lose their `mode` and
+`participates` fields, each being decided by its rule; six cases cover the
+settings, and `test_advisory_breach_does_not_change_verdict` is withdrawn.
+`latency_percentile_minimums` drops the `enforced` input from its
+non-degeneracy decision, which now applies to every baseline-derived
+assertion alike (an advisory one below the minimum under VERIFICATION is
+INCONCLUSIVE, no longer indicative), and
+`latency_compliance_decision` renames `advisory_percentile_pass` to
+`raw_percentile_pass`.
+
 `v0.11.2` and `v0.11.1` each change only the manifest's `fixtureVersion`
 (both releases are verdict-schema changes: `v0.11.1` admits a saturated
 latency evaluation, `v0.11.2` adds a criterion row's `required-pass`); every

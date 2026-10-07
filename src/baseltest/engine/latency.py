@@ -19,7 +19,6 @@ from baseltest.contract import PERCENTILE_LEVELS, LatencyBar, LatencyBound
 from baseltest.statistics import (
     Intent,
     LatencyJudgement,
-    LatencyMode,
     NondegeneracyPlanning,
     PrecedencePlanning,
     Verdict,
@@ -115,8 +114,7 @@ class BoundEvaluation:
 
     @property
     def verdict(self) -> Verdict:
-        """The constraint's verdict; every constraint baseltest judges is enforced."""
-        assert self.judgement.verdict is not None
+        """The constraint's verdict under its rule."""
         return self.judgement.verdict
 
 
@@ -142,7 +140,8 @@ class LatencyEvaluation:
 
     @property
     def verdict(self) -> Verdict:
-        """``V_latency``: the structural composite of the enforced constraints."""
+        """``V_latency``: the structural composite of the constraints, whether
+        the dimension is enforced or advisory."""
         return structural_composite(evaluation.verdict for evaluation in self.evaluations)
 
 
@@ -171,7 +170,6 @@ def evaluate_latency(
                 bound.level,
                 bar.alpha,
                 source=bar.origin,
-                mode=LatencyMode.ENFORCED,
                 intent=intent,
                 threshold_ms=bound.threshold_ms,
                 baseline_latencies=baseline,

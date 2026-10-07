@@ -4,6 +4,7 @@ Persistence strictly precedes rendering and any downstream assertion: for a
 measure run the baseline artefact is on disk before ``run`` returns.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 from baseltest.baseline import BaselineRecord, write_baseline
 from baseltest.engine import (
     ConfigurationRefusedError,
+    Dimension,
     RunKind,
     RunResult,
     execute,
@@ -54,6 +56,7 @@ def run(
     emit: bool = True,
     bindings: Bindings | None = None,
     loaded: LoadedContract | None = None,
+    advisory: frozenset[Dimension] = frozenset(),
 ) -> RunResult:
     """Load and execute a contract file; render its output; persist when measuring.
 
@@ -73,6 +76,9 @@ def run(
             services. The ``test`` verb sizes the run before executing it and
             passes what it parsed here so the run does not re-read the same
             files; when absent (measure, API callers) the run loads them itself.
+        advisory: The dimensions this run makes advisory — decided and
+            reported, never failing the test. Empty, every assertion is
+            enforced. An operator's run-time choice, never a contract's.
 
     Returns:
         The run result.
@@ -109,7 +115,7 @@ def run(
         ),
     )
     contract = instantiation.contract
-    plan = instantiation.plan
+    plan = replace(instantiation.plan, advisory=advisory)
     sizing = instantiation.sizing
     service_provenance = instantiation.service_provenance
     skipped = instantiation.skipped

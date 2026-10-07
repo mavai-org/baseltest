@@ -171,6 +171,42 @@ class TestExitCodeContract:
         record = next((tmp_path / "_baseltest" / "verdicts").glob("*.xml")).read_text()
         assert "<latency" in record and 'provenance="explicit"' in record
 
+    def test_advisory_latency_reports_the_breach_without_failing(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_files(tmp_path, "latency:\n  p50: 1\n")
+        assert main(["test", str(contract), "--samples", "10", "--advisory", "latency"]) == 0
+        out = capsys.readouterr().out
+        assert "latency: FAIL (advisory" in out
+        record = next((tmp_path / "_baseltest" / "verdicts").glob("*.xml")).read_text()
+        assert '<latency successful-samples="9" verdict="FAIL" mode="advisory">' in record
+        assert 'status="FAIL"' in record
+
+    def test_advisory_functional_leaves_a_latency_breach_failing(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_files(tmp_path, "latency:\n  p50: 1\n")
+        argv = ["test", str(contract), "--samples", "10", "--advisory", "functional"]
+        assert main(argv) == 1
+
+    def test_both_advisory_still_refuses_an_undecidable_design(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        contract = write_files(tmp_path, "latency:\n  p99: 60000\n")
+        argv = ["test", str(contract), "--samples", "10"]
+        argv += ["--advisory", "functional", "--advisory", "latency"]
+        assert main(argv) == 2
+        assert "COMPLIANCE_INFEASIBLE: latency p99" in capsys.readouterr().err
+
+    def test_advisory_names_a_dimension(self, tmp_path: Path) -> None:
+        contract = write_files(tmp_path, "latency:\n  p50: 1\n")
+        with pytest.raises(SystemExit) as exited:
+            main(["test", str(contract), "--advisory", "environment"])
+        assert exited.value.code == 2
+
     def test_measure_ignores_the_latency_bar_and_records_the_profile(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

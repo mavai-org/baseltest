@@ -10,13 +10,16 @@ A criterion is decided by the rule its threshold's origin selects:
 Criteria compose by one structural rule — PASS if every verdict passes, FAIL
 if any fails, INCONCLUSIVE otherwise — and the same rule composes the
 functional dimension ``V_rate`` with the latency dimension ``V_latency`` into
-the test's verdict ``V_test``. A FAIL or an INCONCLUSIVE names what decided
-it. The Type-I envelopes are disclosed by procedure direction: the sum of
-alpha over the compliance decisions (false compliance) and over the
-regression decisions (false degradation signal).
+the test's verdict ``V_test``. Every dimension is enforced unless the run
+makes it advisory (§12.6): an advisory dimension is decided the same way and
+reported, but ``V_test`` composes the enforced dimensions only. A FAIL or an
+INCONCLUSIVE names what decided it. The Type-I envelopes are disclosed by
+procedure direction: the sum of alpha over the compliance decisions (false
+compliance) and over the regression decisions (false degradation signal).
 """
 
 from collections.abc import Iterable, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from typing import ClassVar
@@ -244,6 +247,32 @@ class Trigger:
     id: str
 
 
+class Dimension(StrEnum):
+    """A dimension of a probabilistic test (§12.3.2)."""
+
+    FUNCTIONAL = "functional"
+    """``V_rate``: the composite of the functional criteria."""
+
+    LATENCY = "latency"
+    """``V_latency``: the composite of the latency constraints."""
+
+
+class EnforcementMode(StrEnum):
+    """Whether a dimension's verdict binds the test (§12.6)."""
+
+    ENFORCED = "enforced"
+    """The default: the dimension's verdict enters ``V_test``."""
+
+    ADVISORY = "advisory"
+    """Made so by the run: decided and reported, never entering ``V_test``
+    or either Type-I envelope."""
+
+
+def enforcement_mode(dimension: Dimension, advisory: AbstractSet[Dimension]) -> EnforcementMode:
+    """The mode the run's advisory setting gives a dimension."""
+    return EnforcementMode.ADVISORY if dimension in advisory else EnforcementMode.ENFORCED
+
+
 @dataclass(frozen=True, slots=True)
 class OverallVerdict:
     """The test's verdict ``V_test`` and the two dimensions it composes.
@@ -251,37 +280,91 @@ class OverallVerdict:
     Attributes:
         rate_verdict: ``V_rate``, the composite of the functional criteria;
             ``None`` for a test with none.
-        latency_verdict: ``V_latency``, the composite of the enforced latency
-            constraints; ``None`` for a test that enforces none.
-        verdict: ``V_test``, the composite of the dimensions present.
-        triggering: For a FAIL or an INCONCLUSIVE, the criteria and enforced
-            constraints whose verdict is the test's, criteria first.
+        latency_verdict: ``V_latency``, the composite of the latency
+            constraints, each decided by its rule; ``None`` for a test that
+            asserts none.
+        functional_mode: The functional dimension's mode; ``None`` when the
+            test carries no functional criterion.
+        latency_mode: The latency dimension's mode; ``None`` when the test
+            asserts no latency constraint.
+        verdict: ``V_test``, the composite of the enforced dimensions;
+            PASS when no dimension is enforced.
+        triggering: For a FAIL or an INCONCLUSIVE, the criteria and
+            constraints of the enforced dimensions whose verdict is the
+            test's, criteria first.
     """
 
     rate_verdict: Verdict | None
     latency_verdict: Verdict | None
+    functional_mode: EnforcementMode | None
+    latency_mode: EnforcementMode | None
     verdict: Verdict
     triggering: tuple[Trigger, ...]
 
+    @property
+    def enforced_dimensions(self) -> tuple[Dimension, ...]:
+        """The dimensions present and enforced: those that bound ``V_test``."""
+        return tuple(
+            dimension
+            for dimension, mode in (
+                (Dimension.FUNCTIONAL, self.functional_mode),
+                (Dimension.LATENCY, self.latency_mode),
+            )
+            if mode is EnforcementMode.ENFORCED
+        )
+
 
 def compose_overall_verdict(
-    criteria: Sequence[tuple[str, Verdict]], latency: Sequence[tuple[str, Verdict]] = ()
+    criteria: Sequence[tuple[str, Verdict]],
+    latency: Sequence[tuple[str, Verdict]] = (),
+    advisory: AbstractSet[Dimension] = frozenset(),
 ) -> OverallVerdict:
     """Compose ``V_test`` from ``(id, verdict)`` pairs of the functional criteria
-    and of the enforced latency constraints (advisory ones never enter).
+    and of the latency constraints, over the dimensions ``advisory`` leaves
+    enforced.
+
+    Each dimension present is composed whatever its mode and reported;
+    only an enforced one enters ``V_test``, which is PASS — the composite
+    over no verdict — when none is enforced.
 
     Raises:
-        ValueError: When there is neither a criterion nor an enforced
-            latency constraint to compose.
+        ValueError: When there is neither a criterion nor a latency
+            constraint to compose.
     """
-    rate = structural_composite(v for _, v in criteria) if criteria else None
-    latency_verdict = structural_composite(v for _, v in latency) if latency else None
-    overall = structural_composite(v for v in (rate, latency_verdict) if v is not None)
+    if not criteria and not latency:
+        raise ValueError("a test verdict needs a criterion or a latency constraint")
+    dimensions = (
+        (Dimension.FUNCTIONAL, TriggerKind.CRITERION, criteria),
+        (Dimension.LATENCY, TriggerKind.LATENCY, latency),
+    )
+    composites = {
+        dimension: structural_composite(v for _, v in pairs) if pairs else None
+        for dimension, _, pairs in dimensions
+    }
+    modes = {
+        dimension: enforcement_mode(dimension, advisory) if pairs else None
+        for dimension, _, pairs in dimensions
+    }
+    binding = [
+        (kind, pairs)
+        for dimension, kind, pairs in dimensions
+        if modes[dimension] is EnforcementMode.ENFORCED
+    ]
+    overall = (
+        structural_composite(v for _, pairs in binding for _, v in pairs)
+        if binding
+        else Verdict.PASS
+    )
     triggering: tuple[Trigger, ...] = ()
     if overall is not Verdict.PASS:
         triggering = tuple(
-            Trigger(TriggerKind.CRITERION, name) for name, v in criteria if v is overall
-        ) + tuple(Trigger(TriggerKind.LATENCY, name) for name, v in latency if v is overall)
+            Trigger(kind, name) for kind, pairs in binding for name, v in pairs if v is overall
+        )
     return OverallVerdict(
-        rate_verdict=rate, latency_verdict=latency_verdict, verdict=overall, triggering=triggering
+        rate_verdict=composites[Dimension.FUNCTIONAL],
+        latency_verdict=composites[Dimension.LATENCY],
+        functional_mode=modes[Dimension.FUNCTIONAL],
+        latency_mode=modes[Dimension.LATENCY],
+        verdict=overall,
+        triggering=triggering,
     )

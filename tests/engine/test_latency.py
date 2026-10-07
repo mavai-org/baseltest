@@ -104,7 +104,7 @@ class TestExplicitRequirements:
         compliance = outcome.judgement.compliance
         assert compliance is not None
         assert (compliance.within_threshold, compliance.minimum_within) == (3, 5)
-        assert compliance.advisory_percentile_pass is True
+        assert compliance.raw_percentile_pass is True
         assert outcome.verdict is Verdict.FAIL
         assert outcome.judgement.rule == "latency/compliance-exact-binomial"
 
