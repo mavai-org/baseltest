@@ -2,6 +2,7 @@
 
 import shutil
 import subprocess
+import time
 from itertools import count
 from pathlib import Path
 from xml.etree import ElementTree
@@ -22,6 +23,7 @@ from baseltest.engine import (
     METHODOLOGY_VERSION,
     ComplianceVerdict,
     ConfigurationRefusedError,
+    Dimension,
     Intent,
     RegressionVerdict,
     RunKind,
@@ -41,7 +43,7 @@ from baseltest.reporting import (
 from baseltest.statistics import ThresholdSource
 
 NS = "{http://mavai.org/verdict/1.0}"
-XSD = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.7.xsd"
+XSD = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.8.xsd"
 
 RISK_DRIVEN_DESIGN = RunDesign(
     approach="confidence-first (risk-driven)",
@@ -123,7 +125,7 @@ class TestVerdictRecord:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.7"
+        assert root.get("version") == "1.8"
         assert root.get("methodology-version") == METHODOLOGY_VERSION
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
@@ -383,9 +385,11 @@ class TestLatencyElement:
         latency = root.find(f"{NS}latency")
         assert latency is not None
         assert latency.get("successful-samples") == "10"
-        assert latency.get("strict-violations") == "0"
-        assert latency.get("advisory-violations") == "0"
         assert latency.get("verdict") == "PASS"
+        assert latency.get("mode") == "enforced"
+        # 1.8 withdraws the violation counts: the evaluations state outcomes.
+        assert latency.get("strict-violations") is None
+        assert latency.get("advisory-violations") is None
         observed = latency.find(f"{NS}observed")
         assert observed is not None
         labels = [p.get("label") for p in observed.findall(f"{NS}percentile")]
@@ -394,7 +398,7 @@ class TestLatencyElement:
         assert row is not None
         assert row.get("percentile") == "p50"
         assert row.get("provenance") == "explicit"
-        assert row.get("mode") == "strict"
+        assert row.get("mode") is None  # the mode is the dimension's
         assert row.get("status") == "PASS"
         assert row.get("decision-rule") == "latency/compliance-exact-binomial"
         assert (row.get("within-threshold"), row.get("required-within")) == ("10", "9")
@@ -448,3 +452,80 @@ class TestLatencyElement:
     def test_no_latency_element_without_a_bar(self) -> None:
         root = ElementTree.fromstring(render_verdict_record(run_result()))
         assert root.find(f"{NS}latency") is None
+
+
+class TestEnforcementModes:
+    """Each dimension's mode on the record; the verdict over the enforced ones."""
+
+    def _slow_result(self, advisory: frozenset[Dimension], fail_every: int = 0) -> RunResult:
+        # Every latency exceeds p50 <= 1 ms, so the latency dimension FAILs
+        # by its rule; with `fail_every` the 0.6 requirement FAILs too.
+        counter = count(1)
+
+        def invoke(_value: str) -> str:
+            time.sleep(0.002)
+            n = next(counter)
+            return "bad" if fail_every and n % fail_every == 0 else "ok"
+
+        contract = ServiceContract(
+            contract_id="slow",
+            invoke=invoke,
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.6),),
+            latency=LatencyBar(bounds=(LatencyBound("p50", 1),)),
+        )
+        return execute(contract, RunPlan(samples=10, inputs=("a",), advisory=advisory))
+
+    @staticmethod
+    def _modes(root: ElementTree.Element) -> tuple[str | None, str | None]:
+        composite = root.find(f"{NS}per-criterion/{NS}composite")
+        latency = root.find(f"{NS}latency")
+        assert composite is not None and latency is not None
+        return composite.get("mode"), latency.get("mode")
+
+    def test_enforced_by_default(self, tmp_path: Path) -> None:
+        text = render_verdict_record(self._slow_result(frozenset()))
+        root = ElementTree.fromstring(text)
+        assert self._modes(root) == ("enforced", "enforced")
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("value") == "FAIL"
+        assert_valid(tmp_path, text)
+
+    def test_advisory_latency_is_decided_by_its_rule_and_does_not_bind(
+        self, tmp_path: Path
+    ) -> None:
+        text = render_verdict_record(self._slow_result(frozenset({Dimension.LATENCY})))
+        root = ElementTree.fromstring(text)
+        assert self._modes(root) == ("enforced", "advisory")
+        latency = root.find(f"{NS}latency")
+        assert latency is not None and latency.get("verdict") == "FAIL"
+        row = latency.find(f"{NS}evaluations/{NS}evaluation")
+        assert row is not None
+        assert row.get("status") == "FAIL"
+        assert row.get("decision-rule") == "latency/compliance-exact-binomial"
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("value") == "PASS"
+        # One rule decided the one enforced dimension: the verdict states it.
+        assert verdict.get("decision-rule") == "compliance/exact-binomial"
+        assert_valid(tmp_path, text)
+
+    def test_advisory_functional_leaves_latency_to_decide(self, tmp_path: Path) -> None:
+        result = self._slow_result(frozenset({Dimension.FUNCTIONAL}), fail_every=2)
+        text = render_verdict_record(result)
+        root = ElementTree.fromstring(text)
+        assert self._modes(root) == ("advisory", "enforced")
+        composite = root.find(f"{NS}per-criterion/{NS}composite")
+        assert composite is not None and composite.get("value") == "FAIL"
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("value") == "FAIL"
+        assert verdict.get("decision-rule") == "latency/compliance-exact-binomial"
+        assert_valid(tmp_path, text)
+
+    def test_both_advisory_pass_with_no_rule(self, tmp_path: Path) -> None:
+        both = frozenset({Dimension.FUNCTIONAL, Dimension.LATENCY})
+        text = render_verdict_record(self._slow_result(both, fail_every=2))
+        root = ElementTree.fromstring(text)
+        assert self._modes(root) == ("advisory", "advisory")
+        verdict = root.find(f"{NS}verdict")
+        assert verdict is not None and verdict.get("value") == "PASS"
+        assert verdict.get("decision-rule") is None
+        assert_valid(tmp_path, text)

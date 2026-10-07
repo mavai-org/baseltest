@@ -6,7 +6,21 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.11.2`**: verified byte-identical to the
+**Vendored from mavai-R `0.12.0`**: verified byte-identical to the
+`interchange-v0.12.0.zip` release asset when recorded (2026-10-07). The three
+JSON schemas are unchanged; the verdict schema moves to `verdict-1.8.xsd`
+(Statistical Companion 1.6.0), a clean break from 1.7 that records whether
+each dimension was enforced or advisory: a required `mode` on the functional
+composite and a `mode` on the latency element (`enforced` or `advisory`).
+Every latency evaluation states the rule that decided it and that rule's
+outcome as its status (`PASS`, `FAIL`, `INFEASIBLE` or `SATURATED`), and
+carries no mode of its own; `STRICT_FAIL` is renamed `FAIL`, and
+`ADVISORY_WARN`, `strict-violations` and `advisory-violations` are
+withdrawn. The record's verdict composes the enforced dimensions only, and
+is `PASS` when none is. `verdict-1.7.xsd` is no longer vendored: this
+emitter writes 1.8 only.
+
+**Vendored from mavai-R `0.11.2`** (superseded): verified byte-identical to the
 `interchange-v0.11.2.zip` release asset when recorded (2026-09-30). The three
 JSON schemas are unchanged; `verdict-1.7.xsd` gains an optional
 `required-pass` on the criterion row: the smallest passing count under the
@@ -64,7 +78,7 @@ schema. And the verdict copy is `1.5`, not the `1.4` the prose claimed.
 | `mavai-explore-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-optimize-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-baseline-1.schema.json` | `tests/baseline/test_interchange_conformance.py` |
-| `verdict-1.7.xsd` | the verdict emitter's suite |
+| `verdict-1.8.xsd` | the verdict emitter's suite |
 
 ## Why the version is written down
 
