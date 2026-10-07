@@ -10,6 +10,7 @@ from baseltest.engine import (
     ConfigurationError,
     ConfigurationRefusedError,
     CriterionResult,
+    EnforcementMode,
     LatencyEvaluation,
     LatencyPlanning,
     RegressionVerdict,
@@ -186,8 +187,8 @@ def _recorded_bar_lines(result: CriterionResult) -> list[str]:
     return lines
 
 
-def _latency_lines(evaluation: LatencyEvaluation) -> list[str]:
-    """The latency dimension: its verdict, and one line per enforced constraint."""
+def _latency_lines(evaluation: LatencyEvaluation, mode: EnforcementMode | None) -> list[str]:
+    """The latency dimension: its verdict and mode, and one line per constraint."""
     bar = evaluation.bar
     source = "declared ceilings"
     if bar.origin == "baseline-derived":
@@ -195,7 +196,10 @@ def _latency_lines(evaluation: LatencyEvaluation) -> list[str]:
     elif bar.provenance.contract_ref is not None:
         source = f"declared ceilings ({bar.provenance.origin}, {bar.provenance.contract_ref})"
     lines = [
-        f"  latency: {evaluation.verdict.value.upper()} — {source}, alpha {bar.alpha:g}",
+        (
+            f"  latency: {evaluation.verdict.value.upper()}{_advisory_mark(mode)} — "
+            f"{source}, alpha {bar.alpha:g}"
+        ),
         (
             f"    {evaluation.contributing_samples} of {evaluation.total_samples} "
             "samples passed and contribute durations"
@@ -206,12 +210,12 @@ def _latency_lines(evaluation: LatencyEvaluation) -> list[str]:
 
 
 def _constraint_line(outcome: BoundEvaluation) -> str:
-    """One enforced constraint: its verdict and its decision artefact."""
+    """One constraint: its verdict under its rule and its decision artefact."""
     judgement = outcome.judgement
     label = outcome.bound.percentile
     verdict = outcome.verdict.value.upper()
     n_s = judgement.successful_latencies
-    rule = judgement.rule.value if judgement.rule is not None else "advisory"
+    rule = judgement.rule.value
     if judgement.compliance is not None:
         decided = judgement.compliance
         head = f"    {label} ≤ {outcome.bound.threshold_ms}ms: {verdict} ({rule})"
@@ -224,7 +228,7 @@ def _constraint_line(outcome: BoundEvaluation) -> str:
         if decided.observed_percentile_ms is not None:
             raw = (
                 f"; raw {label} {round(decided.observed_percentile_ms)}ms "
-                "(a raw percentile comparison, advisory)"
+                "(a raw percentile comparison; it decides nothing)"
             )
         return (
             f"{head} — {decided.within_threshold} of {n_s} successful latencies within, "
@@ -288,6 +292,15 @@ def _ordinal(rank: int) -> str:
     return f"{rank}{suffix}"
 
 
+def _advisory_mark(mode: EnforcementMode | None) -> str:
+    """Marks a dimension the run made advisory: reported, never deciding the test."""
+    return (
+        " (advisory: reported, does not decide the test)"
+        if mode is EnforcementMode.ADVISORY
+        else ""
+    )
+
+
 def _verdict_header(result: RunResult) -> list[str]:
     """The test verdict at the top: V_test, what triggered it, the two
     dimensions, and the Type-I envelopes by direction."""
@@ -302,11 +315,22 @@ def _verdict_header(result: RunResult) -> list[str]:
             f"criterion {t.id}" if t.kind == "criterion" else t.id for t in overall.triggering
         )
         lines.append(f"  decided by: {named}")
-    if overall.rate_verdict is not None and overall.latency_verdict is not None:
-        lines.append(
-            f"  functional: {overall.rate_verdict.value.upper()} · "
-            f"latency: {overall.latency_verdict.value.upper()}"
+    dimensions = [
+        f"{name}: {verdict.value.upper()}{_advisory_mark(mode)}"
+        for name, verdict, mode in (
+            ("functional", overall.rate_verdict, overall.functional_mode),
+            ("latency", overall.latency_verdict, overall.latency_mode),
         )
+        if verdict is not None
+    ]
+    if (
+        len(dimensions) > 1
+        or overall.functional_mode is EnforcementMode.ADVISORY
+        or (overall.latency_mode is EnforcementMode.ADVISORY)
+    ):
+        lines.append("  " + " · ".join(dimensions))
+    if not overall.enforced_dimensions:
+        lines.append("  no dimension enforced: this run cannot fail on its assertions")
     envelopes = result.envelopes
     parts = []
     if envelopes.false_degradation_signal is not None:
@@ -355,7 +379,7 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
                 _standings_lines(criterion_result, named=len(result.criterion_results) > 1)
             )
         if result.latency is not None:
-            lines.extend(_latency_lines(result.latency))
+            lines.extend(_latency_lines(result.latency, result.overall.latency_mode))
     else:
         lines.append(
             f"contract {result.contract_id}: OBSERVATION "

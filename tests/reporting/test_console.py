@@ -8,6 +8,7 @@ from baseltest.contract import BaselineCount, Criterion, ServiceContract, contai
 from baseltest.engine import (
     METHODOLOGY_VERSION,
     ConfigurationRefusedError,
+    Dimension,
     RunKind,
     RunPlan,
     execute,
@@ -55,6 +56,21 @@ class TestVerdictOutput:
         assert "design power" in text and "resolved power" in text
         assert "(inverts the design power)" in text
         assert "false degradation signal ≤ 0.05" in text
+
+    def test_an_advisory_functional_dimension_is_marked_and_decides_nothing(self) -> None:
+        failing = Criterion(name="strict", postconditions=(contains("nope"),), threshold=0.5)
+        contract = ServiceContract(
+            contract_id="refund-confirmation",
+            invoke=lambda value: f"refund ok for {value}",
+            criteria=(failing,),
+        )
+        plan = RunPlan(samples=300, inputs=("a",), advisory=frozenset({Dimension.FUNCTIONAL}))
+        text = render_run(execute(contract, plan))
+        assert text.splitlines()[0].startswith("contract refund-confirmation — verdict: PASS")
+        assert "functional: FAIL (advisory: reported, does not decide the test)" in text
+        assert "no dimension enforced: this run cannot fail on its assertions" in text
+        assert "decided by" not in text
+        assert "Type-I envelopes" not in text
 
     def test_multi_criterion_shape_lists_each_stream_and_composite(self) -> None:
         passing = Criterion(name="relevant", postconditions=(contains("refund"),), threshold=0.95)
