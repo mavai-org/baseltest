@@ -279,7 +279,7 @@ The `transforms:` block declares named **views**: each is a transformation of th
 
 ### The `latency:` block
 
-Reliability has a second axis: not just *whether* the service answers correctly, but *how long the correct answers take*. A contract may assert per-percentile constraints, judged on **test** runs over the durations of **passing samples only** — those that passed every criterion; the timing of wrong answers does not characterise the correct path. The latency verdict composes the constraints (PASS if all pass, FAIL if any fails, INCONCLUSIVE otherwise), and the test's verdict composes it with the functional verdict the same way: a test passes only when both dimensions do.
+Reliability has a second axis: not just *whether* the service answers correctly, but *how long the correct answers take*. A contract may assert per-percentile constraints, judged on **test** runs over the durations of **passing samples only** — those that passed every criterion; the timing of wrong answers does not characterise the correct path. The latency verdict composes the constraints (PASS if all pass, FAIL if any fails, INCONCLUSIVE otherwise), and the test's verdict composes it with the functional verdict the same way: a test passes only when both dimensions do. Both are enforced by default; a run can make either advisory (see [Enforced and advisory assertions](#enforced-and-advisory-assertions)).
 
 Two mutually exclusive shapes:
 
@@ -299,11 +299,11 @@ latency:                # empirical: no worse than the measured baseline's
 | `confidence`                        | `1 - alpha` for every latency decision, explicit or empirical. A number in (0, 1).                                                                                                              |
 | `threshold-origin` / `contract-ref` | The same provenance metadata as on criteria.                                                                                                                                                   |
 
-**An explicit ceiling** is a requirement — "the p95 is at most 500 ms" — and is decided like one: by the count of successful latencies at or below the ceiling, under the exact binomial test (`latency/compliance-exact-binomial`). Comparing the observed percentile with the ceiling does not demonstrate the requirement; that raw comparison is shown beside the verdict, labelled as advisory. A requirement no plan of this size could demonstrate even if every sample succeeded (a p95 needs 59 successful latencies at 95% confidence, a p99 299) is refused before the run under verification intent (`COMPLIANCE_INFEASIBLE`); a run whose actual count of successful latencies falls short is INCONCLUSIVE.
+**An explicit ceiling** is a requirement — "the p95 is at most 500 ms" — and is decided like one: by the count of successful latencies at or below the ceiling, under the exact binomial test (`latency/compliance-exact-binomial`). Comparing the observed percentile with the ceiling does not demonstrate the requirement; that raw comparison is shown beside the verdict, labelled as a raw percentile comparison, and decides nothing. A requirement no plan of this size could demonstrate even if every sample succeeded (a p95 needs 59 successful latencies at 95% confidence, a p99 299) is refused before the run under verification intent (`COMPLIANCE_INFEASIBLE`); a run whose actual count of successful latencies falls short is INCONCLUSIVE.
 
 **An empirical constraint** is decided by `latency/precedence`: after the run, for the number of successful latencies it actually returned, the threshold is the smallest baseline latency (by rank) that an undegraded service would exceed with probability at most alpha; the test passes when its own percentile is at or below it. Before the run, the framework warns — without refusing — when the expected number of successful latencies is below the percentile's minimum (5 / 10 / 20 / 100 for p50 / p90 / p95 / p99) or too many for the baseline to support any rank, and names the planning figure that would fix it. After the run, too few successful latencies, or no rank for the count returned (*saturated*), is INCONCLUSIVE.
 
-An INCONCLUSIVE constraint makes the test INCONCLUSIVE unless something failed outright — no judgement was possible, so no assertion can rest on it — and `basel test` exits 3, distinct from a failure. There is no advisory mode: declaring a constraint enforces it.
+An INCONCLUSIVE constraint makes the test INCONCLUSIVE unless something failed outright — no judgement was possible, so no assertion can rest on it — and `basel test` exits 3, distinct from a failure. Declaring a constraint enforces it, unless the run makes the latency dimension advisory.
 
 ### Intent and confidence
 
@@ -375,15 +375,16 @@ A measurement records *every* criterion — rate, variance, failure distribution
 ```bash
 basel test contract.yaml [--samples N] [--tolerate RATE|CRITERION=RATE]...
            [--confidence C] [--power P] [--accept-weak-design] [--json] [--force]
+           [--advisory {functional,latency}]...
            [--baseline-dir DIR] [--verdict-dir DIR] [--no-verdict-xml] [--html-report PATH]
 ```
 
-A test judges the contract's **declared** criteria against their thresholds and its **empirical** criteria against measured baselines, plus any `latency:` constraints, each by a named, versioned decision rule of the Statistical Companion (methodology 1.5.0):
+A test judges the contract's **declared** criteria against their thresholds and its **empirical** criteria against measured baselines, plus any `latency:` constraints, each by a named, versioned decision rule of the Statistical Companion (methodology 1.6.0):
 
 - a **declared** criterion by the exact one-sided binomial test (`compliance/exact-binomial`): it passes when at least *k*<sub>min</sub> samples succeed, the smallest count that demonstrates the requirement at the stated confidence. A high observed rate over too few samples honestly fails — 48 of 50 against 0.90 does not demonstrate 0.90 — and a pass means compliance was demonstrated, a fail that it was not;
 - an **empirical** criterion by the one-sided Fisher exact test against its baseline (`regression/fisher`): it passes when at least *c* samples succeed, where the integer cutoff *c* is derived from the baseline's counts at this run's own size. The report states *c* and *c/n*, the size at the assumed common rate, and what the design can detect — the minimum detectable degradation (which inverts the design power), and, when a rate to catch is declared, the design power and the resolved power named apart.
 
-The test's verdict composes the criteria and the latency constraints, names what decided a FAIL or an INCONCLUSIVE, and states the Type-I envelopes by direction (false degradation signal, false compliance). Every run opens with the **run-plan line**: its n and where that value came from; no sample ever runs on a number you can't see.
+The test's verdict composes the criteria and the latency constraints of the enforced dimensions, names what decided a FAIL or an INCONCLUSIVE, and states the Type-I envelopes by direction (false degradation signal, false compliance). Every run opens with the **run-plan line**: its n and where that value came from; no sample ever runs on a number you can't see.
 
 **Refused configurations.** Two configurations are refused before any sample runs, and a refusal names every applicable code at once, in a fixed order: `TEST_LARGER_THAN_BASELINE` — a test planned larger than the baseline run it consumes (every test that consumes a baseline, pass-rate or latency, whatever the intent; measure a larger baseline) — then `COMPLIANCE_INFEASIBLE` — a declared requirement, or an explicit latency ceiling, that no outcome of the planned size could demonstrate, under verification intent. When any part is invalid the whole test is refused: a run never proceeds half-valid. The refused configuration is still recorded in the verdict record, with no verdict value.
 
@@ -392,6 +393,33 @@ The test's verdict composes the criteria and the latency constraints, names what
 **Sizing empirical criteria — risk-driven.** An empirical criterion's cutoff is derived from its baseline; its run size is computed from your stated risk by *resolved sizing* against that baseline — the observed count fixes the cutoff at every candidate size, and the run size is the smallest from which the power stays at the target for every larger test the baseline admits: the design alternative rate, the degraded rate the test must catch reliably (`tolerate:` in the file, or `--tolerate` on the invocation — a rate like `0.84` or a percentage like `84`; the bare form addresses a contract with exactly one empirical criterion, `CRITERION=RATE` repeats for several), the confidence (`--confidence`), and, advanced, the power with which a genuine drop to that rate must be caught (`--power`, default 0.8). A baseline too small for any admissible test to reach and hold that power is refused (`BASELINE_TOO_SMALL`): measure a larger one. On an interactive terminal, unclaimed values are prompted for in plain language; non-interactively they are refused. A weak design is confirmed interactively or accepted with `--accept-weak-design` (for automation); `--json` emits machine-readable sizing output and implies non-interactive. `--samples` and `--tolerate`/`--power` are contradictory sizing instructions and refused together. `--force` (with `--samples`) designs the test anyway when the rate to catch is at or above the baseline rate, where there is no drop to catch and the required-size search is undefined.
 
 **Before a baseline exists**, an empirical criterion is skipped with a one-line indicator pointing at `basel measure`; a test whose criteria are *all* unthresholded and baseline-less is refused — nothing to test. A baseline is resolved only when its recorded identity matches the service's currently-resolved identity; any drifted configuration key or covariate refuses the run, naming the key (see [drift](#covariates-and-drift)).
+
+#### Enforced and advisory assertions
+
+Every assertion a contract declares is **enforced** by default: each functional criterion and each latency constraint, declared or empirical. Its verdict enters the test's verdict, and a FAIL fails the test.
+
+Some runs cannot honour a declared bar for reasons outside the service. For those, `--advisory` makes a whole dimension **advisory** for one run:
+
+```bash
+basel test contract.yaml --advisory latency                         # latency advisory
+basel test contract.yaml --advisory functional                      # criteria advisory
+basel test contract.yaml --advisory functional --advisory latency   # both
+```
+
+An advisory dimension is still **decided** by its proper rules: the criteria by `compliance/exact-binomial` or `regression/fisher`, the latency constraints by `latency/compliance-exact-binomial` or `latency/precedence`, on the same evidence and with the same gates as when enforced. Its PASS, FAIL or INCONCLUSIVE is **reported**: the console marks the dimension `(advisory: reported, does not decide the test)`, and the verdict record states each dimension's mode. But an advisory dimension **never fails the test**. The test's verdict composes the enforced dimensions only, so an advisory FAIL or INCONCLUSIVE never sets exit 1 or 3. An advisory dimension's decisions are left out of the Type-I envelopes and out of what the verdict names as having decided it. With both dimensions advisory, the test cannot fail on its assertions. It still exits 2 on a refused configuration, and 1 on a defect.
+
+What the switch is not:
+
+- **Not a way around a refusal.** `TEST_LARGER_THAN_BASELINE` and `COMPLIANCE_INFEASIBLE` refuse a design that no outcome could decide, whether the dimension is enforced or advisory. Size the run; the switch does not help.
+- **Not smoke intent.** `intent: smoke` lets an undersized design run and marks what it cannot decide; it is unchanged by the switch, and the switch does not imply it.
+- **Not part of the contract.** It is a run-time option only. There is no contract key, no per-criterion setting and no environment variable for it. The declared assertions are the ones that count, and which of them bind on a given run is the choice of whoever runs it. From Python, `baseltest.run` takes the same choice as `advisory=frozenset({Dimension.LATENCY})`, with `Dimension` imported from `baseltest.engine`.
+
+**When to use it.** The usual case is a declared latency requirement written for production, tested on a development machine that is significantly slower than production. A normative threshold refers to its target environment. Where development cannot meet it for reasons that say nothing about the service, it is up to you to run with `--advisory latency` there: the requirement is still decided and reported, so you see how far off it is, but the run does not fail on it. Run the same contract enforced where the requirement applies. baseltest has no notion of environments: you know where you are running, and you choose the setting.
+
+**Two declarations to keep in mind.**
+
+- **No covariates is a statement.** A binding that declares no `covariates=` states that the service's behaviour does not depend on the environment it runs in. If you believe it does, for example because a different model version or library sits behind the endpoint in another environment, declare the covariate (see [Covariates and drift](#covariates-and-drift)). Then a baseline measured under one identity is never silently used under another.
+- **The baseline should be the one for where the test runs.** An empirical criterion or latency constraint is judged against the baseline it consumes. In development, that is your own baseline, measured there with `basel measure`; in production, a production baseline. You choose it with `--baseline-dir`. Covariate matching still refuses a baseline whose recorded identity differs from the service's.
 
 **Outputs.** The composite verdict and per-criterion lines print to the console; a verdict record in the canonical XML schema is persisted to `--verdict-dir` (default `_baseltest/verdicts/`) unless `--no-verdict-xml`; `--html-report PATH` hands the persisted record to mavai, which draws the page (the flag never changes the exit code, and is refused up front alongside `--no-verdict-xml`, which suppresses the very record it renders).
 
