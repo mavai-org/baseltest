@@ -20,8 +20,10 @@ A latency constraint is decided by the rule for its threshold source:
 Both decisions are made after the run on the actual number of successful
 latencies. Before the run the same searches on the *expected* number give
 warnings and planning figures (§12.5.3), never a verdict. The raw comparison
-of the observed percentile with a threshold is an advisory figure: it
-decides nothing and is labelled as a raw percentile comparison.
+of the observed percentile with a threshold decides nothing: it is reported
+beside the decision, labelled as a raw percentile comparison. Whether a
+decision binds the test is not this module's concern (§12.6): every
+constraint is decided by its rule the same way, enforced or advisory.
 """
 
 import math
@@ -337,12 +339,13 @@ class NondegeneracyOutcome(StrEnum):
     assertion is decided by its rule."""
 
     INCONCLUSIVE = "INCONCLUSIVE"
-    """An enforced baseline-derived assertion under verification with too
-    few successful latencies."""
+    """A baseline-derived assertion under verification with too few
+    successful latencies."""
 
     INDICATIVE = "INDICATIVE"
-    """Too few successful latencies under smoke intent or in advisory mode:
-    evaluated, and marked as a directional signal only."""
+    """A baseline-derived assertion under smoke intent with too few
+    successful latencies: evaluated, and marked as a directional signal
+    only."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,21 +361,21 @@ def decide_nondegeneracy(
     percentile: float,
     test_samples: int,
     intent: Intent,
-    enforced: bool,
     source: ThresholdSource = ThresholdSource.BASELINE_DERIVED,
 ) -> NondegeneracyDecision:
     """The non-degeneracy decision on the actual count of successful latencies.
 
     The gate applies where the decision statistic is the empirical
-    percentile — a baseline-derived assertion and an advisory raw
-    comparison — and not to an enforced explicit requirement, which decides
-    on the within-threshold count and has its own feasibility condition.
+    percentile — a baseline-derived assertion — and not to an explicit
+    requirement, which decides on the within-threshold count and has its
+    own feasibility condition. Whether the latency dimension is enforced or
+    advisory does not enter (§12.6).
     """
-    applies = not (source is ThresholdSource.EXPLICIT and enforced)
+    applies = source is ThresholdSource.BASELINE_DERIVED
     degenerate = test_samples < minimum_contributing_samples(percentile)
     if not applies or not degenerate:
         outcome = NondegeneracyOutcome.DECIDED
-    elif intent is Intent.VERIFICATION and enforced:
+    elif intent is Intent.VERIFICATION:
         outcome = NondegeneracyOutcome.INCONCLUSIVE
     else:
         outcome = NondegeneracyOutcome.INDICATIVE
@@ -395,9 +398,9 @@ class LatencyCompliance:
             probability at the boundary; ``None`` when no count can pass.
         clopper_pearson_lower: The one-sided lower bound on ``F(tau)``,
             reported beside the verdict; ``None`` with no latencies.
-        observed_percentile_ms: The raw nearest-rank percentile — an
-            advisory figure; ``None`` with no latencies.
-        advisory_percentile_pass: The raw percentile comparison
+        observed_percentile_ms: The raw nearest-rank percentile, reported
+            beside the decision; ``None`` with no latencies.
+        raw_percentile_pass: The raw percentile comparison
             ``Q(p) <= tau``; it decides nothing.
     """
 
@@ -408,7 +411,7 @@ class LatencyCompliance:
     false_compliance: float | None
     clopper_pearson_lower: float | None
     observed_percentile_ms: float | None
-    advisory_percentile_pass: bool | None
+    raw_percentile_pass: bool | None
 
     @property
     def pass_possible(self) -> bool:
@@ -439,37 +442,16 @@ def evaluate_latency_compliance(
         false_compliance=(None if y_min is None else float(binom.sf(y_min - 1, n_s, percentile))),
         clopper_pearson_lower=clopper_pearson_lower(within, n_s, alpha) if n_s else None,
         observed_percentile_ms=observed,
-        advisory_percentile_pass=None if observed is None else observed <= threshold_ms,
+        raw_percentile_pass=None if observed is None else observed <= threshold_ms,
     )
-
-
-class LatencyMode(StrEnum):
-    """How a latency constraint takes part in the verdict (§12.6)."""
-
-    ENFORCED = "enforced"
-    """Decided by the rule for its threshold source; a FAIL fails the test."""
-
-    ADVISORY = "advisory"
-    """A raw percentile comparison: a breach is a warning, never a verdict."""
-
-
-class AdvisoryOutcome(StrEnum):
-    """The outcome of an advisory constraint; it never enters any verdict."""
-
-    ADVISORY_PASS = "ADVISORY_PASS"
-    ADVISORY_WARN = "ADVISORY_WARN"
 
 
 @dataclass(frozen=True, slots=True)
 class LatencyJudgement:
-    """One latency constraint judged on a run's successful latencies.
-
-    Exactly one of ``verdict`` (an enforced constraint) and ``advisory``
-    (an advisory one) is set.
+    """One latency constraint decided by its rule on a run's successful latencies.
 
     Attributes:
         source: The threshold's source.
-        mode: Enforced or advisory.
         percentile: The percentile level.
         alpha: The constraint's one-sided level.
         successful_latencies: ``n_s``, the latencies judged.
@@ -477,33 +459,28 @@ class LatencyJudgement:
             no latencies.
         threshold_ms: The explicit threshold, or the derived one (``None``
             when saturated or undecided).
-        verdict: PASS / FAIL / INCONCLUSIVE, for an enforced constraint.
-        advisory: The raw comparison's outcome, for an advisory constraint.
-        compliance: The exact-binomial decision of an enforced explicit
-            requirement.
+        verdict: PASS / FAIL / INCONCLUSIVE under the constraint's rule.
+        compliance: The exact-binomial decision of an explicit requirement.
         precedence: The precedence derivation of a baseline-derived
             threshold, when one was attempted.
-        nondegeneracy: The non-degeneracy decision, where the gate applies.
+        nondegeneracy: The non-degeneracy decision of a baseline-derived
+            constraint.
     """
 
     source: ThresholdSource
-    mode: LatencyMode
     percentile: float
     alpha: float
     successful_latencies: int
     observed_ms: float | None
     threshold_ms: float | None
-    verdict: Verdict | None = None
-    advisory: AdvisoryOutcome | None = None
+    verdict: Verdict
     compliance: LatencyCompliance | None = None
     precedence: PrecedenceThreshold | None = None
     nondegeneracy: NondegeneracyDecision | None = None
 
     @property
-    def rule(self) -> DecisionRule | None:
-        """The rule that decided an enforced constraint; ``None`` when advisory."""
-        if self.mode is LatencyMode.ADVISORY:
-            return None
+    def rule(self) -> DecisionRule:
+        """The rule that decided the constraint, which its threshold source selects."""
         if self.source is ThresholdSource.EXPLICIT:
             return DecisionRule.LATENCY_COMPLIANCE_EXACT_BINOMIAL
         return DecisionRule.LATENCY_PRECEDENCE
@@ -523,67 +500,54 @@ def judge_latency_constraint(
     alpha: float,
     *,
     source: ThresholdSource,
-    mode: LatencyMode,
     intent: Intent,
     threshold_ms: float | None = None,
     baseline_latencies: Sequence[float] = (),
 ) -> LatencyJudgement:
-    """Judge one latency constraint on the run's successful latencies.
+    """Decide one latency constraint on the run's successful latencies.
 
-    An enforced explicit requirement is decided by
-    ``latency/compliance-exact-binomial``; an enforced baseline-derived
-    constraint by the non-degeneracy gate and ``latency/precedence`` (a test
-    percentile equal to the threshold is not a breach). An advisory
-    constraint compares the observed percentile with its threshold.
+    An explicit requirement is decided by
+    ``latency/compliance-exact-binomial``; a baseline-derived constraint by
+    the non-degeneracy gate and ``latency/precedence`` (a test percentile
+    equal to the threshold is not a breach). The decision is the same
+    whether the latency dimension is enforced or advisory (§12.6).
 
     Raises:
         ValueError: On an explicit constraint without a threshold, or a
             baseline-derived one without baseline latencies.
     """
-    enforced = mode is LatencyMode.ENFORCED
     n_s = len(latencies)
     observed = latency_percentile(latencies, percentile) if n_s else None
     compliance = precedence = nondegeneracy = None
-    verdict: Verdict | None = None
     if source is ThresholdSource.EXPLICIT:
         if threshold_ms is None:
             raise ValueError("an explicit latency constraint needs a threshold")
         tau: float | None = threshold_ms
-        if enforced:
-            compliance = evaluate_latency_compliance(latencies, threshold_ms, percentile, alpha)
-            verdict = compliance.verdict
-        else:
-            nondegeneracy = decide_nondegeneracy(percentile, n_s, intent, enforced, source)
+        compliance = evaluate_latency_compliance(latencies, threshold_ms, percentile, alpha)
+        verdict = compliance.verdict
     else:
         if not baseline_latencies:
             raise ValueError("a baseline-derived latency constraint needs baseline latencies")
-        nondegeneracy = decide_nondegeneracy(percentile, n_s, intent, enforced, source)
+        nondegeneracy = decide_nondegeneracy(percentile, n_s, intent, source)
         if n_s:
             precedence = derive_precedence_threshold(baseline_latencies, n_s, percentile, alpha)
         tau = None if precedence is None else precedence.threshold
-        if enforced:
-            if (
-                nondegeneracy.outcome is NondegeneracyOutcome.INCONCLUSIVE
-                or observed is None
-                or tau is None
-            ):
-                verdict = Verdict.INCONCLUSIVE
-            else:
-                verdict = Verdict.PASS if observed <= tau else Verdict.FAIL
-    advisory = None
-    if not enforced:
-        within = observed is not None and tau is not None and observed <= tau
-        advisory = AdvisoryOutcome.ADVISORY_PASS if within else AdvisoryOutcome.ADVISORY_WARN
+        if (
+            nondegeneracy.outcome is NondegeneracyOutcome.INCONCLUSIVE
+            or observed is None
+            or tau is None
+        ):
+            verdict = Verdict.INCONCLUSIVE
+        else:
+            verdict = Verdict.PASS if observed <= tau else Verdict.FAIL
     return LatencyJudgement(
         source=source,
-        mode=mode,
         percentile=percentile,
         alpha=alpha,
         successful_latencies=n_s,
         observed_ms=observed,
         threshold_ms=tau,
         verdict=verdict,
-        advisory=advisory,
         compliance=compliance,
         precedence=precedence,
         nondegeneracy=nondegeneracy,

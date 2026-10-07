@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 from enum import StrEnum
 
-METHODOLOGY_VERSION = "1.5.0"
+METHODOLOGY_VERSION = "1.6.0"
 """The Statistical Companion methodology whose rules this package implements."""
 
 
@@ -77,7 +77,8 @@ def check_test_size(baseline_samples: int, planned_samples: int) -> Configuratio
 
 
 class Intent(StrEnum):
-    """Whether a test's statistical adequacy is enforced or advisory (§5.7)."""
+    """Whether an infeasible design is refused (verification) or run and
+    marked as such (smoke), §5.7; independent of a dimension's enforcement."""
 
     VERIFICATION = "verification"
     SMOKE = "smoke"

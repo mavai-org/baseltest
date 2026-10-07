@@ -49,7 +49,7 @@ from baseltest.statistics import (
     ComplianceVerdict,
     ConfigurationError,
     DecisionRule,
-    LatencyMode,
+    Dimension,
     RegressionVerdict,
     SizingRefusal,
     ThresholdSource,
@@ -66,7 +66,6 @@ from baseltest.statistics import (
     design_required_samples,
     fisher_cutoff,
     implied_alpha,
-    judge_latency_constraint,
     latency_max,
     latency_mean,
     latency_percentile,
@@ -591,7 +590,6 @@ def test_latency_minimums_and_existence_match_oracle(case: dict[str, Any]) -> No
             inputs["percentile"],
             inputs["test_samples"],
             _INTENTS[inputs["intent"]],
-            inputs["enforced"],
             ThresholdSource(inputs["threshold_source"]),
         )
         assert_oracle(suite, case, "applies", decision.applies)
@@ -701,7 +699,7 @@ def test_latency_compliance_decision_through_production_path(case: dict[str, Any
     assert_oracle(
         suite, case, "observed_percentile_ms", compliance.observed_percentile_ms, tolerance
     )
-    assert_oracle(suite, case, "advisory_percentile_pass", compliance.advisory_percentile_pass)
+    assert_oracle(suite, case, "raw_percentile_pass", compliance.raw_percentile_pass)
 
 
 # ---------------------------------------------------------------------------
@@ -793,49 +791,29 @@ def test_verdict_through_production_verdict_path(case: dict[str, Any]) -> None:
     )
 
 
-def _constraint_row(constraint: dict[str, Any]) -> tuple[dict[str, Any], Verdict | None]:
-    """One latency constraint judged: enforced ones by the engine's latency
-    evaluation, advisory ones (a mode the contract format does not offer)
-    by the statistics core the engine delegates to."""
+def _constraint_row(constraint: dict[str, Any]) -> tuple[dict[str, Any], Verdict]:
+    """One latency constraint decided by the engine's latency evaluation —
+    by its rule, whatever the dimension's mode."""
     source = ThresholdSource(constraint["source"])
-    mode = LatencyMode(constraint["mode"])
     latencies = _as_list(constraint["latencies"])
     percentile = constraint["percentile"]
-    if mode is LatencyMode.ENFORCED:
-        label = _PERCENT_LABELS[percentile]
-        if source is ThresholdSource.EXPLICIT:
-            bar = _explicit_bar(percentile, constraint["threshold_ms"], constraint["alpha"])
-        else:
-            baseline = tuple(sorted(_as_list(constraint["baseline_latencies"])))
-            bar = LatencyBar(
-                bounds=(LatencyBound(label),),
-                origin=source,
-                confidence=_confidence(constraint["alpha"]),
-                baseline=LatencyBaseline(baseline, len(baseline)),
-            )
-        evaluation = evaluate_latency(bar, latencies, len(latencies), Intent.VERIFICATION)
-        judgement = evaluation.evaluations[0].judgement
-        assert judgement.verdict is not None
-        outcome = judgement.verdict.name
+    if source is ThresholdSource.EXPLICIT:
+        bar = _explicit_bar(percentile, constraint["threshold_ms"], constraint["alpha"])
     else:
-        judgement = judge_latency_constraint(
-            latencies,
-            percentile,
-            constraint["alpha"],
-            source=source,
-            mode=mode,
-            intent=Intent.VERIFICATION,
-            threshold_ms=constraint.get("threshold_ms"),
-            baseline_latencies=_as_list(constraint.get("baseline_latencies", [])),
+        baseline = tuple(sorted(_as_list(constraint["baseline_latencies"])))
+        bar = LatencyBar(
+            bounds=(LatencyBound(_PERCENT_LABELS[percentile]),),
+            origin=source,
+            confidence=_confidence(constraint["alpha"]),
+            baseline=LatencyBaseline(baseline, len(baseline)),
         )
-        outcome = str(judgement.advisory)
+    evaluation = evaluate_latency(bar, latencies, len(latencies), Intent.VERIFICATION)
+    judgement = evaluation.evaluations[0].judgement
     row = {
         "constraint_id": constraint["constraint_id"],
         "source": str(judgement.source),
-        "mode": str(judgement.mode),
-        "participates": mode is LatencyMode.ENFORCED,
-        "decisionRule": str(judgement.rule) if judgement.rule is not None else None,
-        "verdict": outcome,
+        "decisionRule": str(judgement.rule),
+        "verdict": judgement.verdict.name,
     }
     return row, judgement.verdict
 
@@ -846,9 +824,11 @@ def _constraint_row(constraint: dict[str, Any]) -> tuple[dict[str, Any], Verdict
     ids=lambda c: c["name"],
 )
 def test_overall_test_verdict_matches_oracle(case: dict[str, Any]) -> None:
-    """V_test: the functional criteria (through the engine) and the enforced
-    latency constraints composed by the structural rule the engine uses."""
+    """V_test: the functional criteria (through the engine) and the latency
+    constraints composed by the structural rule the engine uses, over the
+    dimensions the case's advisory setting leaves enforced."""
     inputs = case["inputs"]
+    advisory = frozenset(Dimension(d) for d in inputs["advisory"])
     criteria: list[tuple[str, Verdict]] = []
     if "functional" in inputs:
         functional = inputs["functional"]
@@ -858,13 +838,12 @@ def test_overall_test_verdict_matches_oracle(case: dict[str, Any]) -> None:
         assert judged.verdict is not None
         criteria.append((judged.name, judged.verdict))
     rows = []
-    enforced: list[tuple[str, Verdict]] = []
+    constraints: list[tuple[str, Verdict]] = []
     for constraint in inputs["latency_constraints"]:
         row, verdict = _constraint_row(constraint)
         rows.append(row)
-        if verdict is not None:
-            enforced.append((row["constraint_id"], verdict))
-    overall = compose_overall_verdict(criteria, enforced)
+        constraints.append((row["constraint_id"], verdict))
+    overall = compose_overall_verdict(criteria, constraints, advisory)
     assert_oracle(
         "verdict",
         case,
@@ -876,6 +855,11 @@ def test_overall_test_verdict_matches_oracle(case: dict[str, Any]) -> None:
     latency = overall.latency_verdict.name if overall.latency_verdict is not None else None
     assert_oracle("verdict", case, "rate_verdict", rate)
     assert_oracle("verdict", case, "latency_verdict", latency)
+    for field, mode in (
+        ("functional_mode", overall.functional_mode),
+        ("latency_mode", overall.latency_mode),
+    ):
+        assert_oracle("verdict", case, field, None if mode is None else str(mode))
     assert_oracle("verdict", case, "test_verdict", overall.verdict.name)
     assert_oracle(
         "verdict",

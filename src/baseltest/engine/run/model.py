@@ -21,6 +21,8 @@ from baseltest.contract import (
 from baseltest.statistics import (
     ComplianceVerdict,
     ConfigurationError,
+    DecisionRule,
+    Dimension,
     Envelopes,
     OverallVerdict,
     RegressionVerdict,
@@ -52,13 +54,17 @@ class RunPlan:
         samples: Total number of invocations.
         inputs: The fixed, finite input list; invocations cycle through it.
         kind: The run mode, chosen at invocation.
-        intent: Verification (feasibility enforced) or smoke (advisory).
+        intent: Verification (an infeasible design is refused) or smoke.
+        advisory: The dimensions the run makes advisory: decided and
+            reported, never failing the test (§12.6). Empty, the default,
+            every assertion is enforced.
     """
 
     samples: int
     inputs: tuple[Any, ...]
     kind: RunKind = RunKind.TEST
     intent: Intent = Intent.VERIFICATION
+    advisory: frozenset[Dimension] = frozenset()
 
     def __post_init__(self) -> None:
         if self.samples <= 0:
@@ -253,18 +259,18 @@ class RunResult:
 
     @property
     def envelopes(self) -> Envelopes:
-        """The Type-I envelopes over every decision the run made, by direction:
-        the judged criteria and the enforced latency constraints (§1.4.6)."""
-        decisions = [
-            (r.decision.rule, r.decision.alpha)
-            for r in self.criterion_results
-            if r.decision is not None
-        ]
-        if self.latency is not None:
+        """The Type-I envelopes over every binding decision the run made, by
+        direction: those of the enforced dimensions only (§1.4.6, §12.6)."""
+        decisions: list[tuple[DecisionRule, float]] = []
+        if Dimension.FUNCTIONAL not in self.plan.advisory:
             decisions.extend(
-                (e.judgement.rule, e.judgement.alpha)
-                for e in self.latency.evaluations
-                if e.judgement.rule is not None
+                (r.decision.rule, r.decision.alpha)
+                for r in self.criterion_results
+                if r.decision is not None
+            )
+        if self.latency is not None and Dimension.LATENCY not in self.plan.advisory:
+            decisions.extend(
+                (e.judgement.rule, e.judgement.alpha) for e in self.latency.evaluations
             )
         return type_one_envelopes(decisions)
 

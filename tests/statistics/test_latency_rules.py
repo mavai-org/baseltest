@@ -3,9 +3,7 @@
 import pytest
 
 from baseltest.statistics import (
-    AdvisoryOutcome,
     Intent,
-    LatencyMode,
     NondegeneracyOutcome,
     ThresholdSource,
     Verdict,
@@ -50,13 +48,13 @@ def test_explicit_requirement_is_inconclusive_when_no_count_can_pass() -> None:
     result = evaluate_latency_compliance([100] * 58, 500, 0.95, 0.05)
     assert not result.pass_possible
     assert result.verdict is Verdict.INCONCLUSIVE
-    assert result.advisory_percentile_pass is True
+    assert result.raw_percentile_pass is True
 
 
 def test_raw_percentile_within_does_not_demonstrate_compliance() -> None:
     latencies = [400] * 96 + [900] * 4
     result = evaluate_latency_compliance(latencies, 500, 0.95, 0.05)
-    assert result.advisory_percentile_pass is True
+    assert result.raw_percentile_pass is True
     assert result.verdict is Verdict.FAIL
 
 
@@ -66,7 +64,6 @@ def test_baseline_derived_constraint_below_the_minimum_is_inconclusive_under_ver
         0.95,
         0.05,
         source=ThresholdSource.BASELINE_DERIVED,
-        mode=LatencyMode.ENFORCED,
         intent=Intent.VERIFICATION,
         baseline_latencies=list(range(1, 1001)),
     )
@@ -81,7 +78,6 @@ def test_baseline_derived_constraint_below_the_minimum_is_indicative_under_smoke
         0.95,
         0.05,
         source=ThresholdSource.BASELINE_DERIVED,
-        mode=LatencyMode.ENFORCED,
         intent=Intent.SMOKE,
         baseline_latencies=list(range(1, 1001)),
     )
@@ -89,19 +85,19 @@ def test_baseline_derived_constraint_below_the_minimum_is_indicative_under_smoke
     assert judgement.verdict is Verdict.PASS
 
 
-def test_advisory_constraint_never_carries_a_verdict() -> None:
+def test_explicit_constraint_is_decided_by_its_rule_not_compared_raw() -> None:
     judgement = judge_latency_constraint(
-        [900] * 20,
+        [900] * 100,
         0.95,
         0.05,
         source=ThresholdSource.EXPLICIT,
-        mode=LatencyMode.ADVISORY,
         intent=Intent.VERIFICATION,
         threshold_ms=500,
     )
-    assert judgement.verdict is None
-    assert judgement.rule is None
-    assert judgement.advisory is AdvisoryOutcome.ADVISORY_WARN
+    assert judgement.verdict is Verdict.FAIL
+    assert judgement.rule == "latency/compliance-exact-binomial"
+    assert judgement.compliance is not None
+    assert judgement.nondegeneracy is None
 
 
 def test_planning_warns_on_the_expected_count_and_names_the_figures() -> None:

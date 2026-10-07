@@ -301,15 +301,20 @@ def execute(
         )
 
     # The test's verdict composes the functional dimension (the judged
-    # criteria) and the latency dimension (its enforced constraints) by the
-    # structural rule, twice (companion §12.3.2).
+    # criteria) and the latency dimension (its constraints) by the
+    # structural rule, over the dimensions the plan leaves enforced
+    # (companion §12.3.2, §12.6).
     judged = [(r.name, r.verdict) for r in results if r.verdict is not None]
-    enforced = (
+    constraints = (
         [(f"latency {e.bound.percentile}", e.verdict) for e in latency_evaluation.evaluations]
         if latency_evaluation is not None
         else []
     )
-    overall = compose_overall_verdict(judged, enforced) if judged or enforced else None
+    overall = (
+        compose_overall_verdict(judged, constraints, plan.advisory)
+        if judged or constraints
+        else None
+    )
 
     return RunResult(
         contract_id=contract.contract_id,
