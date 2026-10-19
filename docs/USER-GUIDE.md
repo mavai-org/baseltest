@@ -233,9 +233,11 @@ A field-by-field extraction contract therefore needs no bindings file and no nor
   equals-ci: "Frau Beispiel"
 - path: "$.rents[*].amount"
   equals-set: [1200, 950.50]
-- path: "$.cancellation-date"
+- path: "$['cancellation-date']"
   is-null: true
 ```
+
+A member name holding anything but letters, digits and underscores — `cancellation-date`'s hyphen, a space, a dot — is written in bracket form, `$['cancellation-date']`: RFC 9535's dotted shorthand does not admit it, and the loader refuses `$.cancellation-date`.
 
 #### `path:` — structural selection
 

@@ -23,6 +23,8 @@ The undeclared `stepper:` keys that carried it before are gone: `selectedValue`,
 
 **For steppers of your own.** `StepProposal` gains `selection`, so a user stepper that selects can name its optimum in the same block; `Selection` and `SelectionStanding` are exported from `baseltest.optimization`. `OptimizationRecord` gains `selection`.
 
+**A JSONPath name containing a hyphen must be written in bracket form.** `path: "$.cancellation-date"` is refused at load: RFC 9535's dotted shorthand admits only letters, digits and underscores in a name, so write `path: "$['cancellation-date']"`. The format always specified RFC 9535, and such paths were never valid. They loaded only because jsonpath-rfc9535 1.0.0 accepted them, and 1.0.1 does not. baseltest now requires jsonpath-rfc9535 1.0.1 or later, so every install reads a contract the same way. If a contract of yours uses the shorthand, change it to the bracket form; nothing else changes.
+
 ## [0.26.0] — 2026-10-07
 
 **Breaking: verdict records move to verdict-1.8, and the statistics API loses its latency mode.** Contracts are unchanged, and with no new option every test passes, fails and exits exactly as under 0.25: every declared assertion was already enforced, and still is by default. What breaks is what reads the records and what calls the statistics core directly. Conformance is against the mavai-R v0.12.0 fixtures and verdict schema (Statistical Companion 1.6.0).

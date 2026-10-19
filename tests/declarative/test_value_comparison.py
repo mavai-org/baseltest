@@ -175,10 +175,20 @@ class TestNullVersusAbsent:
         held = run_verdict(
             tmp_path,
             "criteria:\n  - threshold: 0.5\n    postconditions:\n"
-            '      - {in: doc, path: "$.cancellation-date", is-null: true}\n'
-            '      - {in: doc, path: "$.no-such-field", is-null: true}',
+            "      - {in: doc, path: \"$['cancellation-date']\", is-null: true}\n"
+            '      - {in: doc, path: "$.no_such_field", is-null: true}',
         )
         assert held is Verdict.PASS
+
+    def test_a_hyphen_in_a_dotted_name_is_refused_at_load(self, tmp_path: Path) -> None:
+        # RFC 9535's dotted shorthand admits no hyphen; the bracket form does.
+        with pytest.raises(ContractConfigurationError) as excinfo:
+            run_verdict(
+                tmp_path,
+                "criteria:\n  - threshold: 0.5\n    postconditions:\n"
+                '      - {in: doc, path: "$.cancellation-date", is-null: true}',
+            )
+        assert "`path: $.cancellation-date` is not a valid JSONPath" in str(excinfo.value)
 
     def test_a_present_value_fails_is_null(self, tmp_path: Path) -> None:
         failed = run_verdict(
