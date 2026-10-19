@@ -3,14 +3,15 @@
 Whole grids evaluated before any decision, evidence pooled per value across
 revisits, interval-based elimination (never a single observed decline), and
 independent confirmation epochs before the winner is selected. Its finite-state
-machine lives in a typed :class:`_RefiningGridState`; its selection provenance
-rides out on the stopping :class:`StepProposal`.
+machine lives in a typed :class:`_RefiningGridState`; its selection rides out
+on the stopping :class:`StepProposal` and lands as the artefact's
+``convergence.selection``.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from baseltest.optimization import Selection, SelectionStanding
 from baseltest.statistics import DEFAULT_CONFIDENCE_LEVEL, wilson_interval
 
 from .._errors import ContractConfigurationError
@@ -36,7 +37,7 @@ class _RefiningGridState:
     """The refining-grid search's mutable finite-state machine.
 
     ``phase`` walks START → GRID → CONFIRM → DONE; ``pending`` is the values
-    scheduled for measurement in order; ``provenance`` is filled once, at the
+    scheduled for measurement in order; ``selection`` is filled once, at the
     stop, and carried out on the final proposal.
     """
 
@@ -46,7 +47,7 @@ class _RefiningGridState:
     candidates: tuple[float, ...] = ()
     finalists: tuple[float, ...] = ()
     reason: str | None = None
-    provenance: Mapping[str, object] | None = None
+    selection: Selection | None = None
 
 
 def _refining_grid(
@@ -73,8 +74,8 @@ def _refining_grid(
     in independent confirmation epochs and the winner selected on pooled
     evidence, with a practical tie resolved by the ``prefer`` policy
     (lower value by default). The selection, finalist standings, and
-    stopping reason are recorded on the stopping proposal's provenance,
-    landing in the artefact's ``stepper:`` block.
+    stopping reason ride out on the stopping proposal, landing in the
+    artefact's ``convergence.selection``.
     """
     if not lo < hi:
         raise ContractConfigurationError(
@@ -165,22 +166,26 @@ def _refining_grid(
         state.candidates = values
         state.pending = list(values)
 
+    def recorded(row: _Standing) -> SelectionStanding:
+        return SelectionStanding(
+            factors=((key, row.value),),
+            successes=row.passes,
+            trials=row.trials,
+            rate=round(row.rate, 6),
+            interval_low=round(row.low, 6),
+            interval_high=round(row.high, 6),
+        )
+
     def finish(winner: _Standing, rows: list[_Standing], confirmed: bool) -> None:
         state.phase = Phase.DONE
-        rendered = "; ".join(
-            f"{row.value:g} (rate {row.rate:.4f}, {row.passes}/{row.trials}, "
-            f"interval {row.low:.4f}-{row.high:.4f})"
-            for row in sorted(rows, key=lambda r: r.value)
+        state.selection = Selection(
+            stepper="refining-grid",
+            standing=recorded(winner),
+            confidence=confidence,
+            stopping_reason=str(state.reason),
+            confirmed=confirmed,
+            finalists=tuple(recorded(row) for row in sorted(rows, key=lambda r: r.value)),
         )
-        state.provenance = {
-            "selectedValue": winner.value,
-            "selectedRate": round(winner.rate, 6),
-            "selectedIntervalLow": round(winner.low, 6),
-            "selectedIntervalHigh": round(winner.high, 6),
-            "stoppingReason": str(state.reason),
-            "confirmed": confirmed,
-            "finalists": rendered,
-        }
 
     def decide_after_grid(ctx: OptimizeContext) -> None:
         rows = standings(state.candidates, ctx)
@@ -234,7 +239,7 @@ def _refining_grid(
             else:
                 decide_after_confirmation(ctx)
         if state.phase is Phase.DONE:
-            return StepProposal(config=None, provenance=state.provenance)
+            return StepProposal(config=None, selection=state.selection)
         return StepProposal(config={**current, key: state.pending.pop(0)})
 
     return advance

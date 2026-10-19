@@ -7,6 +7,22 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
+## [0.27.0] — unreleased
+
+**Breaking: `refining-grid` writes its optimum as `convergence.selection`, and refuses a scorer other than `pass-rate` or `objective: minimize`.** This follows the family's numeric-steppers amendment (`mavai-services/1` §II.9). Test, measure and explore runs are unchanged. What changes is what an optimize artefact states, and which `refining-grid` entries load. Optimize artefacts validate against the mavai-R v0.13.1 `mavai-optimize-1` schema.
+
+**The optimum is the artefact's, not mutator provenance.** A `refining-grid` run's artefact now carries `convergence.selection`:
+- the stepper and the selected factors;
+- the successes and trials pooled across every iteration that measured them, the rate, and the two-sided Wilson interval with its confidence;
+- the stopping reason (`min-step` or `no-plausible-challenger`) and whether the finalists were confirmed;
+- each finalist's pooled standing.
+
+The undeclared `stepper:` keys that carried it before are gone: `selectedValue`, `selectedRate`, `selectedIntervalLow`, `selectedIntervalHigh`, `stoppingReason`, `confirmed` and the rendered `finalists` string. Read `convergence.selection` instead. `convergence.bestIteration` still names the best single observed iteration. A stepper that does not select, such as `linear-sweep`, leaves `selection` absent, and the optimum is `bestIteration`.
+
+**`refining-grid` decides on the all-criteria pass rate, maximised.** An entry naming it with any other `scorer:`, or with `objective: minimize`, is refused at load. Before, the run would have been driven by one score while the stepper selected on another.
+
+**For steppers of your own.** `StepProposal` gains `selection`, so a user stepper that selects can name its optimum in the same block; `Selection` and `SelectionStanding` are exported from `baseltest.optimization`. `OptimizationRecord` gains `selection`.
+
 ## [0.26.0] — 2026-10-07
 
 **Breaking: verdict records move to verdict-1.8, and the statistics API loses its latency mode.** Contracts are unchanged, and with no new option every test passes, fails and exits exactly as under 0.25: every declared assertion was already enforced, and still is by default. What breaks is what reads the records and what calls the statistics core directly. Conformance is against the mavai-R v0.12.0 fixtures and verdict schema (Statistical Companion 1.6.0).

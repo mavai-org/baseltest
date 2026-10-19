@@ -82,8 +82,24 @@ def alternating_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
 
-def write_files(tmp_path: Path, contract: str = CONTRACT) -> Path:
-    (tmp_path / "mavai-services.yaml").write_text(SERVICES, encoding="utf-8")
+REFINING_SERVICES = SERVICES.replace(
+    """      - id: temperature-linear
+        stepper: linear-sweep
+        stepper-config: {key: temperature, step: 0.1, stop: 0.3}
+        initial: {temperature: 0.0}
+        max-iterations: 6
+""",
+    """      - id: temperature-refining
+        stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
+        initial: {temperature: 0.0}
+        max-iterations: 20
+""",
+)
+
+
+def write_files(tmp_path: Path, contract: str = CONTRACT, services: str = SERVICES) -> Path:
+    (tmp_path / "mavai-services.yaml").write_text(services, encoding="utf-8")
     path = tmp_path / "contract.yaml"
     path.write_text(contract, encoding="utf-8")
     return path
@@ -120,7 +136,61 @@ def assert_semantic_obligations(document: dict[str, Any]) -> None:
             assert (f"{label}Ms" in latency) == cleared
 
 
+def assert_selection_obligations(document: dict[str, Any]) -> None:
+    """``convergence.selection`` restates evidence pooled from the iterations.
+
+    Each standing's successes and trials are the sums over every iteration
+    that ran its factor values, and the selected standing is a finalist.
+    """
+    selection = document["convergence"]["selection"]
+    standings = [selection, *selection["finalists"]]
+    for standing in standings:
+        pooled = [
+            entry
+            for entry in document["iterations"]
+            if all(entry["factors"][key] == value for key, value in standing["factors"].items())
+        ]
+        assert standing["successes"] == sum(e["statistics"]["successes"] for e in pooled)
+        assert standing["trials"] == sum(e["execution"]["samplesExecuted"] for e in pooled)
+        assert standing["rate"] == round(standing["successes"] / standing["trials"], 6)
+        assert standing["intervalLow"] <= standing["rate"] <= standing["intervalHigh"]
+    assert selection["factors"] in [finalist["factors"] for finalist in selection["finalists"]]
+
+
 class TestInterchangeConformance:
+    def test_a_refining_grid_artefact_carries_its_selection_and_validates(
+        self, tmp_path: Path, alternating_endpoint: None
+    ) -> None:
+        outcomes = optimize(
+            write_files(tmp_path, services=REFINING_SERVICES),
+            samples_per_iteration=4,
+            optimizations_dir=tmp_path / "o",
+            emit=False,
+        )
+        document = load_artefact(outcomes[0].path)
+        Draft202012Validator(_SCHEMA).validate(document)
+        assert_semantic_obligations(document)
+        assert_selection_obligations(document)
+        selection = document["convergence"]["selection"]
+        assert selection["stepper"] == "refining-grid"
+        assert selection["confidence"] == 0.95
+        assert selection["stoppingReason"] in ("min-step", "no-plausible-challenger")
+        # The selection is the artefact's, not mutator provenance.
+        assert "selectedValue" not in document["stepper"]
+
+    def test_a_non_selecting_stepper_leaves_selection_absent(
+        self, tmp_path: Path, alternating_endpoint: None
+    ) -> None:
+        outcomes = optimize(
+            write_files(tmp_path),
+            samples_per_iteration=4,
+            optimizations_dir=tmp_path / "o",
+            emit=False,
+        )
+        document = load_artefact(outcomes[0].path)
+        Draft202012Validator(_SCHEMA).validate(document)
+        assert "selection" not in document["convergence"]
+
     def test_a_mixed_run_artefact_validates_against_the_published_schema(
         self, tmp_path: Path, alternating_endpoint: None
     ) -> None:
