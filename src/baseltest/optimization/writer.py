@@ -15,7 +15,7 @@ from pathlib import Path
 from baseltest.engine.artefact import factor_lines, quote, scalar
 from baseltest.observation import input_lines, observation_lines
 
-from .record import OptimizationRecord
+from .record import OptimizationRecord, Selection, SelectionStanding
 
 SCHEMA_VERSION = "mavai-optimize-1"
 
@@ -83,7 +83,48 @@ def render_optimization(record: OptimizationRecord) -> str:
             lines.append(f"    {quote(key)}: {scalar(value)}")
     else:
         lines.append("  bestFactors: {}")
+    if record.selection is not None:
+        lines.extend(_selection_lines(record.selection))
     return "\n".join(lines) + "\n"
+
+
+def _standing_lines(standing: SelectionStanding, indent: str) -> list[str]:
+    """One standing's fields; the caller prefixes the first for a list item."""
+    lines = factor_lines(standing.factors, indent=indent) or [f"{indent}factors: {{}}"]
+    lines.extend(
+        [
+            f"{indent}successes: {standing.successes}",
+            f"{indent}trials: {standing.trials}",
+            f"{indent}rate: {scalar(standing.rate)}",
+            f"{indent}intervalLow: {scalar(standing.interval_low)}",
+            f"{indent}intervalHigh: {scalar(standing.interval_high)}",
+        ]
+    )
+    return lines
+
+
+def _selection_lines(selection: Selection) -> list[str]:
+    """``convergence.selection``: the selecting stepper's optimum and evidence.
+
+    ``bestIteration`` stays the best single observation; this block names
+    the optimum the stepper selected on evidence pooled across visits.
+    """
+    lines = ["  selection:", f"    stepper: {quote(selection.stepper)}"]
+    lines.extend(_standing_lines(selection.standing, indent="    "))
+    lines.extend(
+        [
+            f"    confidence: {scalar(selection.confidence)}",
+            f"    stoppingReason: {quote(selection.stopping_reason)}",
+            f"    confirmed: {scalar(selection.confirmed)}",
+        ]
+    )
+    if selection.finalists:
+        lines.append("    finalists:")
+        for finalist in selection.finalists:
+            item = _standing_lines(finalist, indent="        ")
+            item[0] = "      - " + item[0].lstrip()
+            lines.extend(item)
+    return lines
 
 
 def write_optimization(record: OptimizationRecord, directory: Path) -> Path:

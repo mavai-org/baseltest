@@ -42,6 +42,7 @@ _ENTRY_KEYS = {
     "initial",
 }
 _DEFAULT_SCORER = "pass-rate"
+_REFINING_GRID = "refining-grid"
 _ID_SHAPE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -162,6 +163,35 @@ def _resolve_objective(name: str, where: str, entry: dict[str, Any]) -> Objectiv
             f"service {name!r}: {where}: `objective:` must be one of "
             f"{', '.join(o.value for o in Objective)}, got {raw!r}"
         ) from None
+
+
+def _check_pass_rate_stepper(
+    name: str,
+    where: str,
+    registration: StepperRegistration,
+    scorer_name: str,
+    objective: Objective,
+) -> None:
+    """``refining-grid`` decides on the all-criteria pass rate, maximised.
+
+    Its standings pool passes and samples per value and rank by the higher
+    rate, so a different scorer or a minimised objective would drive the run
+    one way while the stepper selects another — refused at load.
+    """
+    if registration.name != _REFINING_GRID:
+        return
+    if scorer_name != _DEFAULT_SCORER:
+        raise _fail(
+            f"service {name!r}: {where}: stepper {_REFINING_GRID!r} decides on the "
+            f"all-criteria pass rate, so `scorer:` must be {_DEFAULT_SCORER!r} "
+            f"(or omitted), got {scorer_name!r}"
+        )
+    if objective is not Objective.MAXIMIZE:
+        raise _fail(
+            f"service {name!r}: {where}: stepper {_REFINING_GRID!r} maximises the "
+            f"pass rate, so `objective:` must be {Objective.MAXIMIZE.value!r} "
+            f"(or omitted), got {objective.value!r}"
+        )
 
 
 def _validate_configuration_keys(
@@ -299,6 +329,7 @@ def parse_optimizations(
         _validate_configuration_keys(name, where, registration, kwargs, available_keys)
         scorer_name, score = _resolve_scorer(name, where, entry, registry)
         objective = _resolve_objective(name, where, entry)
+        _check_pass_rate_stepper(name, where, registration, scorer_name, objective)
         max_iterations = _positive_int(
             name, where, "max-iterations", entry.get("max-iterations"), required=True
         )

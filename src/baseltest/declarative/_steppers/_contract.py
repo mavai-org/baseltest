@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from baseltest.optimization import Selection
+
 from .._errors import ContractConfigurationError
 from .._signatures import (
     SCALAR_TYPES,
@@ -40,13 +42,16 @@ class StepProposal:
     ``config`` is the whole next configuration mapping, or ``None`` to stop
     the search — so a stop can still carry provenance. ``provenance`` is the
     stepper's runtime residue for the artefact's ``stepper:`` block (the
-    refining-grid's selection, the prompt-engineer's meta identity); it is
-    read as the last-seen value when the run ends. A stepper that returns a
-    bare configuration mapping (or ``None``) proposes with no provenance.
+    prompt-engineer's meta identity); it is read as the last-seen value when
+    the run ends. ``selection`` is a selecting stepper's optimum (the
+    refining-grid's), written as the artefact's ``convergence.selection``;
+    it too is read as the last-seen value. A stepper that returns a bare
+    configuration mapping (or ``None``) proposes with neither.
     """
 
     config: dict[str, Any] | None
     provenance: Mapping[str, object] | None = None
+    selection: Selection | None = None
 
 
 StepFunction = Callable[[dict[str, Any], "OptimizeContext"], "StepProposal | dict[str, Any] | None"]

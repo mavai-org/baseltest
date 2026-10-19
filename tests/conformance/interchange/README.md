@@ -6,7 +6,18 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.12.0`**: verified byte-identical to the
+**Vendored from mavai-R `0.13.1`**: verified byte-identical to the
+`interchange-v0.13.1.zip` release asset when recorded (2026-10-19).
+`mavai-optimize-1.schema.json` gains the optional `convergence.selection`: a
+selecting stepper's optimum, with its evidence pooled across every iteration
+that measured it, its two-sided interval and confidence, the stopping reason,
+whether it was confirmed, and the finalists' standings. `bestIteration` is
+re-described as the best single observation. The other two JSON schemas and
+`verdict-1.8.xsd` are unchanged. `verdict-1.9.xsd` (the run-controls
+amendment, additive over 1.8) is not vendored: this emitter writes 1.8 until
+it records run controls.
+
+**Vendored from mavai-R `0.12.0`** (superseded): verified byte-identical to the
 `interchange-v0.12.0.zip` release asset when recorded (2026-10-07). The three
 JSON schemas are unchanged; the verdict schema moves to `verdict-1.8.xsd`
 (Statistical Companion 1.6.0), a clean break from 1.7 that records whether
@@ -76,7 +87,7 @@ schema. And the verdict copy is `1.5`, not the `1.4` the prose claimed.
 | file | validated by |
 |---|---|
 | `mavai-explore-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
-| `mavai-optimize-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
+| `mavai-optimize-1.schema.json` | `tests/optimization/test_interchange_conformance.py` |
 | `mavai-baseline-1.schema.json` | `tests/baseline/test_interchange_conformance.py` |
 | `verdict-1.8.xsd` | the verdict emitter's suite |
 

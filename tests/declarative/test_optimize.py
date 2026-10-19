@@ -228,6 +228,43 @@ class TestEntryValidation:
         )
         assert "`objective:` must be one of maximize, minimize" in message
 
+    def test_refining_grid_refuses_a_scorer_other_than_pass_rate(self) -> None:
+        registry = Registry()
+
+        @registry.scorer("latency-score")
+        def latency_score(summary):  # type: ignore[no-untyped-def]
+            return 0.0
+
+        with pytest.raises(ContractConfigurationError) as caught:
+            parse_services(
+                services_yaml(
+                    """
+      - stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
+        scorer: latency-score
+        max-iterations: 3
+"""
+                ),
+                registry,
+            )
+        message = str(caught.value)
+        assert "stepper 'refining-grid' decides on the all-criteria pass rate" in message
+        assert "got 'latency-score'" in message
+
+    def test_refining_grid_refuses_a_minimised_objective(self) -> None:
+        message = refused(
+            services_yaml(
+                """
+      - stepper: refining-grid
+        stepper-config: {key: temperature, lo: 0.0, hi: 1.0, step: 0.5, min-step: 0.25}
+        objective: minimize
+        max-iterations: 3
+"""
+            )
+        )
+        assert "stepper 'refining-grid' maximises the pass rate" in message
+        assert "got 'minimize'" in message
+
     def test_max_iterations_is_required(self) -> None:
         message = refused(
             services_yaml(
@@ -823,10 +860,17 @@ class TestBuiltinSteppers:
         # pooled 8/8, so the search stops without refinement or epochs.
         assert probed == [0.0, 0.0, 0.5, 1.0]
         assert record.termination == "stepper-stopped"
-        provenance = dict(record.stepper)
-        assert provenance["selectedValue"] == 0.0
-        assert provenance["stoppingReason"] == "no-plausible-challenger"
-        assert provenance["confirmed"] is False
+        selection = record.selection
+        assert selection is not None
+        assert selection.stepper == "refining-grid"
+        assert dict(selection.standing.factors) == {"temperature": 0.0}
+        # Iterations 0 and 1 both measured 0.0: the evidence is pooled.
+        assert (selection.standing.successes, selection.standing.trials) == (8, 8)
+        assert selection.standing.rate == 1.0
+        assert selection.confidence == 0.95
+        assert selection.stopping_reason == "no-plausible-challenger"
+        assert selection.confirmed is False
+        assert "selectedValue" not in dict(record.stepper)
 
     def test_refining_grid_refines_confirms_and_prefers_low_on_a_tie(
         self, tmp_path: Path, scripted_endpoint: Callable[..., list[dict[str, Any]]]
@@ -869,11 +913,16 @@ class TestBuiltinSteppers:
         # tie resolves to the lower temperature.
         assert probed == [0.0, 0.0, 0.5, 1.0, 0.0, 0.25, 0.5, 0.0, 0.25]
         assert record.termination == "stepper-stopped"
-        provenance = dict(record.stepper)
-        assert provenance["selectedValue"] == 0.0
-        assert provenance["stoppingReason"] == "min-step"
-        assert provenance["confirmed"] is True
-        assert "0.25" in provenance["finalists"]
+        selection = record.selection
+        assert selection is not None
+        assert dict(selection.standing.factors) == {"temperature": 0.0}
+        assert selection.stopping_reason == "min-step"
+        assert selection.confirmed is True
+        finalists = [dict(f.factors)["temperature"] for f in selection.finalists]
+        assert finalists == [0.0, 0.25]
+        # 0.0 was measured in iterations 0, 1, 4 and 7; 0.25 in 5 and 8.
+        trials = [f.trials for f in selection.finalists]
+        assert trials == [16, 8]
 
 
 META_MARKER = "You are a prompt engineer"

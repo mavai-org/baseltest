@@ -17,6 +17,7 @@ from baseltest.optimization import (
     IterationCapture,
     Objective,
     OptimizationRecord,
+    Selection,
     Termination,
     wire_scorer_name,
     write_optimization,
@@ -92,6 +93,7 @@ def _drive_optimization(
     defect_diagnosis: str | None = None
     parameters = entry.parameters
     step_provenance: Mapping[str, object] | None = None
+    step_selection: Selection | None = None
     visited: set[tuple[Any, ...]] = set()
     for index in range(entry.max_iterations):
         visited.add(_configuration_identity(definition.type, parameters))
@@ -134,11 +136,13 @@ def _drive_optimization(
             iteration=index + 1,
             iterations_remaining=entry.max_iterations - (index + 1),
         )
-        next_parameters, proposal_provenance = _next_parameters(
+        next_parameters, proposal_provenance, proposal_selection = _next_parameters(
             entry, definition, context, iteration_result.config, index + 1
         )
         if proposal_provenance is not None:
             step_provenance = proposal_provenance
+        if proposal_selection is not None:
+            step_selection = proposal_selection
         if next_parameters is None:
             termination = Termination.STEPPER_STOPPED
             break
@@ -185,6 +189,7 @@ def _drive_optimization(
         best_index=best_index,
         termination=termination,
         stepper=_stepper_block(entry, step_provenance, canary),
+        selection=step_selection,
     )
     artefact = write_optimization(record, optimizations_dir)
     if emit:
@@ -259,8 +264,9 @@ def _stepper_block(
     """The artefact's mutator-provenance block: name, config, runtime residue.
 
     ``provenance`` is the last residue a proposal carried this run — the
-    refining-grid's selection, the prompt-engineer's meta identity — or
-    ``None`` for a stepper that carries none. ``canary`` is the loop's own
+    prompt-engineer's meta identity — or ``None`` for a stepper that
+    carries none. A selecting stepper's optimum is not residue: it is
+    written as ``convergence.selection``. ``canary`` is the loop's own
     reading of a declared withheld-criteria control group, stated here
     because a warning at a console reaches nobody downstream.
     """
@@ -279,11 +285,12 @@ def _next_parameters(
     context: OptimizeContext,
     configuration: dict[str, Any],
     iteration: int,
-) -> tuple[Any | None, Mapping[str, object] | None]:
+) -> tuple[Any | None, Mapping[str, object] | None, Selection | None]:
     """One stepper call, its proposal validated into the next parameters.
 
     Returns the next parameters (``None`` when the stepper stopped the
-    search) and the proposal's provenance (``None`` when it carried none).
+    search), the proposal's provenance and its selection (each ``None``
+    when it carried none).
     A stepper may return a :class:`StepProposal` — the next configuration
     mapping (or ``None`` to stop) with optional provenance — or, plainly, a
     bare configuration mapping or ``None`` with no provenance. Any
@@ -302,15 +309,15 @@ def _next_parameters(
     )
     outcome = entry.step(dict(configuration), context)
     if isinstance(outcome, StepProposal):
-        config, provenance = outcome.config, outcome.provenance
+        config, provenance, selection = outcome.config, outcome.provenance, outcome.selection
     else:
-        config, provenance = outcome, None
+        config, provenance, selection = outcome, None, None
     if config is None:
-        return None, provenance
+        return None, provenance, selection
     if not isinstance(config, dict):
         raise ContractConfigurationError(
             f"{where}: the stepper returned {type(config).__name__}, not a "
             "configuration mapping — a stepper returns the whole next "
             "configuration, or None to stop"
         )
-    return definition.type.parse(definition.name, config, where), provenance
+    return definition.type.parse(definition.name, config, where), provenance, selection

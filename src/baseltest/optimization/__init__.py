@@ -13,6 +13,8 @@ from .record import (
     IterationCapture,
     Objective,
     OptimizationRecord,
+    Selection,
+    SelectionStanding,
     Termination,
     wire_scorer_name,
 )
@@ -22,6 +24,8 @@ __all__ = [
     "IterationCapture",
     "Objective",
     "OptimizationRecord",
+    "Selection",
+    "SelectionStanding",
     "Termination",
     "render_optimization",
     "wire_scorer_name",
