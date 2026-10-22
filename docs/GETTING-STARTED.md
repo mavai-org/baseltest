@@ -115,7 +115,7 @@ basel test basket-builder.yaml
 
 ```
 n = 59 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 59 samples)
-contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.6.0)
+contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.7.0)
   Type-I envelopes: false compliance ≤ 0.05
 
   criterion                   verdict  passed  required  threshold  rule                       basis
@@ -125,7 +125,7 @@ contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.6
 
 The `required` column is the point of baseltest: the verdict is not "100% ≥ 95%". A declared threshold is a requirement, and the test asks whether the evidence *demonstrates* it — the exact binomial test of the Statistical Companion (`compliance/exact-binomial`): it passes when at least `required` samples succeed, the smallest count that demonstrates 0.95 at 95% confidence. A high observed rate over too few samples honestly fails: 48 of 50 against 0.90 does not demonstrate 0.90. Notice what the derived minimum means: at n = 59, only a perfect run can pass a 0.95 requirement. A larger `--samples` buys slack — at n = 100, 99 successes still pass. Add `--html-report report.html` to have mavai draw a self-contained summary page from the run's artefacts.
 
-The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n at which every requirement can be demonstrated at its confidence. That minimum is the weakest admissible design (only a perfect run passes): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (any requirement above 0.97) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (a size at which no outcome could demonstrate a requirement is refused, `COMPLIANCE_INFEASIBLE`), and `intent: smoke` runs a cheap undersized check that says when a pass was not possible. *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
+The first line is the **run-plan line**: every run states its n and where the value came from — no sample ever runs on a number you can't see. The contract file carries the **claim**; the invocation carries the **budget**. With no flag, a test of declared thresholds runs at the *derived minimum* — the smallest n at which every requirement can be demonstrated at its confidence. That minimum is the weakest admissible design (only a perfect run passes): fine for wiring things up, not for standing guard. A derived minimum above **100 samples** (any requirement above 0.97) is refused before a single invocation, naming the number to type; `--samples N` runs any size deliberately (a size at which no outcome could demonstrate a requirement is refused, `COMPLIANCE_INFEASIBLE`), and `intent: smoke` runs a cheap undersized check that fails only on evidence that the service falls short (its pass is not evidence of compliance). *Empirical* criteria — bars derived from a measured baseline — are sized from your stated risk instead: see **Sizing by risk** below.
 
 `--samples N` works on `test` and `measure` alike, and every decision is made at the size actually run — a cheap 50-sample check is still a statistically meaningful one.
 
