@@ -570,7 +570,7 @@ class TestSmokeRecord:
         text = render_verdict_record(self._result(misses))
         root = ElementTree.fromstring(text)
         assert root.get("version") == "1.10"
-        assert root.get("methodology-version") == "1.7.0"
+        assert root.get("methodology-version") == METHODOLOGY_VERSION
         execution = root.find(f"{NS}execution")
         assert execution is not None and execution.get("intent") == "SMOKE"
         row = root.find(f"{NS}per-criterion/{NS}criterion")

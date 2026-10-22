@@ -1,6 +1,6 @@
 """The methodology's decision rules, configuration errors, and test intent.
 
-Statistical Companion 1.7.0 names six verdict-producing procedures, each
+Statistical Companion 1.7.1 names six verdict-producing procedures, each
 with a versioned identifier that travels with every verdict it decides:
 
 - ``regression/fisher`` — empirical regression: the one-sided Fisher exact
@@ -27,7 +27,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 from enum import StrEnum
 
-METHODOLOGY_VERSION = "1.7.0"
+METHODOLOGY_VERSION = "1.7.1"
 """The Statistical Companion methodology whose rules this package implements."""
 
 
@@ -43,7 +43,7 @@ class DecisionRule(StrEnum):
 
     @property
     def version(self) -> int:
-        """The rule's version; every rule is at version 1 under 1.7.0."""
+        """The rule's version; every rule is at version 1 under 1.7.1."""
         return 1
 
 

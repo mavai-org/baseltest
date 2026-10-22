@@ -2,7 +2,7 @@
 
 This package has no dependency on any other `baseltest` package -- it is a
 self-contained library of pure functions and immutable data structures
-implementing the Statistical Companion's methodology 1.7.0:
+implementing the Statistical Companion's methodology 1.7.1:
 
 - the decision rules, configuration errors and test intent (`rules`), and
   the exact-boundary convention every exact rule shares (`_exact`);

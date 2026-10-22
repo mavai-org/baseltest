@@ -6,9 +6,14 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.14.0`**: `verdict-1.10.xsd` added, taken from
-the `v0.14.0` tag (commit 539980e) on 2026-10-22; check it against the
-`interchange-v0.14.0.zip` release asset once published. It is additive
+**Vendored from mavai-R `0.15.0`**: `verdict-1.10.xsd` re-taken from
+mavai-R commit 02f4d7a on 2026-10-22, ahead of the release; check it
+against the `interchange-v0.15.0.zip` release asset once published. Only
+a comment changes from `0.14.0` (a 1.10 record's methodology version is
+"1.7.0" or later); no definition changes.
+
+**Vendored from mavai-R `0.14.0`** (superseded): `verdict-1.10.xsd` added, taken from
+the `v0.14.0` tag (commit 539980e) on 2026-10-22. It is additive
 over 1.9, which is additive over 1.8: `DecisionRuleEnum` gains
 `compliance/smoke-exact-binomial` and
 `latency/smoke-compliance-exact-binomial`, the rules that decide a

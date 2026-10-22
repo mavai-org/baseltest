@@ -6,11 +6,20 @@ upstream `mavai-R/inst/cases/*.json`), used by
 `tests/statistics/test_conformance.py` to validate this package against the
 reference implementation.
 
-Pinned at `mavai-R` **`v0.14.0`**: Statistical Companion 1.7.0, methodology
-1.7.0, fixture schema 2. Every vendored file is byte-identical to the
+Pinned at `mavai-R` **`v0.15.0`**: Statistical Companion 1.7.1, methodology
+1.7.1, fixture schema 2. Every vendored file is byte-identical to the
 release asset; the manifest's content hashes are checked by every run.
+(Vendored ahead of the release from mavai-R commit 02f4d7a on 2026-10-22;
+check against the `cases-v0.15.0.zip` asset once published.)
 
-`v0.14.0` gives smoke intent its own rules. Under SMOKE a declared
+`v0.15.0` clarifies, without changing any verdict, count or rule, that a
+criterion decided by a smoke rule enters neither Type-I envelope. Every
+suite declares methodology 1.7.1. `composite_verdict`, which accepts an
+optional `decision_rule` per criterion and gains three cases on this, is
+informational and not run here; the same property is tested directly
+against the engine's envelopes.
+
+`v0.14.0` (superseded) gives smoke intent its own rules. Under SMOKE a declared
 requirement is decided by `compliance/smoke-exact-binomial`, and an
 explicit latency requirement by `latency/smoke-compliance-exact-binomial`,
 at every size: the burden of proof is reversed, so a count FAILs iff its
@@ -21,7 +30,7 @@ VERIFICATION is unchanged. `compliance_decision` gains the binding
 `latency_compliance_decision` gains `decision_rule` and `required_within`
 and five SMOKE cases; in `verdict`, `compliance_smoke_50_of_50_threshold_95`
 now PASSes and `compliance_smoke_44_of_50_threshold_95` is added. Every
-suite declares methodology 1.7.0. `v0.13.1` and `v0.13.0` (not pinned here)
+suite declared methodology 1.7.0. `v0.13.1` and `v0.13.0` (not pinned here)
 added `regression/fisher` cases at low baseline rates with large samples to
 `regression_decision` and `threshold_derivation`, which this pin brings in.
 

@@ -5,7 +5,14 @@ from itertools import count
 
 import pytest
 
-from baseltest.contract import BaselineCount, Criterion, ServiceContract, contains
+from baseltest.contract import (
+    BaselineCount,
+    Criterion,
+    LatencyBar,
+    LatencyBound,
+    ServiceContract,
+    contains,
+)
 from baseltest.engine import (
     BarAttainment,
     ConfigurationRefusedError,
@@ -113,3 +120,25 @@ class TestBarAttainmentStaysOnTheExactBinomial:
         criterion = result.criterion_results[0]
         assert criterion.verdict is Verdict.PASS
         assert bar_attainment(criterion) is BarAttainment.UNSUPPORTABLE
+
+
+def test_a_smoke_requirement_adds_nothing_to_either_envelope() -> None:
+    # §1.4.6: a smoke decision's alpha bounds a false FAIL, and its PASS
+    # claims no compliance; only the regression criterion's alpha counts.
+    requirement = Criterion(name="req", postconditions=(contains("ok"),), threshold=0.99)
+    regression = Criterion(
+        name="reg", postconditions=(contains("ok"),), baseline=BaselineCount(951, 1000)
+    )
+    contract = ServiceContract(
+        contract_id="svc",
+        invoke=lambda _v: "ok",
+        criteria=(requirement, regression),
+        latency=LatencyBar(bounds=(LatencyBound("p99", 60_000),)),
+    )
+    smoke = execute(contract, RunPlan(samples=100, inputs=("a",), intent=Intent.SMOKE))
+    assert smoke.envelopes.false_compliance is None
+    assert smoke.envelopes.false_degradation_signal == pytest.approx(0.05)
+    alone = ServiceContract(contract_id="svc", invoke=lambda _v: "ok", criteria=(requirement,))
+    result = execute(alone, RunPlan(samples=100, inputs=("a",), intent=Intent.SMOKE))
+    assert result.envelopes.false_compliance is None
+    assert result.envelopes.false_degradation_signal is None

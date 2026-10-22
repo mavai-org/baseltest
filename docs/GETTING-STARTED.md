@@ -115,7 +115,7 @@ basel test basket-builder.yaml
 
 ```
 n = 59 (derived: criterion response-is-a-valid-basket's threshold 0.95 requires at least 59 samples)
-contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.7.0)
+contract basket-builder-returns-valid-baskets — verdict: PASS (methodology 1.7.1)
   Type-I envelopes: false compliance ≤ 0.05
 
   criterion                   verdict  passed  required  threshold  rule                       basis
