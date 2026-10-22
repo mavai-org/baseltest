@@ -2,16 +2,17 @@
 
 This package has no dependency on any other `baseltest` package -- it is a
 self-contained library of pure functions and immutable data structures
-implementing the Statistical Companion's methodology 1.6.0:
+implementing the Statistical Companion's methodology 1.7.0:
 
 - the decision rules, configuration errors and test intent (`rules`), and
   the exact-boundary convention every exact rule shares (`_exact`);
 - empirical regression under ``regression/fisher`` (`regression`) and its
   design and resolved sizing (`sizing`);
-- normative compliance under ``compliance/exact-binomial`` (`compliance`)
-  and its feasibility gate (`feasibility`);
-- latency percentiles, ``latency/precedence`` and
-  ``latency/compliance-exact-binomial`` (`latency`);
+- normative compliance under ``compliance/exact-binomial``, and under
+  ``compliance/smoke-exact-binomial`` for smoke intent (`compliance`), and
+  its feasibility gate (`feasibility`);
+- latency percentiles, ``latency/precedence``,
+  ``latency/compliance-exact-binomial`` and its smoke twin (`latency`);
 - verdicts and their composition into the test's verdict over the enforced
   dimensions (`verdict`);
 - Wilson score intervals, kept as descriptive intervals (`wilson`).
@@ -32,6 +33,7 @@ from .compliance import (
     minimum_passing_count,
     pass_probability,
     size_compliance,
+    smoke_required_pass,
 )
 from .feasibility import FeasibilityCheck, check_feasibility
 from .latency import (
@@ -81,6 +83,7 @@ from .rules import (
     alpha_from_confidence,
     check_test_size,
     ordered_configuration_errors,
+    requirement_rule,
 )
 from .sizing import (
     DesignSizing,
@@ -100,6 +103,7 @@ from .verdict import (
     Envelopes,
     OverallVerdict,
     RegressionVerdict,
+    SmokeComplianceVerdict,
     Trigger,
     TriggerKind,
     Verdict,
@@ -108,6 +112,7 @@ from .verdict import (
     enforcement_mode,
     evaluate_compliance,
     evaluate_regression,
+    evaluate_smoke_compliance,
     structural_composite,
     type_one_envelopes,
 )
@@ -149,6 +154,7 @@ __all__ = [
     "ResolvedSizing",
     "SizingAlternative",
     "SizingRefusal",
+    "SmokeComplianceVerdict",
     "ThresholdSource",
     "Trigger",
     "TriggerKind",
@@ -174,6 +180,7 @@ __all__ = [
     "evaluate_compliance",
     "evaluate_latency_compliance",
     "evaluate_regression",
+    "evaluate_smoke_compliance",
     "expected_successful_count",
     "fisher_cutoff",
     "fisher_p_value",
@@ -196,9 +203,11 @@ __all__ = [
     "proportion_variance",
     "resolved_detectable_rate",
     "resolved_power",
+    "requirement_rule",
     "resolved_sizing",
     "size_at_assumed_common_rate",
     "size_compliance",
+    "smoke_required_pass",
     "structural_composite",
     "type_one_envelopes",
     "wilson_interval",

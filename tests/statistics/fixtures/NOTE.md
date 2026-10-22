@@ -6,15 +6,31 @@ upstream `mavai-R/inst/cases/*.json`), used by
 `tests/statistics/test_conformance.py` to validate this package against the
 reference implementation.
 
-Pinned at `mavai-R` **`v0.12.0`**: Statistical Companion 1.6.0, methodology
-1.6.0, fixture schema 2. Every vendored file is byte-identical to the
+Pinned at `mavai-R` **`v0.14.0`**: Statistical Companion 1.7.0, methodology
+1.7.0, fixture schema 2. Every vendored file is byte-identical to the
 release asset; the manifest's content hashes are checked by every run.
 
-`v0.12.0` keeps the decision rules of `v0.11.0` and changes only which
-verdicts bind: every assertion is enforced by default, and a run-time
-setting makes the functional dimension, the latency dimension or both
-advisory, decided by their rules and reported but never failing the test.
-Every suite declares methodology 1.6.0. In the `verdict` suite the
+`v0.14.0` gives smoke intent its own rules. Under SMOKE a declared
+requirement is decided by `compliance/smoke-exact-binomial`, and an
+explicit latency requirement by `latency/smoke-compliance-exact-binomial`,
+at every size: the burden of proof is reversed, so a count FAILs iff its
+binomial lower tail at the requirement is at most alpha, and the binding
+count is one more than the largest failing count (0 when none can FAIL).
+VERIFICATION is unchanged. `compliance_decision` gains the binding
+`decision_rule` and `required_pass` on every case and thirteen SMOKE cases;
+`latency_compliance_decision` gains `decision_rule` and `required_within`
+and five SMOKE cases; in `verdict`, `compliance_smoke_50_of_50_threshold_95`
+now PASSes and `compliance_smoke_44_of_50_threshold_95` is added. Every
+suite declares methodology 1.7.0. `v0.13.1` and `v0.13.0` (not pinned here)
+added `regression/fisher` cases at low baseline rates with large samples to
+`regression_decision` and `threshold_derivation`, which this pin brings in.
+
+`v0.12.0` (superseded) keeps the decision rules of `v0.11.0` and changes
+only which verdicts bind: every assertion is enforced by default, and a
+run-time setting makes the functional dimension, the latency dimension or
+both advisory, decided by their rules and reported but never failing the
+test.
+In `v0.12.0` every suite declared methodology 1.6.0. In the `verdict` suite the
 `test_verdict` cases gain the input `advisory` (the run's setting: none,
 `functional`, `latency` or both) and the binding outputs `functional_mode`
 and `latency_mode`; the latency constraints lose their `mode` and

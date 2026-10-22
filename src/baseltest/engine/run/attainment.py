@@ -7,11 +7,17 @@ because even a perfect run of this size could not have cleared the bar. That
 last case is a feasibility fact about the experiment, not the service: under
 ``compliance/exact-binomial`` no count of this size can pass (``k_min`` does
 not exist), and it is read here off the criterion's decision.
+
+A requirement's attainment is always read under ``compliance/exact-binomial``,
+whatever rule decided the run: a run under smoke intent is decided by
+``compliance/smoke-exact-binomial``, whose PASS states only that no
+shortfall was found, but whether the bar was *met* — and whether it could
+have been — remains a fact about the experiment, not a smoke verdict.
 """
 
 from enum import StrEnum
 
-from baseltest.statistics import ComplianceVerdict, Verdict
+from baseltest.statistics import RegressionVerdict, Verdict
 
 from .model import CriterionResult
 
@@ -34,8 +40,9 @@ def bar_attainment(result: CriterionResult) -> BarAttainment:
     decision = result.decision
     if decision is None:
         raise ValueError(f"criterion {result.criterion.name!r} declares no bar")
-    if decision.verdict is Verdict.PASS:
-        return BarAttainment.MET
-    if isinstance(decision, ComplianceVerdict) and not decision.pass_possible:
+    if isinstance(decision, RegressionVerdict):
+        return BarAttainment.MET if decision.verdict is Verdict.PASS else BarAttainment.NOT_MET
+    k_min = decision.minimum_passing
+    if k_min is None:
         return BarAttainment.UNSUPPORTABLE
-    return BarAttainment.NOT_MET
+    return BarAttainment.MET if decision.successes >= k_min else BarAttainment.NOT_MET

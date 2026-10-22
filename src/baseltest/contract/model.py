@@ -11,8 +11,10 @@ from typing import Generic, Protocol, TypeVar
 from baseltest.statistics import (
     DEFAULT_CONFIDENCE_LEVEL,
     DecisionRule,
+    Intent,
     ThresholdSource,
     alpha_from_confidence,
+    requirement_rule,
 )
 
 from .errors import BaseltestError
@@ -352,11 +354,15 @@ class Criterion:
                     f"got {self.design_alternative_rate}"
                 )
 
-    @property
-    def rule(self) -> DecisionRule | None:
-        """The rule that decides this criterion; ``None`` when it is characterised only."""
+    def rule_under(self, intent: Intent) -> DecisionRule | None:
+        """The rule that decides this criterion under a test's intent; ``None``
+        when it is characterised only.
+
+        A requirement's rule is the intent's (§5.7.3); a baseline is decided
+        by ``regression/fisher`` under either.
+        """
         if self.threshold is not None:
-            return DecisionRule.COMPLIANCE_EXACT_BINOMIAL
+            return requirement_rule(intent)
         if self.baseline is not None:
             return DecisionRule.REGRESSION_FISHER
         return None
@@ -364,7 +370,7 @@ class Criterion:
     @property
     def is_judged(self) -> bool:
         """Whether this criterion has a bar and therefore receives a verdict."""
-        return self.rule is not None
+        return self.threshold is not None or self.baseline is not None
 
     @property
     def alpha(self) -> float:

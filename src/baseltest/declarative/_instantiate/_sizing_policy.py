@@ -78,8 +78,8 @@ def _resolve_run_size(
                 f"needs at least {minimum} samples — more than the "
                 f"{SILENT_DERIVATION_LIMIT} this framework will derive silently. "
                 f"Run it deliberately with `--samples {minimum}`, or declare "
-                "`intent: smoke` for a cheap pass that renders no statistical "
-                "verdict"
+                "`intent: smoke` for a cheap sentinel check that FAILs only on "
+                "evidence that the service falls short"
             )
         return RunSizing(
             samples=minimum,

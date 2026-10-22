@@ -1,11 +1,14 @@
 """Verdicts: one criterion under its rule, and their composition (§1.4.6, §12.3.2).
 
-A criterion is decided by the rule its threshold's origin selects:
+A criterion is decided by the rule its threshold's origin and the test's
+intent select:
 
-- a **given** (normative) requirement by ``compliance/exact-binomial`` —
-  :func:`evaluate_compliance`;
-- a **baseline-derived** (empirical) bar by ``regression/fisher`` —
-  :func:`evaluate_regression`.
+- a **given** (normative) requirement by ``compliance/exact-binomial`` under
+  verification — :func:`evaluate_compliance` — and by
+  ``compliance/smoke-exact-binomial`` under smoke —
+  :func:`evaluate_smoke_compliance`;
+- a **baseline-derived** (empirical) bar by ``regression/fisher``, under
+  either intent — :func:`evaluate_regression`.
 
 Criteria compose by one structural rule — PASS if every verdict passes, FAIL
 if any fails, INCONCLUSIVE otherwise — and the same rule composes the
@@ -16,6 +19,8 @@ reported, but ``V_test`` composes the enforced dimensions only. A FAIL or an
 INCONCLUSIVE names what decided it. The Type-I envelopes are disclosed by
 procedure direction: the sum of alpha over the compliance decisions (false
 compliance) and over the regression decisions (false degradation signal).
+A smoke-intent requirement enters neither: its alpha bounds a false FAIL,
+and its PASS claims no compliance.
 """
 
 from collections.abc import Iterable, Sequence
@@ -27,7 +32,12 @@ from typing import ClassVar
 from scipy.stats import binom
 
 from ._validation import validate_counts
-from .compliance import clopper_pearson_lower, minimum_passing_count
+from .compliance import (
+    clopper_pearson_lower,
+    minimum_feasible_samples,
+    minimum_passing_count,
+    smoke_required_pass,
+)
 from .regression import RegressionDerivation, derive_regression_cutoff
 from .rules import DecisionRule
 
@@ -92,6 +102,11 @@ class ComplianceVerdict:
         return self.minimum_passing is not None
 
     @property
+    def required_pass(self) -> int | None:
+        """The count the verdict was decided by: ``k_min``."""
+        return self.minimum_passing
+
+    @property
     def observed_rate(self) -> float:
         """``K / n``, for context: it can sit above the requirement while
         compliance is not demonstrated."""
@@ -118,6 +133,92 @@ def evaluate_compliance(
         alpha=alpha,
         minimum_passing=k_min,
         false_compliance=0.0 if k_min is None else float(binom.sf(k_min - 1, trials, requirement)),
+        clopper_pearson_lower=clopper_pearson_lower(successes, trials, alpha),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class SmokeComplianceVerdict:
+    """A criterion decided by ``compliance/smoke-exact-binomial`` (§5.7.3).
+
+    The requirement under smoke intent, with the burden of proof reversed:
+    the run is asked only whether there is evidence that the service falls
+    short of it.
+
+    Attributes:
+        verdict: PASS iff ``K >= required_pass``: no evidence of
+            non-compliance at this size, never evidence of compliance.
+            FAIL is evidence, at level alpha, that the rate falls short.
+        successes: ``K``.
+        trials: ``n``.
+        requirement: ``p_req``.
+        alpha: The one-sided level.
+        required_pass: One more than the largest failing count; 0 when no
+            count of this size can FAIL.
+        minimum_passing: ``k_min`` of ``compliance/exact-binomial`` at this
+            size, the count that would demonstrate compliance; ``None``
+            when none can. It decides nothing here.
+        feasibility_minimum: ``N_min``, the smallest size at which
+            compliance could be demonstrated at all.
+        p_value: The lower tail ``P_{p_req}(K <= k)`` at the observed count.
+        false_non_compliance: ``P_{p_req}(K < required_pass)``, the chance
+            of a FAIL for a service exactly at its requirement.
+        clopper_pearson_lower: The one-sided lower bound at ``1 - alpha``,
+            reported beside the verdict; it decides nothing.
+    """
+
+    rule: ClassVar[DecisionRule] = DecisionRule.COMPLIANCE_SMOKE_EXACT_BINOMIAL
+
+    verdict: Verdict
+    successes: int
+    trials: int
+    requirement: float
+    alpha: float
+    required_pass: int
+    minimum_passing: int | None
+    feasibility_minimum: int
+    p_value: float
+    false_non_compliance: float
+    clopper_pearson_lower: float
+
+    @property
+    def pass_possible(self) -> bool:
+        """Whether this size could demonstrate compliance under verification."""
+        return self.minimum_passing is not None
+
+    @property
+    def fail_possible(self) -> bool:
+        """Whether any outcome of this size could have FAILed."""
+        return self.required_pass > 0
+
+    @property
+    def observed_rate(self) -> float:
+        """``K / n``, for context."""
+        return self.successes / self.trials
+
+
+def evaluate_smoke_compliance(
+    successes: int, trials: int, requirement: float, alpha: float
+) -> SmokeComplianceVerdict:
+    """Decide a criterion against a given requirement under smoke intent.
+
+    Raises:
+        ValueError: On counts out of range, or a requirement or level
+            outside ``(0, 1)``.
+    """
+    validate_counts(successes, trials)
+    required = smoke_required_pass(requirement, trials, alpha)
+    return SmokeComplianceVerdict(
+        verdict=Verdict.PASS if successes >= required else Verdict.FAIL,
+        successes=successes,
+        trials=trials,
+        requirement=requirement,
+        alpha=alpha,
+        required_pass=required,
+        minimum_passing=minimum_passing_count(requirement, trials, alpha),
+        feasibility_minimum=minimum_feasible_samples(requirement, alpha),
+        p_value=float(binom.cdf(successes, trials, requirement)),
+        false_non_compliance=float(binom.cdf(required - 1, trials, requirement)),
         clopper_pearson_lower=clopper_pearson_lower(successes, trials, alpha),
     )
 
@@ -199,14 +300,21 @@ class Direction(StrEnum):
     baseline-derived latency constraints."""
 
 
-def direction_of(rule: DecisionRule) -> Direction:
-    """The direction whose envelope a rule's decisions enter."""
+def direction_of(rule: DecisionRule) -> Direction | None:
+    """The direction whose envelope a rule's decisions enter; ``None`` for
+    the smoke-intent rules, whose alpha bounds a false FAIL and whose PASS
+    claims no compliance, so they enter neither envelope."""
     if rule in (
         DecisionRule.COMPLIANCE_EXACT_BINOMIAL,
         DecisionRule.LATENCY_COMPLIANCE_EXACT_BINOMIAL,
     ):
         return Direction.COMPLIANCE
-    return Direction.REGRESSION
+    if rule in (
+        DecisionRule.REGRESSION_FISHER,
+        DecisionRule.LATENCY_PRECEDENCE,
+    ):
+        return Direction.REGRESSION
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +333,8 @@ def type_one_envelopes(decisions: Iterable[tuple[DecisionRule, float]]) -> Envel
     sums: dict[Direction, float] = {}
     for rule, alpha in decisions:
         direction = direction_of(rule)
-        sums[direction] = sums.get(direction, 0.0) + alpha
+        if direction is not None:
+            sums[direction] = sums.get(direction, 0.0) + alpha
     return Envelopes(
         false_compliance=sums.get(Direction.COMPLIANCE),
         false_degradation_signal=sums.get(Direction.REGRESSION),

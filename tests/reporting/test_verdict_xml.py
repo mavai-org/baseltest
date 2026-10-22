@@ -29,6 +29,7 @@ from baseltest.engine import (
     RunKind,
     RunPlan,
     RunResult,
+    SmokeComplianceVerdict,
     execute,
 )
 from baseltest.reporting import (
@@ -43,7 +44,7 @@ from baseltest.reporting import (
 from baseltest.statistics import ThresholdSource
 
 NS = "{http://mavai.org/verdict/1.0}"
-XSD = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.8.xsd"
+XSD = Path(__file__).resolve().parents[1] / "conformance/interchange/verdict-1.10.xsd"
 
 RISK_DRIVEN_DESIGN = RunDesign(
     approach="confidence-first (risk-driven)",
@@ -125,7 +126,7 @@ class TestVerdictRecord:
         text = render_verdict_record(run_result())
         root = ElementTree.fromstring(text)
         assert root.tag == f"{NS}verdict-record"
-        assert root.get("version") == "1.8"
+        assert root.get("version") == "1.10"
         assert root.get("methodology-version") == METHODOLOGY_VERSION
         assert root.get("generator") == f"baseltest {baseltest.__version__}"
 
@@ -294,9 +295,10 @@ class TestRequiredPass:
             reached = int(row.get("pass") or "") >= int(required)
             assert (row.get("verdict") == "PASS") is reached
 
-    def test_no_count_is_stated_when_no_count_can_pass(self, tmp_path: Path) -> None:
-        # A smoke test too small for its requirement still runs, and no count
-        # of its size passes: k_min is undefined, so the row states none.
+    def test_a_smoke_row_states_the_count_its_own_rule_decided_by(self, tmp_path: Path) -> None:
+        # A smoke test too small to demonstrate its requirement still runs,
+        # and is decided by compliance/smoke-exact-binomial: 10 of 10 at 0.99
+        # shows no evidence of falling short, and nine would have sufficed.
         contract = ServiceContract(
             contract_id="too-small",
             invoke=lambda v: "ok",
@@ -304,11 +306,29 @@ class TestRequiredPass:
         )
         result = execute(contract, RunPlan(samples=10, inputs=("a",), intent=Intent.SMOKE))
         decision = result.criterion_results[0].decision
-        assert isinstance(decision, ComplianceVerdict) and decision.minimum_passing is None
+        assert isinstance(decision, SmokeComplianceVerdict) and decision.minimum_passing is None
+        text = render_verdict_record(result)
+        root = ElementTree.fromstring(text)
+        row = root.find(f"{NS}per-criterion/{NS}criterion")
+        assert row is not None and row.get("verdict") == "PASS"
+        assert row.get("decision-rule") == "compliance/smoke-exact-binomial"
+        assert row.get("required-pass") == "9"
+        statistics = root.find(f"{NS}statistics")
+        assert statistics is not None and statistics.get("p-value") == "1.0"
+        assert_valid(tmp_path, text)
+
+    def test_a_smoke_row_states_zero_when_no_count_can_fail(self, tmp_path: Path) -> None:
+        # One sample against 0.5: even a miss is not evidence of falling short.
+        contract = ServiceContract(
+            contract_id="one-sample",
+            invoke=lambda v: "bad",
+            criteria=(Criterion(name="req", postconditions=(contains("ok"),), threshold=0.5),),
+        )
+        result = execute(contract, RunPlan(samples=1, inputs=("a",), intent=Intent.SMOKE))
         text = render_verdict_record(result)
         row = ElementTree.fromstring(text).find(f"{NS}per-criterion/{NS}criterion")
-        assert row is not None and row.get("verdict") == "FAIL"
-        assert row.get("required-pass") is None
+        assert row is not None and row.get("verdict") == "PASS"
+        assert row.get("required-pass") == "0"
         assert_valid(tmp_path, text)
 
 
@@ -528,4 +548,62 @@ class TestEnforcementModes:
         verdict = root.find(f"{NS}verdict")
         assert verdict is not None and verdict.get("value") == "PASS"
         assert verdict.get("decision-rule") is None
+        assert_valid(tmp_path, text)
+
+
+class TestSmokeRecord:
+    """A requirement under smoke intent, as the interchange examples show it."""
+
+    def _result(self, misses: int) -> RunResult:
+        counter = count(1)
+        contract = ServiceContract(
+            contract_id="harmful-advice-is-rejected",
+            invoke=lambda _v: "bad" if next(counter) <= misses else "ok",
+            criteria=(Criterion(name="rejects", postconditions=(contains("ok"),), threshold=0.99),),
+        )
+        return execute(contract, RunPlan(samples=100, inputs=("a",), intent=Intent.SMOKE))
+
+    @pytest.mark.parametrize(("misses", "verdict"), [(0, "PASS"), (3, "PASS"), (4, "FAIL")])
+    def test_the_record_names_the_smoke_rule_and_its_count(
+        self, tmp_path: Path, misses: int, verdict: str
+    ) -> None:
+        text = render_verdict_record(self._result(misses))
+        root = ElementTree.fromstring(text)
+        assert root.get("version") == "1.10"
+        assert root.get("methodology-version") == "1.7.0"
+        execution = root.find(f"{NS}execution")
+        assert execution is not None and execution.get("intent") == "SMOKE"
+        row = root.find(f"{NS}per-criterion/{NS}criterion")
+        assert row is not None
+        assert row.get("verdict") == verdict
+        assert row.get("decision-rule") == "compliance/smoke-exact-binomial"
+        assert row.get("decision-rule-version") == "1"
+        assert row.get("required-pass") == "97"
+        record_verdict = root.find(f"{NS}verdict")
+        assert record_verdict is not None and record_verdict.get("value") == verdict
+        assert record_verdict.get("decision-rule") == "compliance/smoke-exact-binomial"
+        assert_valid(tmp_path, text)
+
+    def test_the_p_value_is_the_lower_tail(self) -> None:
+        root = ElementTree.fromstring(render_verdict_record(self._result(4)))
+        statistics = root.find(f"{NS}statistics")
+        assert statistics is not None
+        assert float(statistics.get("p-value") or "") == pytest.approx(0.0183740364446497)
+
+    def test_a_smoke_latency_requirement_states_its_rule_and_count(self, tmp_path: Path) -> None:
+        contract = ServiceContract(
+            contract_id="fast-enough",
+            invoke=lambda v: "ok",
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.5),),
+            latency=LatencyBar(bounds=(LatencyBound("p99", 60_000),)),
+        )
+        result = execute(contract, RunPlan(samples=100, inputs=("a",), intent=Intent.SMOKE))
+        text = render_verdict_record(result)
+        evaluation = ElementTree.fromstring(text).find(
+            f"{NS}latency/{NS}evaluations/{NS}evaluation"
+        )
+        assert evaluation is not None
+        assert evaluation.get("decision-rule") == "latency/smoke-compliance-exact-binomial"
+        assert evaluation.get("required-within") == "97"
+        assert evaluation.get("status") == "PASS"
         assert_valid(tmp_path, text)

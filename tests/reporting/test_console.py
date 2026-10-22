@@ -9,6 +9,7 @@ from baseltest.engine import (
     METHODOLOGY_VERSION,
     ConfigurationRefusedError,
     Dimension,
+    Intent,
     RunKind,
     RunPlan,
     execute,
@@ -190,3 +191,46 @@ class TestFailureReasons:
         criterion = Criterion(name="m", postconditions=(contains("nope"),))
         text = render_run(run_result((criterion,), kind=RunKind.MEASURE))
         assert "×" in text
+
+
+class TestSmokeOutput:
+    """A requirement under smoke intent says what its verdict means."""
+
+    def _render(self, threshold: float, samples: int, misses: int = 0) -> str:
+        outcomes = iter(["bad"] * misses + ["ok"] * samples)
+        contract = ServiceContract(
+            contract_id="guardrail",
+            invoke=lambda _v: next(outcomes),
+            criteria=(
+                Criterion(name="rejects", postconditions=(contains("ok"),), threshold=threshold),
+            ),
+        )
+        return render_run(
+            execute(contract, RunPlan(samples=samples, inputs=("a",), intent=Intent.SMOKE))
+        )
+
+    def test_an_undersized_pass_is_labelled_and_caveated(self) -> None:
+        text = self._render(0.99, 100)
+        assert "intent: SMOKE" in text
+        row = next(line for line in text.splitlines() if line.strip().startswith("rejects"))
+        assert "compliance/smoke-exact-binomial" in row
+        assert " 97 " in row
+        assert "no evidence that the service falls short" in text
+        assert "not evidence of compliance" in text
+        assert "cannot demonstrate compliance (n = 100, need at least 299)" in text
+        assert "false compliance" not in text
+
+    def test_a_fail_is_evidence_of_falling_short(self) -> None:
+        text = self._render(0.99, 100, misses=4)
+        assert "verdict: FAIL" in text
+        assert "SMOKE: evidence that the service falls short of its requirement" in text
+
+    def test_a_size_at_which_no_count_can_fail_says_so(self) -> None:
+        text = self._render(0.5, 1, misses=1)
+        assert "verdict: PASS" in text
+        assert "FAIL not possible at this size; this result carries no evidence" in text
+
+    def test_a_size_that_could_demonstrate_compliance_points_to_verification(self) -> None:
+        text = self._render(0.95, 150)
+        assert "PASS is possible at this size" in text
+        assert "intent: verification" in text

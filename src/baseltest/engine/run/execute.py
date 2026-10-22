@@ -283,7 +283,7 @@ def execute(
     results = []
     for criterion in contract.criteria:
         tally = tallies[criterion.name]
-        bound, decision, power = _judge(criterion, tally)
+        bound, decision, power = _judge(criterion, tally, plan.intent)
         results.append(
             CriterionResult(
                 criterion=criterion,

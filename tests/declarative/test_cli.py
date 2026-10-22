@@ -131,9 +131,13 @@ class TestDerivationGate:
         contract.write_text(
             contract.read_text().replace("service: svc", "service: svc\nintent: smoke")
         )
-        assert main(["test", str(contract), "--no-verdict-xml"]) == 1  # honest FAIL at n=5
+        # Five of five at 0.99: no evidence of falling short, which is all a
+        # smoke test of this size can say.
+        assert main(["test", str(contract), "--no-verdict-xml"]) == 0
         out = capsys.readouterr().out
         assert "n = 5 (default; use --samples to size the run)" in out
+        assert "compliance/smoke-exact-binomial" in out
+        assert "cannot demonstrate compliance (n = 5, need at least 299)" in out
 
     def test_defaults_are_independent_of_input_count(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
         # Inputs are a pool the engine cycles over, never a work queue:
@@ -267,3 +271,72 @@ def test_the_command_is_basel() -> None:
         if ep.value.startswith("baseltest.")
     }
     assert ours == {"basel": "baseltest.declarative._cli:main"}
+
+
+def _smoke(contract):  # type: ignore[no-untyped-def]
+    contract.write_text(contract.read_text().replace("service: svc", "service: svc\nintent: smoke"))
+    return contract
+
+
+def _missing_first(tmp_path, misses):  # type: ignore[no-untyped-def]
+    (tmp_path / "mavai-bindings.py").write_text(
+        "import itertools\n"
+        "from baseltest.declarative import Bindings\n"
+        "bindings = Bindings()\n"
+        "_counter = itertools.count()\n"
+        "@bindings.binding('svc')\n"
+        "def invoke(value: str) -> str:\n"
+        f"    return 'nope' if next(_counter) < {misses} else 'ok'\n",
+        encoding="utf-8",
+    )
+
+
+class TestSmokeIntent:
+    """0.99 at alpha 0.05 over 100 samples, a design verification refuses:
+    smoke runs it and decides by compliance/smoke-exact-binomial."""
+
+    def _record(self, tmp_path):  # type: ignore[no-untyped-def]
+        from xml.etree import ElementTree
+
+        path = next((tmp_path / "_baseltest" / "verdicts").glob("*.xml"))
+        return ElementTree.fromstring(path.read_text(encoding="utf-8"))
+
+    def test_an_always_succeeding_service_passes(self, tmp_path, monkeypatch, capsys):  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        contract = _smoke(write_contract(tmp_path, threshold="0.99"))
+        assert main(["test", str(contract), "--samples", "100"]) == 0
+        ns = "{http://mavai.org/verdict/1.0}"
+        root = self._record(tmp_path)
+        assert root.get("version") == "1.10"
+        row = root.find(f"{ns}per-criterion/{ns}criterion")
+        assert row is not None
+        assert row.get("verdict") == "PASS"
+        assert row.get("pass") == "100"
+        assert row.get("decision-rule") == "compliance/smoke-exact-binomial"
+        assert row.get("required-pass") == "97"
+        verdict = root.find(f"{ns}verdict")
+        assert verdict is not None
+        assert verdict.get("decision-rule") == "compliance/smoke-exact-binomial"
+        out = capsys.readouterr().out
+        assert "intent: SMOKE" in out
+        assert "not evidence of compliance" in out
+
+    def test_four_misses_fail(self, tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        contract = _smoke(write_contract(tmp_path, threshold="0.99"))
+        _missing_first(tmp_path, 4)
+        assert main(["test", str(contract), "--samples", "100"]) == 1
+        ns = "{http://mavai.org/verdict/1.0}"
+        row = self._record(tmp_path).find(f"{ns}per-criterion/{ns}criterion")
+        assert row is not None and row.get("verdict") == "FAIL"
+        assert row.get("required-pass") == "97"
+
+    def test_a_measure_assertion_still_reads_the_bar_under_verification(  # type: ignore[no-untyped-def]
+        self, tmp_path, monkeypatch, capsys
+    ):
+        # Attainment is a fact about the experiment: 100 samples cannot
+        # demonstrate 0.99 whatever the intent says.
+        monkeypatch.chdir(tmp_path)
+        contract = _smoke(write_contract(tmp_path, threshold="0.99"))
+        assert main(["measure", str(contract), "--samples", "100", "--assert"]) == 3
+        assert "unsupportable" in capsys.readouterr().err

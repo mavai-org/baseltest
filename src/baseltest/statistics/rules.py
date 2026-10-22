@@ -1,6 +1,6 @@
 """The methodology's decision rules, configuration errors, and test intent.
 
-Statistical Companion 1.5.0 names four verdict-producing procedures, each
+Statistical Companion 1.7.0 names six verdict-producing procedures, each
 with a versioned identifier that travels with every verdict it decides:
 
 - ``regression/fisher`` — empirical regression: the one-sided Fisher exact
@@ -10,7 +10,14 @@ with a versioned identifier that travels with every verdict it decides:
 - ``latency/precedence`` — latency regression: the smallest baseline rank
   whose no-degradation breach probability is at most alpha (§12.4);
 - ``latency/compliance-exact-binomial`` — an explicit latency requirement:
-  the exact binomial test on the count of latencies within it (§12.3.4).
+  the exact binomial test on the count of latencies within it (§12.3.4);
+- ``compliance/smoke-exact-binomial`` and
+  ``latency/smoke-compliance-exact-binomial`` — the same two requirements
+  under smoke intent, with the burden of proof reversed: a FAIL only on
+  evidence that the service falls short (§5.7.3, §12.3.4).
+
+A requirement's rule is selected by the test's intent; an empirical
+criterion is decided by ``regression/fisher`` under either intent.
 
 Two configurations are refused before any sample runs, and a refusal names
 every applicable code in one fixed order (§5.7.1).
@@ -20,7 +27,7 @@ from collections.abc import Iterable
 from decimal import Decimal
 from enum import StrEnum
 
-METHODOLOGY_VERSION = "1.6.0"
+METHODOLOGY_VERSION = "1.7.0"
 """The Statistical Companion methodology whose rules this package implements."""
 
 
@@ -31,10 +38,12 @@ class DecisionRule(StrEnum):
     COMPLIANCE_EXACT_BINOMIAL = "compliance/exact-binomial"
     LATENCY_PRECEDENCE = "latency/precedence"
     LATENCY_COMPLIANCE_EXACT_BINOMIAL = "latency/compliance-exact-binomial"
+    COMPLIANCE_SMOKE_EXACT_BINOMIAL = "compliance/smoke-exact-binomial"
+    LATENCY_SMOKE_COMPLIANCE_EXACT_BINOMIAL = "latency/smoke-compliance-exact-binomial"
 
     @property
     def version(self) -> int:
-        """The rule's version; every rule is at version 1 under 1.5.0."""
+        """The rule's version; every rule is at version 1 under 1.7.0."""
         return 1
 
 
@@ -77,11 +86,24 @@ def check_test_size(baseline_samples: int, planned_samples: int) -> Configuratio
 
 
 class Intent(StrEnum):
-    """Whether an infeasible design is refused (verification) or run and
-    marked as such (smoke), §5.7; independent of a dimension's enforcement."""
+    """What a test asks of a requirement (§5.7); independent of a dimension's
+    enforcement.
+
+    Under verification a requirement must be demonstrated, and a design too
+    small for that is refused. Under smoke the burden of proof is reversed
+    at every size: a requirement FAILs only on evidence that the service
+    falls short of it, and a PASS is never evidence of compliance.
+    """
 
     VERIFICATION = "verification"
     SMOKE = "smoke"
+
+
+def requirement_rule(intent: Intent) -> DecisionRule:
+    """The rule that decides a pass-rate requirement under ``intent`` (§5.7.3)."""
+    if intent is Intent.SMOKE:
+        return DecisionRule.COMPLIANCE_SMOKE_EXACT_BINOMIAL
+    return DecisionRule.COMPLIANCE_EXACT_BINOMIAL
 
 
 def alpha_from_confidence(confidence: float) -> float:

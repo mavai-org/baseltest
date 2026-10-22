@@ -52,6 +52,7 @@ from baseltest.statistics import (
     Dimension,
     RegressionVerdict,
     SizingRefusal,
+    SmokeComplianceVerdict,
     ThresholdSource,
     Verdict,
     check_feasibility,
@@ -189,9 +190,9 @@ def _regression_decision(result: RunResult) -> RegressionVerdict:
     return decision
 
 
-def _compliance_decision(result: RunResult) -> ComplianceVerdict:
+def _compliance_decision(result: RunResult) -> ComplianceVerdict | SmokeComplianceVerdict:
     decision = result.criterion_results[0].decision
-    assert isinstance(decision, ComplianceVerdict)
+    assert isinstance(decision, ComplianceVerdict | SmokeComplianceVerdict)
     return decision
 
 
@@ -342,7 +343,7 @@ def test_regression_decision_through_production_verdict_path(case: dict[str, Any
 
 
 # ---------------------------------------------------------------------------
-# compliance/exact-binomial.
+# compliance/exact-binomial, and compliance/smoke-exact-binomial under SMOKE.
 # ---------------------------------------------------------------------------
 
 _COMPLIANCE_TOLERANCE, _COMPLIANCE_CASES = _load("compliance_decision.json")
@@ -360,17 +361,31 @@ def test_compliance_decision_through_production_verdict_path(case: dict[str, Any
     if errors:
         with pytest.raises(ConfigurationRefusedError):
             _run(contract, trials, intent)
-        for field in ("k_min", "pass_possible", "verdict"):
+        for field in ("decision_rule", "k_min", "pass_possible", "required_pass", "verdict"):
             assert_oracle("compliance_decision", case, field, None)
         return
     decision = _compliance_decision(_run(contract, trials, intent))
     tolerance = _COMPLIANCE_TOLERANCE
+    assert_oracle("compliance_decision", case, "decision_rule", str(decision.rule))
     assert_oracle("compliance_decision", case, "k_min", decision.minimum_passing)
     assert_oracle("compliance_decision", case, "pass_possible", decision.pass_possible)
+    assert_oracle("compliance_decision", case, "required_pass", decision.required_pass)
     assert_oracle("compliance_decision", case, "verdict", decision.verdict.name)
-    assert_oracle(
-        "compliance_decision", case, "false_compliance", decision.false_compliance, tolerance
-    )
+    if isinstance(decision, SmokeComplianceVerdict):
+        assert_oracle("compliance_decision", case, "p_value", decision.p_value, tolerance)
+        assert_oracle("compliance_decision", case, "false_compliance", None)
+        assert_oracle(
+            "compliance_decision",
+            case,
+            "false_non_compliance",
+            decision.false_non_compliance,
+            tolerance,
+        )
+    else:
+        assert_oracle(
+            "compliance_decision", case, "false_compliance", decision.false_compliance, tolerance
+        )
+        assert_oracle("compliance_decision", case, "false_non_compliance", None)
     assert_oracle(
         "compliance_decision",
         case,
@@ -680,21 +695,33 @@ def test_latency_compliance_decision_through_production_path(case: dict[str, Any
     errors = _configuration_errors(contract, plan)
     assert_oracle(suite, case, "configuration_error", errors)
     if errors:
-        for field in ("test_samples", "within_threshold", "y_min", "pass_possible", "verdict"):
+        for field in (
+            "decision_rule",
+            "test_samples",
+            "within_threshold",
+            "y_min",
+            "pass_possible",
+            "required_within",
+            "verdict",
+        ):
             assert_oracle(suite, case, field, None)
         return
     latencies = _as_list(inputs["latencies"])
     evaluation = evaluate_latency(bar, latencies, inputs["planned_samples"], intent).evaluations[0]
     compliance = evaluation.judgement.compliance
     assert compliance is not None
-    assert evaluation.judgement.rule is DecisionRule.LATENCY_COMPLIANCE_EXACT_BINOMIAL
+    assert evaluation.judgement.rule is compliance.rule
     tolerance = _LATENCY_COMPLIANCE_TOLERANCE
+    assert_oracle(suite, case, "decision_rule", str(compliance.rule))
     assert_oracle(suite, case, "test_samples", compliance.test_samples)
     assert_oracle(suite, case, "within_threshold", compliance.within_threshold)
     assert_oracle(suite, case, "y_min", compliance.minimum_within)
     assert_oracle(suite, case, "pass_possible", compliance.pass_possible)
+    assert_oracle(suite, case, "required_within", compliance.required_within)
     assert_oracle(suite, case, "verdict", evaluation.verdict.name)
+    assert_oracle(suite, case, "p_value", compliance.p_value, tolerance)
     assert_oracle(suite, case, "false_compliance", compliance.false_compliance, tolerance)
+    assert_oracle(suite, case, "false_non_compliance", compliance.false_non_compliance, tolerance)
     assert_oracle(suite, case, "clopper_pearson_lower", compliance.clopper_pearson_lower, tolerance)
     assert_oracle(
         suite, case, "observed_percentile_ms", compliance.observed_percentile_ms, tolerance
@@ -755,8 +782,9 @@ def test_verdict_through_production_verdict_path(case: dict[str, Any]) -> None:
     result = _run(contract, trials, intent)
     assert result.overall is not None
     assert_oracle("verdict", case, "verdict", result.overall.verdict.name)
-    rules = [str(r.criterion.rule) for r in result.criterion_results]
+    rules = [str(r.criterion.rule_under(intent)) for r in result.criterion_results]
     assert rules == _as_list(case["decisionRule"])
+    assert [str(r.decision.rule) for r in result.criterion_results if r.decision] == rules
     if not two:
         return
     rows = []
@@ -767,7 +795,7 @@ def test_verdict_through_production_verdict_path(case: dict[str, Any]) -> None:
             {
                 "criterion_id": criterion_result.name,
                 "procedure": (
-                    "COMPLIANCE" if isinstance(decision, ComplianceVerdict) else "REGRESSION"
+                    "REGRESSION" if isinstance(decision, RegressionVerdict) else "COMPLIANCE"
                 ),
                 "decisionRule": str(decision.rule),
                 "alpha": decision.alpha,

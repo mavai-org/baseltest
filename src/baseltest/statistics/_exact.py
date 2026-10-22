@@ -2,7 +2,8 @@
 
 Each exact rule compares a probability with alpha by an inclusive rule: a
 Fisher p-value at most alpha fails a test count, a binomial upper tail at
-most alpha admits a count, a precedence breach probability at most alpha
+most alpha admits a count, a binomial lower tail at most alpha fails a
+count under smoke intent, a precedence breach probability at most alpha
 admits a rank. At an exact boundary the probability *equals* alpha, and
 double-precision evaluation can land on either side of it. The convention
 (Statistical Companion §10.6):
@@ -96,6 +97,11 @@ def binomial_upper_tail_exact(count: int, trials: int, rate: float) -> Fraction:
         math.comb(trials, j) * a**j * (b - a) ** (trials - j) for j in range(count, trials + 1)
     )
     return Fraction(numerator, b**trials)
+
+
+def binomial_lower_tail_exact(count: int, trials: int, rate: float) -> Fraction:
+    """``P(K <= count)`` for ``K ~ Bin(trials, rate)`` as a rational."""
+    return 1 - binomial_upper_tail_exact(count + 1, trials, rate)
 
 
 def breach_probability_exact(

@@ -3,9 +3,11 @@
 from baseltest.contract import Criterion, CriterionTally
 from baseltest.statistics import (
     MDD_POWER,
+    Intent,
     design_power,
     evaluate_compliance,
     evaluate_regression,
+    evaluate_smoke_compliance,
     minimum_detectable_degradation,
     resolved_power,
     wilson_lower_bound,
@@ -15,12 +17,15 @@ from .model import Decision, PowerDisclosure
 
 
 def _judge(
-    criterion: Criterion, tally: CriterionTally
+    criterion: Criterion, tally: CriterionTally, intent: Intent
 ) -> tuple[float | None, Decision | None, PowerDisclosure | None]:
     """A judged criterion's descriptive bound, decision and power disclosure.
 
-    A declared requirement is decided by ``compliance/exact-binomial``; a
-    baseline by ``regression/fisher``, its cutoff derived at this run's own
+    A declared requirement is decided by the rule the run's intent selects:
+    ``compliance/exact-binomial`` under verification, and
+    ``compliance/smoke-exact-binomial`` under smoke, which FAILs only on
+    evidence that the service falls short (§5.7.3). A baseline is decided by
+    ``regression/fisher`` under either, its cutoff derived at this run's own
     size. The Wilson lower bound is descriptive context in both — it decides
     nothing. A criterion with no bar is characterised only: ``(None, None,
     None)``.
@@ -29,11 +34,10 @@ def _judge(
         return None, None, None
     bound = wilson_lower_bound(tally.successes, tally.trials, criterion.confidence)
     if criterion.threshold is not None:
+        decide = evaluate_smoke_compliance if intent is Intent.SMOKE else evaluate_compliance
         return (
             bound,
-            evaluate_compliance(
-                tally.successes, tally.trials, criterion.threshold, criterion.alpha
-            ),
+            decide(tally.successes, tally.trials, criterion.threshold, criterion.alpha),
             None,
         )
     baseline = criterion.baseline
