@@ -20,6 +20,8 @@ carry breaking changes; each says so in its first line.
 
 **Verdict records are verdict-1.10.** A smoke requirement's row names `compliance/smoke-exact-binomial` and its `required-pass`, and a latency evaluation `latency/smoke-compliance-exact-binomial` and its `required-within`; a record with one criterion states the smoke decision's lower-tail `p-value`. The root states `methodology-version="1.7.1"`. Nothing else in the record changes, and none of 1.9's optional run-control content is written.
 
+**The bundled report renderer is mavai 0.24.0**, which reads verdict-1.10 and words a smoke decision by its verdict: a pass reads as no evidence of falling short of the requirement, never as the requirement met.
+
 **The statistics API.** New: `DecisionRule.COMPLIANCE_SMOKE_EXACT_BINOMIAL` and `DecisionRule.LATENCY_SMOKE_COMPLIANCE_EXACT_BINOMIAL`, `SmokeComplianceVerdict`, `evaluate_smoke_compliance`, `smoke_required_pass` and `requirement_rule`. `evaluate_latency_compliance` takes the intent, and `LatencyCompliance` states the `rule` that decided it, its `required_within`, `p_value` and `false_non_compliance`. `ComplianceVerdict` gains `required_pass`. `direction_of` returns `None` for the smoke rules. `Criterion.rule` is replaced by `Criterion.rule_under(intent)`, since a requirement's rule depends on the run. A judged criterion's `decision` can now be a `SmokeComplianceVerdict`.
 
 **`refining-grid`.** This follows the family's numeric-steppers amendment (`mavai-services/1` §II.9). Test, measure and explore runs are unchanged by it. What changes is what an optimize artefact states, and which `refining-grid` entries load. Optimize artefacts validate against the mavai-R v0.13.1 `mavai-optimize-1` schema.
