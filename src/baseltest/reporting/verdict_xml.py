@@ -1,19 +1,23 @@
 """The canonical verdict record: the family's test-results schema, emitted.
 
 Test runs emit their results in the mavai family's verdict XML
-(``verdict-1.8.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
+(``verdict-1.10.xsd``, namespace ``http://mavai.org/verdict/1.0``) — so
 every framework's results are readable by the same tooling. baseltest
-emits the subset it has data for; every emitted element conforms.
-``version="1.8"`` names the decision behind the verdict: the methodology
+emits the subset it has data for; every emitted element conforms (1.9's
+optional run-control content is not among it).
+``version="1.10"`` names the decision behind the verdict: the methodology
 version on the record, the versioned decision rule on every criterion row
 and latency evaluation (and on the verdict when one rule decided every
-enforced dimension), the smallest passing count on every criterion row
-(when any count can pass), each dimension's verdict and whether the run
+enforced dimension), the count each criterion row was decided by (when
+there is one), each dimension's verdict and whether the run
 enforced it or made it advisory, and — for a configuration refused before
 any sample ran — the configuration-error list and no verdict value. Every
 latency evaluation's status is its rule's outcome, whatever the mode. The
 verdict's value is the test's verdict ``V_test``, the structural composite
-of the enforced dimensions, and PASS when none is enforced. The run's
+of the enforced dimensions, and PASS when none is enforced. A requirement
+under smoke intent is decided by ``compliance/smoke-exact-binomial``: its
+row's ``required-pass`` is one more than the largest failing count, and the
+record's sole criterion states its lower-tail ``p-value``. The run's
 failure attribution travels in the ``functional`` element, one ``check``
 per bounded identity with the kind that says whether those trials were
 judged or never delivered anything to judge.
@@ -40,6 +44,7 @@ from baseltest.engine import (
     RegressionVerdict,
     RunPlan,
     RunResult,
+    SmokeComplianceVerdict,
     Verdict,
 )
 from baseltest.engine.naming import bounded_excerpt, bounded_key
@@ -47,7 +52,7 @@ from baseltest.engine.naming import bounded_excerpt, bounded_key
 from .run_design import RunDesign
 
 _NAMESPACE = "http://mavai.org/verdict/1.0"
-_FORMAT_VERSION = "1.8"
+_FORMAT_VERSION = "1.10"
 
 # The run-design facts ride the schema's free-form environment entries —
 # the family verdict schema itself is unchanged by the sizing disclosures.
@@ -77,14 +82,16 @@ def _required_pass(result: CriterionResult) -> int | None:
     """The smallest count that passes under the row's rule: PASS iff it is reached.
 
     The Fisher cutoff under ``regression/fisher``, ``k_min`` under
-    ``compliance/exact-binomial`` -- the count the engine judged with, never
-    one recovered from the threshold. ``None`` when no count can pass.
+    ``compliance/exact-binomial``, one more than the largest failing count
+    under ``compliance/smoke-exact-binomial`` -- the count the engine judged
+    with, never one recovered from the threshold. ``None`` when no count
+    can pass.
     """
     decision = result.decision
     assert decision is not None
     if isinstance(decision, RegressionVerdict):
         return decision.cutoff
-    return decision.minimum_passing
+    return decision.required_pass
 
 
 # A latency evaluation's status: its rule's outcome, enforced or advisory.
@@ -151,8 +158,8 @@ def _evaluation(parent: ElementTree.Element, outcome: BoundEvaluation, confidenc
     compliance = judgement.compliance
     if compliance is not None:
         row.set("within-threshold", str(compliance.within_threshold))
-        if compliance.minimum_within is not None:
-            row.set("required-within", str(compliance.minimum_within))
+        if compliance.required_within is not None:
+            row.set("required-within", str(compliance.required_within))
 
 
 def render_verdict_record(result: RunResult, design: RunDesign | None = None) -> str:
@@ -206,6 +213,8 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
         statistics.set("wilson-lower", str(only.lower_bound))
         statistics.set("threshold", _threshold(only))
         statistics.set("threshold-origin", _origin(only))
+        if isinstance(only.decision, SmokeComplianceVerdict):
+            statistics.set("p-value", str(only.decision.p_value))
         if isinstance(only.decision, RegressionVerdict):
             size = only.decision.derivation.size_at_assumed_common_rate
             if size is not None:

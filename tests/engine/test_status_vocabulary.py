@@ -24,6 +24,8 @@ def test_decision_rule_wire_values() -> None:
         "compliance/exact-binomial",
         "latency/precedence",
         "latency/compliance-exact-binomial",
+        "compliance/smoke-exact-binomial",
+        "latency/smoke-compliance-exact-binomial",
     }
 
 

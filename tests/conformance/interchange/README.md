@@ -6,16 +6,32 @@ emitter-conformance suites. Every artefact this package writes is validated
 against the copy beside it, so the emitter and the schema agree in this
 repository's own test run rather than at integration time in a consumer.
 
-**Vendored from mavai-R `0.13.1`**: verified byte-identical to the
+**Vendored from mavai-R `0.15.0`**: `verdict-1.10.xsd` re-taken from
+mavai-R commit 02f4d7a on 2026-10-22, ahead of the release; check it
+against the `interchange-v0.15.0.zip` release asset once published. Only
+a comment changes from `0.14.0` (a 1.10 record's methodology version is
+"1.7.0" or later); no definition changes.
+
+**Vendored from mavai-R `0.14.0`** (superseded): `verdict-1.10.xsd` added, taken from
+the `v0.14.0` tag (commit 539980e) on 2026-10-22. It is additive
+over 1.9, which is additive over 1.8: `DecisionRuleEnum` gains
+`compliance/smoke-exact-binomial` and
+`latency/smoke-compliance-exact-binomial`, the rules that decide a
+requirement under smoke intent, and `@methodology-version` reads "1.7.0".
+This emitter writes 1.10 and none of 1.9's optional run-control content.
+`verdict-1.8.xsd` is no longer vendored, and the three JSON schemas are
+unchanged.
+
+**Vendored from mavai-R `0.13.1`** (superseded): verified byte-identical to the
 `interchange-v0.13.1.zip` release asset when recorded (2026-10-19).
 `mavai-optimize-1.schema.json` gains the optional `convergence.selection`: a
 selecting stepper's optimum, with its evidence pooled across every iteration
 that measured it, its two-sided interval and confidence, the stopping reason,
 whether it was confirmed, and the finalists' standings. `bestIteration` is
 re-described as the best single observation. The other two JSON schemas and
-`verdict-1.8.xsd` are unchanged. `verdict-1.9.xsd` (the run-controls
-amendment, additive over 1.8) is not vendored: this emitter writes 1.8 until
-it records run controls.
+`verdict-1.8.xsd` were unchanged. `verdict-1.9.xsd` (the run-controls
+amendment, additive over 1.8) was not vendored: this emitter wrote 1.8 until
+it moved to 1.10.
 
 **Vendored from mavai-R `0.12.0`** (superseded): verified byte-identical to the
 `interchange-v0.12.0.zip` release asset when recorded (2026-10-07). The three
@@ -89,7 +105,7 @@ schema. And the verdict copy is `1.5`, not the `1.4` the prose claimed.
 | `mavai-explore-1.schema.json` | `tests/exploration/test_interchange_conformance.py` |
 | `mavai-optimize-1.schema.json` | `tests/optimization/test_interchange_conformance.py` |
 | `mavai-baseline-1.schema.json` | `tests/baseline/test_interchange_conformance.py` |
-| `verdict-1.8.xsd` | the verdict emitter's suite |
+| `verdict-1.10.xsd` | the verdict emitter's suite |
 
 ## Why the version is written down
 

@@ -29,6 +29,8 @@ def test_rules_are_identified_and_versioned() -> None:
         "compliance/exact-binomial",
         "latency/precedence",
         "latency/compliance-exact-binomial",
+        "compliance/smoke-exact-binomial",
+        "latency/smoke-compliance-exact-binomial",
     ]
     assert {rule.version for rule in DecisionRule} == {1}
 

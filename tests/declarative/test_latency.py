@@ -154,13 +154,40 @@ class TestExitCodeContract:
         )
         contract = tmp_path / "contract.yaml"
         contract.write_text(
+            BASE.replace("threshold: 0.5", "threshold: 0.05") + "latency:\n  p50: 60000\n",
+            encoding="utf-8",
+        )
+        # 3 of 8 samples pass: the functional bar clears, but demonstrating
+        # the median needs 5 passing samples — no latency judgement is possible.
+        assert main(["test", str(contract), "--samples", "8"]) == 3
+
+    def test_smoke_decides_the_same_requirement_on_three_latencies(
+        self, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "mavai-bindings.py").write_text(
+            "import itertools\n"
+            "from baseltest.declarative import Bindings\n"
+            "bindings = Bindings()\n"
+            "_counter = itertools.count()\n"
+            "@bindings.binding('svc')\n"
+            "def invoke(value: str) -> str:\n"
+            "    return 'ok' if next(_counter) % 8 < 3 else 'nope'\n",
+            encoding="utf-8",
+        )
+        contract = tmp_path / "contract.yaml"
+        contract.write_text(
             BASE.replace("threshold: 0.5", "threshold: 0.05")
             + "intent: smoke\nlatency:\n  p50: 60000\n",
             encoding="utf-8",
         )
-        # 3 of 8 samples pass: the functional bar clears, but the median
-        # needs 5 passing samples — no latency judgement is possible.
-        assert main(["test", str(contract), "--samples", "8"]) == 3
+        # Under smoke the requirement is decided at any count from one: no
+        # count of three latencies is evidence against a median, so it passes
+        # and says the result carries no evidence.
+        assert main(["test", str(contract), "--samples", "8"]) == 0
+        out = capsys.readouterr().out
+        assert "latency/smoke-compliance-exact-binomial" in out
+        assert "FAIL not possible at this size" in out
 
     def test_verdict_record_carries_the_latency_element(
         self, tmp_path: Path, monkeypatch: Any

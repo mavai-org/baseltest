@@ -11,7 +11,9 @@ A latency constraint is decided by the rule for its threshold source:
 
 - an **explicit** threshold ``tau`` by ``latency/compliance-exact-binomial``
   (§12.3.4): the count of latencies at or below ``tau`` judged by the exact
-  one-sided binomial test of compliance with ``p_req = p``;
+  one-sided binomial test of compliance with ``p_req = p``; under smoke
+  intent by ``latency/smoke-compliance-exact-binomial``, the same count
+  judged with the burden of proof reversed (§5.7.3);
 - a **baseline-derived** threshold by ``latency/precedence`` (§12.4): the
   smallest baseline rank whose exact no-degradation breach probability for
   the test's nearest-rank percentile is at most alpha, the threshold being
@@ -36,7 +38,7 @@ from scipy.special import betaln, gammaln
 from scipy.stats import binom
 
 from ._exact import at_most_alpha, breach_probability_exact
-from .compliance import clopper_pearson_lower, minimum_passing_count
+from .compliance import clopper_pearson_lower, minimum_passing_count, smoke_required_pass
 from .rules import DecisionRule, Intent
 from .verdict import Verdict
 
@@ -384,18 +386,34 @@ def decide_nondegeneracy(
 
 @dataclass(frozen=True, slots=True)
 class LatencyCompliance:
-    """An explicit latency requirement under ``latency/compliance-exact-binomial``.
+    """An explicit latency requirement decided by its rule.
+
+    ``latency/compliance-exact-binomial`` under verification intent;
+    ``latency/smoke-compliance-exact-binomial`` under smoke, which FAILs
+    only on evidence that the requirement is not met.
 
     Attributes:
+        rule: The rule that decided the requirement.
         test_samples: The number of successful latencies ``n_s``.
         within_threshold: ``Y``, the latencies at or below the threshold
             (a latency equal to it counts as within).
         minimum_within: ``y_min``, the smallest count demonstrating
-            compliance; ``None`` when no count can pass at ``n_s``.
-        verdict: PASS iff ``Y >= y_min``; INCONCLUSIVE when no count can
-            pass — too few successful latencies to decide.
-        false_compliance: ``P_p(Y >= y_min)``, the false-compliance
-            probability at the boundary; ``None`` when no count can pass.
+            compliance under verification; ``None`` when no count can
+            demonstrate it at ``n_s``. Under smoke it decides nothing.
+        required_within: The count the verdict is decided by: ``y_min``
+            under verification; under smoke one more than the largest
+            failing count, 0 when no count can FAIL. ``None`` when the
+            rule cannot decide (INCONCLUSIVE).
+        verdict: PASS iff ``Y >= required_within``; INCONCLUSIVE when there
+            is no such count — under verification too few successful
+            latencies for any count to pass, under smoke none at all.
+        p_value: The tail of the rule at the observed count — upper
+            ``P_p(Y >= y)`` under verification, lower ``P_p(Y <= y)`` under
+            smoke; ``None`` when the rule cannot decide.
+        false_compliance: ``P_p(Y >= y_min)``, under verification;
+            ``None`` otherwise or when no count can pass.
+        false_non_compliance: ``P_p(Y < required_within)``, under smoke;
+            ``None`` otherwise or when the rule cannot decide.
         clopper_pearson_lower: The one-sided lower bound on ``F(tau)``,
             reported beside the verdict; ``None`` with no latencies.
         observed_percentile_ms: The raw nearest-rank percentile, reported
@@ -404,25 +422,34 @@ class LatencyCompliance:
             ``Q(p) <= tau``; it decides nothing.
     """
 
+    rule: DecisionRule
     test_samples: int
     within_threshold: int
     minimum_within: int | None
+    required_within: int | None
     verdict: Verdict
+    p_value: float | None
     false_compliance: float | None
+    false_non_compliance: float | None
     clopper_pearson_lower: float | None
     observed_percentile_ms: float | None
     raw_percentile_pass: bool | None
 
     @property
     def pass_possible(self) -> bool:
-        """Whether any count of the successful latencies could pass."""
+        """Whether any count of the successful latencies could demonstrate compliance."""
         return self.minimum_within is not None
 
 
 def evaluate_latency_compliance(
-    latencies: Sequence[float], threshold_ms: float, percentile: float, alpha: float
+    latencies: Sequence[float],
+    threshold_ms: float,
+    percentile: float,
+    alpha: float,
+    intent: Intent = Intent.VERIFICATION,
 ) -> LatencyCompliance:
-    """Decide an explicit latency requirement on the successful latencies."""
+    """Decide an explicit latency requirement on the successful latencies,
+    by the rule ``intent`` selects."""
     _percent(percentile)
     if not 0.0 < alpha < 1.0:
         raise ValueError("alpha must be strictly between 0 and 1")
@@ -430,16 +457,33 @@ def evaluate_latency_compliance(
     within = sum(1 for latency in latencies if latency <= threshold_ms)
     y_min = minimum_passing_count(percentile, n_s, alpha) if n_s else None
     observed = latency_percentile(latencies, percentile) if n_s else None
-    if y_min is None:
+    p_value = false_compliance = false_non_compliance = None
+    if intent is Intent.SMOKE:
+        rule = DecisionRule.LATENCY_SMOKE_COMPLIANCE_EXACT_BINOMIAL
+        required = smoke_required_pass(percentile, n_s, alpha) if n_s else None
+        if required is not None:
+            p_value = float(binom.cdf(within, n_s, percentile))
+            false_non_compliance = float(binom.cdf(required - 1, n_s, percentile))
+    else:
+        rule = DecisionRule.LATENCY_COMPLIANCE_EXACT_BINOMIAL
+        required = y_min
+        if required is not None:
+            p_value = float(binom.sf(within - 1, n_s, percentile))
+            false_compliance = float(binom.sf(required - 1, n_s, percentile))
+    if required is None:
         verdict = Verdict.INCONCLUSIVE
     else:
-        verdict = Verdict.PASS if within >= y_min else Verdict.FAIL
+        verdict = Verdict.PASS if within >= required else Verdict.FAIL
     return LatencyCompliance(
+        rule=rule,
         test_samples=n_s,
         within_threshold=within,
         minimum_within=y_min,
+        required_within=required,
         verdict=verdict,
-        false_compliance=(None if y_min is None else float(binom.sf(y_min - 1, n_s, percentile))),
+        p_value=p_value,
+        false_compliance=false_compliance,
+        false_non_compliance=false_non_compliance,
         clopper_pearson_lower=clopper_pearson_lower(within, n_s, alpha) if n_s else None,
         observed_percentile_ms=observed,
         raw_percentile_pass=None if observed is None else observed <= threshold_ms,
@@ -460,7 +504,7 @@ class LatencyJudgement:
         threshold_ms: The explicit threshold, or the derived one (``None``
             when saturated or undecided).
         verdict: PASS / FAIL / INCONCLUSIVE under the constraint's rule.
-        compliance: The exact-binomial decision of an explicit requirement.
+        compliance: The decision of an explicit requirement under its rule.
         precedence: The precedence derivation of a baseline-derived
             threshold, when one was attempted.
         nondegeneracy: The non-degeneracy decision of a baseline-derived
@@ -480,9 +524,10 @@ class LatencyJudgement:
 
     @property
     def rule(self) -> DecisionRule:
-        """The rule that decided the constraint, which its threshold source selects."""
-        if self.source is ThresholdSource.EXPLICIT:
-            return DecisionRule.LATENCY_COMPLIANCE_EXACT_BINOMIAL
+        """The rule that decided the constraint: an explicit requirement's,
+        which the intent selects, else ``latency/precedence``."""
+        if self.compliance is not None:
+            return self.compliance.rule
         return DecisionRule.LATENCY_PRECEDENCE
 
     @property
@@ -507,7 +552,8 @@ def judge_latency_constraint(
     """Decide one latency constraint on the run's successful latencies.
 
     An explicit requirement is decided by
-    ``latency/compliance-exact-binomial``; a baseline-derived constraint by
+    ``latency/compliance-exact-binomial``, or under smoke intent by
+    ``latency/smoke-compliance-exact-binomial``; a baseline-derived constraint by
     the non-degeneracy gate and ``latency/precedence`` (a test percentile
     equal to the threshold is not a breach). The decision is the same
     whether the latency dimension is enforced or advisory (§12.6).
@@ -523,7 +569,7 @@ def judge_latency_constraint(
         if threshold_ms is None:
             raise ValueError("an explicit latency constraint needs a threshold")
         tau: float | None = threshold_ms
-        compliance = evaluate_latency_compliance(latencies, threshold_ms, percentile, alpha)
+        compliance = evaluate_latency_compliance(latencies, threshold_ms, percentile, alpha, intent)
         verdict = compliance.verdict
     else:
         if not baseline_latencies:

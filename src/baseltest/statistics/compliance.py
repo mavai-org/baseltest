@@ -1,4 +1,4 @@
-"""Normative compliance under ``compliance/exact-binomial`` (§3.6, §5.5, §5.7).
+"""Normative compliance: the counts of its two exact binomial rules (§3.6, §5.5, §5.7).
 
 A requirement ``p_req`` is demonstrated by the exact one-sided binomial test
 of ``H0: p <= p_req`` against ``H1: p > p_req``. The decision artefact is the
@@ -11,6 +11,15 @@ A design can pass at all only if the all-success outcome clears the test,
 ``p_req^n <= alpha`` — the feasibility minimum ``ceil(log alpha / log p_req)``.
 Compliance tests are sized for the chance of a pass when the service is in
 fact better than required, at a design alternative rate above ``p_req``.
+
+Under smoke intent the burden of proof is reversed, at every size
+(``compliance/smoke-exact-binomial``, §5.7.3): ``H0: p >= p_req`` against
+``H1: p < p_req``, a count failing iff its binomial lower tail
+``P_{p_req}(K <= k)`` is at most alpha. The decision artefact is
+``required_pass``, one more than the largest failing count (0 when no count
+can fail), and the test passes iff ``K >= required_pass``. A pass means
+only that the run found no evidence of non-compliance; a fail is evidence,
+at level alpha, that the rate falls short of the requirement.
 """
 
 import math
@@ -21,7 +30,12 @@ import numpy as np
 from scipy.stats import beta, binom
 
 from ._arrays import IntArray
-from ._exact import at_most_alpha, at_most_alpha_each, binomial_upper_tail_exact
+from ._exact import (
+    at_most_alpha,
+    at_most_alpha_each,
+    binomial_lower_tail_exact,
+    binomial_upper_tail_exact,
+)
 
 DEFAULT_SIZING_HORIZON = 20_000
 """How far the exact sizing search looks before declaring a design unsettled."""
@@ -51,6 +65,30 @@ def minimum_passing_count(requirement: float, samples: int, alpha: float) -> int
     )
     passing = np.flatnonzero(admitted)
     return int(passing[0]) if passing.size else None
+
+
+def smoke_required_pass(requirement: float, samples: int, alpha: float) -> int:
+    """``required_pass`` of ``compliance/smoke-exact-binomial``: one more than
+    the largest count whose lower tail is at most alpha; 0 when none is.
+
+    The lower tail rises with the count, so the failing counts are
+    ``0, ..., required_pass - 1``.
+
+    Raises:
+        ValueError: On a non-positive size, or a requirement or level
+            outside ``(0, 1)``.
+    """
+    if samples <= 0:
+        raise ValueError("samples must be a positive integer")
+    _validate(requirement, alpha)
+    counts = np.arange(samples + 1)
+    lower = np.asarray(binom.cdf(counts, samples, requirement), dtype=np.float64)
+    failing = np.flatnonzero(
+        at_most_alpha_each(
+            lower, alpha, lambda i: binomial_lower_tail_exact(i, samples, requirement)
+        )
+    )
+    return int(failing[-1]) + 1 if failing.size else 0
 
 
 def minimum_feasible_samples(requirement: float, alpha: float) -> int:

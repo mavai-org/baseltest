@@ -10,12 +10,15 @@ from baseltest.engine import (
     ConfigurationError,
     ConfigurationRefusedError,
     CriterionResult,
+    DecisionRule,
     EnforcementMode,
+    Intent,
     LatencyEvaluation,
     LatencyPlanning,
     RegressionVerdict,
     RunKind,
     RunResult,
+    SmokeComplianceVerdict,
     Verdict,
     bar_attainment,
 )
@@ -33,7 +36,7 @@ def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str,
         required = str(decision.cutoff)
         threshold = f"{decision.derivation.threshold_real:.4f}"
     else:
-        required = "—" if decision.minimum_passing is None else str(decision.minimum_passing)
+        required = "—" if decision.required_pass is None else str(decision.required_pass)
         threshold = f"{decision.requirement:g}"
     basis = criterion.provenance.origin
     if criterion.provenance.contract_ref is not None:
@@ -70,17 +73,51 @@ def _verdict_table(results: Sequence[CriterionResult]) -> list[str]:
     return lines
 
 
+# What each outcome of a smoke-intent requirement states (§5.7.3).
+_SMOKE_MEANING = {
+    Verdict.PASS: (
+        "no evidence that the service falls short of its requirement at this size "
+        "— not evidence of compliance"
+    ),
+    Verdict.FAIL: "evidence that the service falls short of its requirement",
+}
+
+
+def _smoke_lines(decision: SmokeComplianceVerdict) -> list[str]:
+    """A smoke-intent requirement: what its verdict means, and the caveat
+    its size calls for (§5.7.4)."""
+    lines = [
+        f"      SMOKE: {_SMOKE_MEANING[decision.verdict]} (lower-tail p = "
+        f"{decision.p_value:.4g}, alpha {decision.alpha:g})"
+    ]
+    if not decision.fail_possible:
+        lines.append(
+            "      FAIL not possible at this size; this result carries no evidence "
+            "about the service"
+        )
+    elif not decision.pass_possible:
+        lines.append(
+            f"      this size cannot demonstrate compliance (n = {decision.trials}, need at "
+            f"least {decision.feasibility_minimum}): the SMOKE result reports only whether "
+            "there is evidence of non-compliance"
+        )
+    else:
+        lines.append(
+            "      PASS is possible at this size: declare `intent: verification` for "
+            "evidential strength"
+        )
+    return lines
+
+
 def _decision_lines(result: CriterionResult) -> list[str]:
-    """What a decision discloses beside its verdict: for compliance, whether
-    a pass was possible and the Clopper–Pearson bound; for regression, the
-    size at the assumed common rate and what the design can detect."""
+    """What a decision discloses beside its verdict: for compliance, the
+    Clopper–Pearson bound; under smoke intent,
+    what the verdict means and the size's caveat; for regression, the size
+    at the assumed common rate and what the design can detect."""
     decision = result.decision
+    if isinstance(decision, SmokeComplianceVerdict):
+        return _smoke_lines(decision)
     if isinstance(decision, ComplianceVerdict):
-        if not decision.pass_possible:
-            return [
-                f"      PASS not possible at this size (n = {decision.trials}): this result "
-                "carries no evidence about the service"
-            ]
         return [
             f"      one-sided Clopper–Pearson lower bound {decision.clopper_pearson_lower:.4f}"
             f" at alpha {decision.alpha:g}"
@@ -166,9 +203,10 @@ def _characterised_lines(
 
 
 def _recorded_bar_lines(result: CriterionResult) -> list[str]:
-    """A declared bar under measure: noted against the evidence — data, not a verdict."""
+    """A declared bar under measure: noted against the evidence — data, not a
+    verdict, and read under ``compliance/exact-binomial`` whatever the intent."""
     decision = result.decision
-    assert isinstance(decision, ComplianceVerdict)
+    assert isinstance(decision, ComplianceVerdict | SmokeComplianceVerdict)
     standing = bar_attainment(result)
     if standing == "unsupportable":
         note = (
@@ -180,7 +218,7 @@ def _recorded_bar_lines(result: CriterionResult) -> list[str]:
         note = (
             f"    declared bar {decision.requirement}: the evidence records it as "
             f"{standing} (at least {decision.minimum_passing} of {decision.trials} needed, "
-            f"{decision.rule.value}) — recorded, not a verdict"
+            f"{DecisionRule.COMPLIANCE_EXACT_BINOMIAL.value}) — recorded, not a verdict"
         )
     lines = _characterised_lines(result, label="bar declared")
     lines.insert(2, note)
@@ -219,7 +257,10 @@ def _constraint_line(outcome: BoundEvaluation) -> str:
     if judgement.compliance is not None:
         decided = judgement.compliance
         head = f"    {label} ≤ {outcome.bound.threshold_ms}ms: {verdict} ({rule})"
-        if decided.minimum_within is None:
+        smoke = decided.rule is DecisionRule.LATENCY_SMOKE_COMPLIANCE_EXACT_BINOMIAL
+        if decided.required_within is None:
+            if smoke:
+                return f"{head} — no successful latencies to decide on"
             return (
                 f"{head} — {n_s} successful latencies; no count of {n_s} can demonstrate "
                 "the requirement"
@@ -230,9 +271,17 @@ def _constraint_line(outcome: BoundEvaluation) -> str:
                 f"; raw {label} {round(decided.observed_percentile_ms)}ms "
                 "(a raw percentile comparison; it decides nothing)"
             )
+        caveat = ""
+        if smoke:
+            caveat = (
+                "; FAIL not possible at this size, so this result carries no evidence "
+                "about the service"
+                if decided.required_within == 0
+                else f"; SMOKE: {_SMOKE_MEANING[outcome.verdict]}"
+            )
         return (
             f"{head} — {decided.within_threshold} of {n_s} successful latencies within, "
-            f"at least {decided.minimum_within} needed{raw}"
+            f"at least {decided.required_within} needed{raw}{caveat}"
         )
     head = f"    {label}: {verdict} ({rule})"
     indicative = " — indicative only" if judgement.indicative else ""
@@ -310,6 +359,11 @@ def _verdict_header(result: RunResult) -> list[str]:
         f"contract {result.contract_id} — verdict: {overall.verdict.value.upper()} "
         f"(methodology {METHODOLOGY_VERSION})"
     ]
+    if result.plan.intent is Intent.SMOKE:
+        lines.append(
+            "  intent: SMOKE — a sentinel check, not a verification: a requirement "
+            "FAILs only on evidence that the service falls short of it"
+        )
     if overall.triggering:
         named = ", ".join(
             f"criterion {t.id}" if t.kind == "criterion" else t.id for t in overall.triggering
@@ -544,6 +598,8 @@ def render_refusal(contract_name: str, error: ConfigurationRefusedError) -> str:
                 f"  COMPLIANCE_INFEASIBLE: {part.subject} — no outcome of "
                 f"{part.planned_samples} samples can demonstrate {part.requirement:g}; a pass "
                 f"is possible from {part.limit} samples. Raise the sample count, or declare "
-                "`intent: smoke` for a sentinel check that reports PASS is not possible."
+                "`intent: smoke` for a sentinel check: it runs at this size and FAILs only "
+                "on evidence that the service falls short, and its PASS is not evidence "
+                "of compliance."
             )
     return "\n".join(lines)

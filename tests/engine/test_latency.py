@@ -1,5 +1,7 @@
 """The shared latency summary: passing-samples basis, gating, sorted vector."""
 
+from itertools import count
+
 from baseltest.contract import (
     Criterion,
     LatencyBar,
@@ -19,7 +21,7 @@ from baseltest.engine import (
     latency_block,
     plan_latency,
 )
-from baseltest.statistics import ThresholdSource
+from baseltest.statistics import DecisionRule, ThresholdSource
 
 
 def sample(ms: int, passed: bool = True) -> SampleRecord:
@@ -190,10 +192,28 @@ class TestThroughTheEngine:
         assert result.overall is not None and result.overall.latency_verdict is Verdict.PASS
 
     def test_inconclusive_latency_makes_the_test_inconclusive(self) -> None:
-        # Every sample succeeds and the functional criterion passes, but no
-        # count of 5 latencies can demonstrate a p50 requirement at alpha
-        # 0.03 (1/32 > 0.03): the latency dimension, and the test, are
-        # INCONCLUSIVE — decided on the actual count, so smoke runs it.
+        # Six samples are planned, enough to demonstrate a p50 requirement at
+        # alpha 0.03, but only five succeed and the functional criterion
+        # passes; no count of 5 latencies can demonstrate it (1/32 > 0.03):
+        # the latency dimension, and the test, are INCONCLUSIVE — decided on
+        # the actual count.
+        counter = count(1)
+        contract = ServiceContract(
+            contract_id="svc",
+            invoke=lambda v: "ok" if next(counter) <= 5 else "bad",
+            criteria=(Criterion(name="c", postconditions=(contains("ok"),), threshold=0.3),),
+            latency=LatencyBar(bounds=(LatencyBound("p50", 60_000),), confidence=0.97),
+        )
+        result = execute(contract, RunPlan(samples=6, inputs=("a",), kind=RunKind.TEST))
+        assert result.latency is not None
+        assert result.latency.verdict is Verdict.INCONCLUSIVE
+        assert result.composite is Verdict.INCONCLUSIVE
+        assert result.overall is not None
+        assert [t.id for t in result.overall.triggering] == ["latency p50"]
+
+    def test_smoke_decides_a_latency_requirement_no_count_could_demonstrate(self) -> None:
+        # The same five latencies under smoke: decided by the reversed rule,
+        # under which no count of 5 can FAIL at alpha 0.03 either.
         contract = ServiceContract(
             contract_id="svc",
             invoke=lambda v: "ok",
@@ -204,7 +224,8 @@ class TestThroughTheEngine:
             contract, RunPlan(samples=5, inputs=("a",), kind=RunKind.TEST, intent=Intent.SMOKE)
         )
         assert result.latency is not None
-        assert result.latency.verdict is Verdict.INCONCLUSIVE
-        assert result.composite is Verdict.INCONCLUSIVE
-        assert result.overall is not None
-        assert [t.id for t in result.overall.triggering] == ["latency p50"]
+        judgement = result.latency.evaluations[0].judgement
+        assert judgement.rule is DecisionRule.LATENCY_SMOKE_COMPLIANCE_EXACT_BINOMIAL
+        assert judgement.compliance is not None and judgement.compliance.required_within == 0
+        assert result.latency.verdict is Verdict.PASS
+        assert result.composite is Verdict.PASS

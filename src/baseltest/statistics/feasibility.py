@@ -7,8 +7,8 @@ minimum is ``ceil(log alpha / log p_req)``. Feasible means a pass is
 possible, not that the design is adequately powered (§5.5).
 
 Under verification intent an infeasible design is refused before it runs
-(``COMPLIANCE_INFEASIBLE``); under smoke intent it runs and reports that a
-pass is not possible at this size.
+(``COMPLIANCE_INFEASIBLE``); under smoke intent it runs and is decided by
+``compliance/smoke-exact-binomial``, which needs no minimum (§5.7.3).
 """
 
 from dataclasses import dataclass

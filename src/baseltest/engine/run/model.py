@@ -26,6 +26,7 @@ from baseltest.statistics import (
     Envelopes,
     OverallVerdict,
     RegressionVerdict,
+    SmokeComplianceVerdict,
     Verdict,
     type_one_envelopes,
 )
@@ -54,7 +55,9 @@ class RunPlan:
         samples: Total number of invocations.
         inputs: The fixed, finite input list; invocations cycle through it.
         kind: The run mode, chosen at invocation.
-        intent: Verification (an infeasible design is refused) or smoke.
+        intent: Verification (a requirement must be demonstrated, and an
+            infeasible design is refused) or smoke (a requirement FAILs only
+            on evidence of falling short).
         advisory: The dimensions the run makes advisory: decided and
             reported, never failing the test (§12.6). Empty, the default,
             every assertion is enforced.
@@ -96,7 +99,7 @@ class RefusedPart:
     requirement: float | None = None
 
 
-Decision = ComplianceVerdict | RegressionVerdict
+Decision = ComplianceVerdict | SmokeComplianceVerdict | RegressionVerdict
 """A judged criterion's decision under its rule."""
 
 
