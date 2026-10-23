@@ -7,7 +7,7 @@ and what they must do.
 Versions follow semantic versioning. While on 0.x, **minor** bumps may
 carry breaking changes; each says so in its first line.
 
-## [0.27.0] — unreleased
+## [0.27.0] — 2026-10-23
 
 **Breaking: smoke intent decides a declared requirement by its own rule, and verdict records move to verdict-1.10; `refining-grid` writes its optimum as `convergence.selection`, and refuses a scorer other than `pass-rate` or `objective: minimize`.** Conformance is against the mavai-R v0.15.0 fixtures and verdict schema (Statistical Companion 1.7.1).
 
