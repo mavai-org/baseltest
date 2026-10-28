@@ -6,18 +6,25 @@ upstream `mavai-R/inst/cases/*.json`), used by
 `tests/statistics/test_conformance.py` to validate this package against the
 reference implementation.
 
-Pinned at `mavai-R` **`v0.15.0`**: Statistical Companion 1.7.1, methodology
+Pinned at `mavai-R` **`v0.16.0`**: Statistical Companion 1.7.1, methodology
 1.7.1, fixture schema 2. Every vendored file is byte-identical to the
 release asset; the manifest's content hashes are checked by every run.
-(Vendored ahead of the release from mavai-R commit 02f4d7a on 2026-10-22;
-check against the `cases-v0.15.0.zip` asset once published.)
 
-`v0.15.0` clarifies, without changing any verdict, count or rule, that a
-criterion decided by a smoke rule enters neither Type-I envelope. Every
-suite declares methodology 1.7.1. `composite_verdict`, which accepts an
-optional `decision_rule` per criterion and gains three cases on this, is
-informational and not run here; the same property is tested directly
-against the engine's envelopes.
+`v0.16.0` removes the per-criterion denominator policy, withdrawn since
+Statistical Companion 1.3.1 (every trial counts, and a trial with no
+testable value is a FAIL), from the oracle. Only informational suites change
+(`baseline_object`, `criterion_verdict_inferential`,
+`criterion_verdict_observational` and
+`multi_criteria_scenario_consult_advice`, none vendored here), so of the
+files below only `manifest.json` changes. No verdict, count, rule or
+methodology version changes.
+
+`v0.15.0` (superseded) clarifies, without changing any verdict, count or
+rule, that a criterion decided by a smoke rule enters neither Type-I
+envelope. Every suite declares methodology 1.7.1. `composite_verdict`, which
+accepts an optional `decision_rule` per criterion and gains three cases on
+this, is informational and not run here; the same property is tested
+directly against the engine's envelopes.
 
 `v0.14.0` (superseded) gives smoke intent its own rules. Under SMOKE a declared
 requirement is decided by `compliance/smoke-exact-binomial`, and an
