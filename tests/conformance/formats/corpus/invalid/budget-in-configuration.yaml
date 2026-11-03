@@ -1,0 +1,11 @@
+# REFUSED: the budget is a run control beside configuration:, not a
+# covariate inside it (§II.8; the uniformity rule places only
+# covariates in configuration:).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      budget:
+        tokens: 100000

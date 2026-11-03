@@ -1,0 +1,11 @@
+# REFUSED: budget: keys are time-ms, tokens, token-charge, on-exhausted
+# (§II.8); monetary cost is not part of the format.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+    budget:
+      tokens: 100000
+      cost-usd: 5

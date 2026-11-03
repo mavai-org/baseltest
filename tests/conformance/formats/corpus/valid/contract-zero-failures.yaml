@@ -1,0 +1,12 @@
+# Zero-failures criterion (Part I, amendment 2026-11-03): the bare form,
+# an observational criterion with no threshold, tolerance or confidence.
+format: mavai-contract/1
+contract: greeting-never-insults
+service: greeting-service
+criteria:
+  - name: never-insults
+    zero-failures: true
+    not-equals: "go away"
+inputs:
+  - "Alice"
+  - "Bob"

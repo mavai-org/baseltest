@@ -1,0 +1,12 @@
+# zero-failures: false (Part I, amendment 2026-11-03) means what the
+# criterion means without the amendment: here an ordinary normative
+# criterion, so threshold: beside it is legal.
+format: mavai-contract/1
+contract: greeting-is-polite
+service: greeting-service
+criteria:
+  - threshold: 0.95
+    zero-failures: false
+    contains: "hello"
+inputs:
+  - "Alice"

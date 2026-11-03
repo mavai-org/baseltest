@@ -1,0 +1,10 @@
+# A budget alone (§II.8): a token limit with no pacing and the default
+# exhaustion behaviour (on-exhausted absent, so inconclusive).
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+    budget:
+      tokens: 50000

@@ -1,0 +1,11 @@
+# REFUSED: a budget: declares time-ms or tokens (§II.8); a token-charge
+# or an on-exhausted alone bounds nothing.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+    budget:
+      token-charge: 10
+      on-exhausted: fail
