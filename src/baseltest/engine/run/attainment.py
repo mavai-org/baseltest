@@ -17,7 +17,7 @@ have been — remains a fact about the experiment, not a smoke verdict.
 
 from enum import StrEnum
 
-from baseltest.statistics import RegressionVerdict, Verdict
+from baseltest.statistics import ObservationalVerdict, RegressionVerdict, Verdict
 
 from .model import CriterionResult
 
@@ -40,7 +40,9 @@ def bar_attainment(result: CriterionResult) -> BarAttainment:
     decision = result.decision
     if decision is None:
         raise ValueError(f"criterion {result.criterion.name!r} declares no bar")
-    if isinstance(decision, RegressionVerdict):
+    if isinstance(decision, RegressionVerdict | ObservationalVerdict):
+        # A zero-failures criterion's bar is met iff no trial failed — a
+        # recorded fact, never unsupportable: any size can show it.
         return BarAttainment.MET if decision.verdict is Verdict.PASS else BarAttainment.NOT_MET
     k_min = decision.minimum_passing
     if k_min is None:

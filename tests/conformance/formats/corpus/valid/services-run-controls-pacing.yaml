@@ -1,0 +1,10 @@
+# Pacing alone (§II.8): the reader-level key inside configuration:, with
+# no budget: block. The run is paced and unbounded.
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+      pacing:
+        max-requests-per-second: 5

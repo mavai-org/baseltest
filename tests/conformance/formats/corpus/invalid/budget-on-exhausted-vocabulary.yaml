@@ -1,0 +1,12 @@
+# REFUSED: on-exhausted is inconclusive, fail or evaluate-partial
+# (§II.8). The withdrawn pass-incomplete decided at the truncated sample
+# count, which no fixed-n rule licenses; it has no spelling here.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+    budget:
+      tokens: 100000
+      on-exhausted: pass-incomplete

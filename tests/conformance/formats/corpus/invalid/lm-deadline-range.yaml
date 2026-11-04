@@ -1,0 +1,10 @@
+# REFUSED: deadline-ms is a positive whole number of milliseconds (II.3;
+# adopted 2026-08-07). Zero is not "no deadline" — an unbounded wait is
+# what the key exists to abolish, and there is no spelling for it.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      deadline-ms: 0

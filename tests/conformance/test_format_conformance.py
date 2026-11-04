@@ -18,10 +18,21 @@ required registrations.
 Selective assertion fails the build: the run records every case it
 asserted and diffs that against the manifest's full obligation, and the
 diff mechanism is itself exercised by mutation.
+
+Declared exemptions: a case belonging to a format amendment this package
+has not yet implemented is listed in ``_DECLARED_EXEMPTIONS``, naming its
+category (or its ``loads`` outcome), the amendment, the open bundle that
+owes it, and the date it was declared. An exempted case is expected to
+fail and is reported as such (``xfail``, strict: it fails the build the
+moment it passes, so the list can only shrink); the obligation diff counts
+it as a declared exemption, never as silence; and a case that is neither
+asserted nor declared still fails the build. With exemptions present this
+package does not claim full conformance at the pinned release.
 """
 
 # mavai-ref: JVI-YM9A27C — do not remove (resolves in mavai-orchestrator)
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -68,7 +79,59 @@ def _corpus_registry() -> Bindings:
 
         return run
 
+    @bindings.binding("echo")
+    def echo(request: str) -> str:
+        return request
+
+    @bindings.scorer("politeness")
+    def politeness(summary: object) -> float:
+        return 0.0
+
     return bindings
+
+
+@dataclass(frozen=True, slots=True)
+class Exemption:
+    """One declared exemption: a corpus case this package does not yet meet.
+
+    Attributes:
+        category: The case's refusal category, or ``loads`` for a valid case.
+        amendment: The format amendment the case belongs to.
+        owed_by: The open bundle that owes the implementation.
+        declared: When the exemption was declared.
+    """
+
+    category: str
+    amendment: str
+    owed_by: str
+    declared: str
+
+
+_RUN_CONTROLS = "mavai-services/1 run controls (pacing:, budget:), amendment 2026-10-13"
+_RUN_CONTROLS_BUNDLE = "work/2026-10-13-baseltest-declarative-resource-controls"
+_DECLARED_ON = "2026-11-03"
+
+# Cases of amendments this package has not implemented yet. Each must name
+# a manifest case and fail as expected; the list only shrinks.
+_DECLARED_EXEMPTIONS = {
+    file_name: Exemption(category, _RUN_CONTROLS, _RUN_CONTROLS_BUNDLE, _DECLARED_ON)
+    for file_name, category in (
+        ("budget-in-configuration.yaml", "budget-in-configuration"),
+        ("budget-in-exploration.yaml", "budget-in-exploration"),
+        ("budget-in-optimization-initial.yaml", "budget-in-optimization-initial"),
+        ("budget-limit-missing.yaml", "budget-limit-missing"),
+        ("budget-limit-not-positive.yaml", "budget-limit-not-positive"),
+        ("budget-on-exhausted-vocabulary.yaml", "budget-on-exhausted-vocabulary"),
+        ("budget-unknown-key.yaml", "budget-unknown-key"),
+        ("pacing-empty.yaml", "pacing-empty"),
+        ("pacing-rate-not-positive.yaml", "pacing-rate-not-positive"),
+        ("pacing-unknown-key.yaml", "pacing-unknown-key"),
+        ("services-run-controls.yaml", "loads"),
+        ("services-run-controls-bare.yaml", "loads"),
+        ("services-run-controls-budget.yaml", "loads"),
+        ("services-run-controls-pacing.yaml", "loads"),
+    )
+}
 
 
 # category -> a fragment of THIS loader's refusal message. Informational by
@@ -158,6 +221,19 @@ _CATEGORY_MESSAGES = {
     "optimization-initial-restates-baseline": "merely restates",
     "lm-system-prompt-file-malformed": "file form is `{file: <path>}`",
     "services-roots-reference-undeclared": "references an undeclared root",
+    "lm-deadline-range": "`deadline-ms:` must be a whole number of milliseconds",
+    "stepper-config-unknown-key": "`stepper-config:` has unknown key",
+    "stepper-linear-sweep-zero-step": "`step:` must be non-zero",
+    "stepper-refining-grid-bounds": "must be below `hi:`",
+    "stepper-refining-grid-min-step": "with `min-step:` at most `step:`",
+    "stepper-refining-grid-objective": "`objective:` must be 'maximize'",
+    "stepper-refining-grid-prefer": "`prefer:` must be 'low' or 'high'",
+    "stepper-refining-grid-scorer": "`scorer:` must be 'pass-rate'",
+    # mavai-contract/1, zero-failures criteria (amendment 2026-11-03)
+    "zero-failures-with-threshold": "a zero-failures criterion has no rate to require",
+    "zero-failures-with-tolerate": "a zero-failures criterion has no baseline risk claim",
+    "zero-failures-with-confidence": "a zero-failures criterion has no confidence level",
+    "zero-failures-not-boolean": "`zero-failures:` takes a boolean",
 }
 
 
@@ -201,9 +277,10 @@ def _assert_case(entry: dict) -> None:
     )
 
 
-def _diff_against_obligations(asserted: set[str]) -> None:
-    """The selective-assertion gate: every manifest case must have been asserted."""
-    missing = set(_ENTRIES) - asserted
+def _diff_against_obligations(asserted: set[str], exempted: set[str]) -> None:
+    """The selective-assertion gate: every manifest case must have been
+    asserted, or declared exempt — never silently left out."""
+    missing = set(_ENTRIES) - asserted - exempted
     assert not missing, (
         "format-conformance run did not assert every manifest obligation — "
         f"missing: {', '.join(sorted(missing))}"
@@ -212,26 +289,77 @@ def _diff_against_obligations(asserted: set[str]) -> None:
 
 @pytest.mark.parametrize("file_name", sorted(_ENTRIES))
 def test_corpus_case(file_name: str) -> None:
-    _assert_case(_ENTRIES[file_name])
+    exemption = _DECLARED_EXEMPTIONS.get(file_name)
+    if exemption is None:
+        _assert_case(_ENTRIES[file_name])
+        return
+    try:
+        _assert_case(_ENTRIES[file_name])
+    except (AssertionError, ContractConfigurationError, KeyError) as failure:
+        pytest.xfail(
+            f"declared exemption ({exemption.declared}): {exemption.category} — "
+            f"{exemption.amendment}; owed by {exemption.owed_by} ({type(failure).__name__})"
+        )
+    pytest.fail(
+        f"{file_name} is declared exempt but now meets its obligation — remove its "
+        "exemption (the list only shrinks)"
+    )
 
 
 def test_every_manifest_obligation_is_asserted() -> None:
     # The parametrisation above is generated from the manifest itself, so a
     # skipped case means a deselected test, not a silent gap; this diff makes
-    # the obligation explicit and machine-checked in one place.
+    # the obligation explicit and machine-checked in one place. A declared
+    # exemption is counted and reported, never silent.
     asserted = set()
     for file_name, entry in _ENTRIES.items():
+        if file_name in _DECLARED_EXEMPTIONS:
+            continue
         _assert_case(entry)
         asserted.add(file_name)
-    _diff_against_obligations(asserted)
+    exempted = set(_DECLARED_EXEMPTIONS)
+    _diff_against_obligations(asserted, exempted)
+    print(
+        f"format conformance: {len(asserted)} of {len(_ENTRIES)} manifest cases asserted, "
+        f"{len(exempted)} declared exempt"
+    )
 
 
 def test_selective_assertion_fails_the_build() -> None:
-    # Mutation check of the gate itself: dropping one category's case from
+    # Mutation check of the gate itself: dropping one undeclared case from
     # the asserted set must fail the obligation diff.
-    dropped = next(iter(sorted(_ENTRIES)))
+    dropped = next(name for name in sorted(_ENTRIES) if name not in _DECLARED_EXEMPTIONS)
     with pytest.raises(AssertionError, match=dropped):
-        _diff_against_obligations(set(_ENTRIES) - {dropped})
+        _diff_against_obligations(set(_ENTRIES) - {dropped}, set(_DECLARED_EXEMPTIONS))
+
+
+def test_a_declared_exemption_is_counted_not_silent() -> None:
+    # Mutation check of the exemption: an exempted case passes the diff only
+    # because it is declared — remove the declaration and the same omission
+    # fails the build.
+    assert _DECLARED_EXEMPTIONS, "no exemptions are declared; drop this mutation check"
+    exempt = next(iter(sorted(_DECLARED_EXEMPTIONS)))
+    asserted = set(_ENTRIES) - {exempt}
+    _diff_against_obligations(asserted, {exempt})
+    with pytest.raises(AssertionError, match=exempt):
+        _diff_against_obligations(asserted, set())
+
+
+def test_declared_exemptions_name_manifest_cases_with_their_category() -> None:
+    for file_name, exemption in _DECLARED_EXEMPTIONS.items():
+        entry = _ENTRIES.get(file_name)
+        assert entry is not None, f"exemption names no manifest case: {file_name}"
+        assert exemption.category == entry.get("category", "loads"), file_name
+        assert exemption.owed_by and exemption.amendment and exemption.declared, file_name
+
+
+def test_zero_failures_cases_are_asserted_not_exempted() -> None:
+    # The amendment this package implements is never exempted.
+    zero_failures = {
+        name for name, entry in _ENTRIES.items() if "zero-failures" in entry.get("spec", "")
+    } | {name for name in _ENTRIES if name.startswith("zero-failures-")}
+    assert zero_failures
+    assert not zero_failures & set(_DECLARED_EXEMPTIONS)
 
 
 def test_manifest_mirrors_the_vendored_tree() -> None:
@@ -243,4 +371,5 @@ def test_every_category_has_a_case_and_a_message_mapping() -> None:
     manifest_categories = set(_MANIFEST["categories"])
     exercised = {e["category"] for e in _ENTRIES.values() if e["outcome"] == "refused"}
     assert exercised == manifest_categories
-    assert set(_CATEGORY_MESSAGES) == manifest_categories
+    exempt_categories = {e.category for e in _DECLARED_EXEMPTIONS.values()} - {"loads"}
+    assert set(_CATEGORY_MESSAGES) == manifest_categories - exempt_categories

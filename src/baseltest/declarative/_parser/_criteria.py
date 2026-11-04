@@ -1,7 +1,7 @@
 """The ``criteria:`` block: one criterion entry into a CriterionDeclaration.
 
 Key allowlist (with the misplaced-``transform``/``in`` refusals), the
-``threshold``/``tolerate``/``confidence`` value checks, the inline and
+``zero-failures``/``threshold``/``tolerate``/``confidence`` value checks, the inline and
 ``postconditions:`` forms, and the derived default name.
 """
 
@@ -23,6 +23,7 @@ THRESHOLD_ORIGINS = ("sla", "slo", "policy")
 _CRITERION_KEYS = {
     "name",
     "threshold",
+    "zero-failures",
     "threshold-origin",
     "contract-ref",
     "tolerate",
@@ -60,6 +61,8 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
             )
         if key not in _CRITERION_KEYS:
             raise _fail(f"{where}: unknown key `{key}:`")
+
+    zero_failures = _parse_zero_failures(data, where)
 
     threshold = data.get("threshold")
     if threshold is not None:
@@ -133,7 +136,34 @@ def _parse_criterion(entry: Any, index: int, views: dict[str, str]) -> Criterion
         tolerate=tolerate,
         confidence=criterion_confidence,
         optional_slack=optional_slack,
+        zero_failures=zero_failures,
     )
+
+
+def _parse_zero_failures(data: dict[str, Any], where: str) -> bool:
+    """A criterion's ``zero-failures:`` declaration (amendment 2026-11-03).
+
+    ``true`` makes the criterion observational: it must hold on every trial,
+    and estimates no rate — so nothing that parameterises a rate may stand
+    beside it. ``false``, or no key, leaves the criterion as it would be
+    without the amendment.
+    """
+    value = data.get("zero-failures", False)
+    if not isinstance(value, bool):
+        raise _fail(f"{where}: `zero-failures:` takes a boolean — `true` or `false`, got {value!r}")
+    if not value:
+        return False
+    refused = (
+        ("threshold", "a zero-failures criterion has no rate to require"),
+        ("tolerate", "a zero-failures criterion has no baseline risk claim to protect"),
+        ("confidence", "a zero-failures criterion has no confidence level to set"),
+    )
+    for key, why in refused:
+        if key in data:
+            raise _fail(
+                f"{where}: `zero-failures: true` beside `{key}:` — {why}; drop one of the two keys"
+            )
+    return True
 
 
 _PERCENT_SLACK = re.compile(r"^([0-9]+(?:\.[0-9]+)?)%$")

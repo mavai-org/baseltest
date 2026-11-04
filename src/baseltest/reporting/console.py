@@ -15,6 +15,7 @@ from baseltest.engine import (
     Intent,
     LatencyEvaluation,
     LatencyPlanning,
+    ObservationalVerdict,
     RegressionVerdict,
     RunKind,
     RunResult,
@@ -31,6 +32,20 @@ def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str,
     tally = result.tally
     decision = result.decision
     assert decision is not None
+    basis = criterion.provenance.origin
+    if criterion.provenance.contract_ref is not None:
+        basis = f"{basis} — {criterion.provenance.contract_ref}"
+    if isinstance(decision, ObservationalVerdict):
+        # Every trial must pass; there is no rate, threshold or rule to show.
+        return (
+            criterion.name,
+            decision.verdict.value.upper(),
+            f"{tally.successes}/{tally.trials}",
+            str(tally.trials),
+            "—",
+            "zero failures",
+            basis,
+        )
     if isinstance(decision, RegressionVerdict):
         # The integer cutoff is the decision artefact; c / n_t displays it.
         required = str(decision.cutoff)
@@ -38,9 +53,6 @@ def _verdict_row(result: CriterionResult) -> tuple[str, str, str, str, str, str,
     else:
         required = "—" if decision.required_pass is None else str(decision.required_pass)
         threshold = f"{decision.requirement:g}"
-    basis = criterion.provenance.origin
-    if criterion.provenance.contract_ref is not None:
-        basis = f"{basis} — {criterion.provenance.contract_ref}"
     return (
         criterion.name,
         decision.verdict.value.upper(),
@@ -109,12 +121,23 @@ def _smoke_lines(decision: SmokeComplianceVerdict) -> list[str]:
     return lines
 
 
+def _observation_phrase(decision: ObservationalVerdict) -> str:
+    """What a zero-failures criterion observed: a count, never a rate (§1.4.5)."""
+    if decision.trials == 0:
+        return "no trials observed"
+    if decision.failures == 0:
+        return f"no failure observed in {decision.trials} trials — no rate is claimed"
+    return f"{decision.failures} of {decision.trials} trials failed"
+
+
 def _decision_lines(result: CriterionResult) -> list[str]:
     """What a decision discloses beside its verdict: for compliance, the
     Clopper–Pearson bound; under smoke intent,
     what the verdict means and the size's caveat; for regression, the size
     at the assumed common rate and what the design can detect."""
     decision = result.decision
+    if isinstance(decision, ObservationalVerdict):
+        return [f"      {_observation_phrase(decision)}"]
     if isinstance(decision, SmokeComplianceVerdict):
         return _smoke_lines(decision)
     if isinstance(decision, ComplianceVerdict):
@@ -198,6 +221,18 @@ def _characterised_lines(
             f"(observed rate {tally.observed_rate:.4f}, "
             f"variance {tally.variance:.4f})"
         ),
+        *_failure_reason_lines(result),
+    ]
+
+
+def _recorded_observation_lines(result: CriterionResult) -> list[str]:
+    """A zero-failures criterion under measure: its failed-trial count,
+    recorded — no rate, no verdict vocabulary."""
+    decision = result.decision
+    assert isinstance(decision, ObservationalVerdict)
+    return [
+        f"  criterion {result.name}: recorded (zero failures declared)",
+        f"    {_observation_phrase(decision)} — recorded, not a verdict",
         *_failure_reason_lines(result),
     ]
 
@@ -414,7 +449,9 @@ def render_run(result: RunResult, baseline_path: str | None = None) -> str:
             "(a measure run records; it renders no verdict)"
         )
         for criterion_result in result.criterion_results:
-            if criterion_result.decision is not None:
+            if isinstance(criterion_result.decision, ObservationalVerdict):
+                lines.extend(_recorded_observation_lines(criterion_result))
+            elif criterion_result.decision is not None:
                 lines.extend(_recorded_bar_lines(criterion_result))
             else:
                 lines.extend(_characterised_lines(criterion_result))

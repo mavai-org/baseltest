@@ -1,0 +1,7 @@
+# REFUSED: zero-failures: true beside confidence: — a zero-failures criterion has no confidence level to set
+# (Part I, zero-failures criteria, amendment 2026-11-03).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ zero-failures: true, confidence: 0.99, contains: "ok" }]
+inputs: ["Alice"]

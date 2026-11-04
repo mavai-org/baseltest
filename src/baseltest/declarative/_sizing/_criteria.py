@@ -78,7 +78,7 @@ def _sizeable_criteria(
     sizeable = []
     unsizeable = []
     for entry in declaration.criteria:
-        if entry.threshold is not None:
+        if not entry.is_empirical:
             continue
         evidence = baseline.criteria.get(entry.name)
         if evidence is None or evidence.trials == 0:

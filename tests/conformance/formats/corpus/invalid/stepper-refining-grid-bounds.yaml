@@ -1,0 +1,13 @@
+# REFUSED: refining-grid's lo must be below hi (§II.9). A cross-key
+# rule, so the reader refuses it at load; the schema cannot.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      temperature: 0.2
+    optimizations:
+      - stepper: refining-grid
+        stepper-config: { key: temperature, lo: 1.0, hi: 1.0, step: 0.25, min-step: 0.05 }
+        max-iterations: 20

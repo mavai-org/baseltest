@@ -1,0 +1,10 @@
+# REFUSED: concurrency is not part of the format — every reader samples
+# serially (§II.8) — so max-concurrent is an unknown pacing key.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      pacing:
+        max-concurrent: 3
