@@ -48,6 +48,15 @@ class TestStems:
         stem = exploration_stem((("model", "small-model"), ("temperature", 0.7)))
         assert stem == "model-small-model_temperature-0.7"
 
+    def test_many_factors_are_bounded_and_stay_distinct(self) -> None:
+        factors = tuple((f"factor{i:02d}", "v" * 20) for i in range(12))
+        late = (*factors[:-1], ("factor11", "w" * 20))
+        stem = exploration_stem(factors)
+        assert len(stem.encode("utf-8")) == 200
+        assert len(f"{stem}.yaml".encode()) <= 255
+        assert exploration_stem(factors) == stem
+        assert exploration_stem(late) != stem
+
     def test_no_factors_is_the_baseline(self) -> None:
         assert exploration_stem(()) == "baseline"
 
