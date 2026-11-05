@@ -9,7 +9,9 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
-Conformance is against the mavai-R v0.16.0 fixtures. The oracle drops the per-criterion denominator policy, withdrawn since Statistical Companion 1.3.1, from its informational suites; no suite this package runs changes, and nothing changes for you.
+**Fixed: an exploration with many factors can be written.** Each factor value in an exploration file name was already truncated, but a configuration with many factors still produced a name over the common 255-byte file-name limit, and the run failed at write time after spending its samples. The whole stem is now bounded to 200 UTF-8 bytes: a longer one keeps a prefix of whole characters and ends in eight hex characters of the SHA-256 of the whole stem, so distinct configurations keep distinct names. The artefact's `configuration` carries the same bounded stem (explore format amendment 2026-11-04). Names within the bound are unchanged, so nothing you have already written is renamed.
+
+Conformance is against the mavai-R v0.16.0 fixtures, plus the exploration-stem case from v0.16.2 (`tests/conformance/interchange/naming-explore-stem.yaml`), which `tests/exploration/test_stem_conformance.py` asserts in full. The oracle drops the per-criterion denominator policy, withdrawn since Statistical Companion 1.3.1, from its informational suites; no suite this package runs changes.
 
 ## [0.27.0] — 2026-10-23
 
