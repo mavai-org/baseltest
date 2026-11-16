@@ -8,8 +8,10 @@ are exactly the factor values and statistics that differ.
 Filenames are human-readable stems derived from the configuration's
 discriminating factor values — the developer reads the directory listing,
 picks a pair, and diffs — with long values truncated and disambiguated by
-a short content-hash suffix. The same stem travels in the body as the
-``configuration:`` display name, so consumers never parse filenames.
+a short content-hash suffix. The whole stem is bounded to 200 UTF-8 bytes
+(the explore format's whole-stem bound, amendment 2026-11-04), so a
+configuration with many factors can still be written. The same stem travels
+in the body as ``configuration:``, so consumers never parse filenames.
 
 Illustrative artefact:
 
@@ -91,6 +93,13 @@ _STEM_TRUNCATED_LENGTH = 24
 _STEM_HASH_LENGTH = 4
 _DISALLOWED = re.compile(r"[^A-Za-z0-9._-]")
 
+# The whole-stem bound: a stem longer than this many UTF-8 bytes keeps the
+# longest prefix of whole characters that leaves room for "-" and the first
+# eight hex characters of the SHA-256 of the whole stem. 200 leaves room for
+# ".yaml" under the common 255-byte file-name limit.
+_STEM_BYTE_CAP = 200
+_STEM_BOUND_HASH_LENGTH = 8
+
 
 def _canonical_value(value: Any) -> str:
     """A factor value's canonical string form."""
@@ -118,6 +127,19 @@ def _stem_segment(key: str, value: Any) -> str:
     return f"{key}-{sanitised}"
 
 
+def _bounded(stem: str) -> str:
+    """The stem within the byte cap; else a whole-character prefix and a hash of the whole stem."""
+    encoded = stem.encode("utf-8")
+    if len(encoded) <= _STEM_BYTE_CAP:
+        return stem
+    budget = _STEM_BYTE_CAP - _STEM_BOUND_HASH_LENGTH - 1
+    # Decoding a byte-truncated prefix with "ignore" drops a split trailing
+    # character, so the prefix is always whole characters.
+    prefix = encoded[:budget].decode("utf-8", errors="ignore")
+    digest = hashlib.sha256(encoded).hexdigest()[:_STEM_BOUND_HASH_LENGTH]
+    return f"{prefix}-{digest}"
+
+
 def exploration_stem(factors: tuple[tuple[str, Any], ...]) -> str:
     """The human-readable filename stem for one configuration.
 
@@ -127,7 +149,7 @@ def exploration_stem(factors: tuple[tuple[str, Any], ...]) -> str:
     """
     if not factors:
         return "baseline"
-    return "_".join(_stem_segment(key, value) for key, value in factors)
+    return _bounded("_".join(_stem_segment(key, value) for key, value in factors))
 
 
 # mavai-ref: JVI-8CHB31R — do not remove (resolves in mavai-orchestrator)
