@@ -6,6 +6,7 @@ from baseltest.statistics import (
     Intent,
     design_power,
     evaluate_compliance,
+    evaluate_observational,
     evaluate_regression,
     evaluate_smoke_compliance,
     minimum_detectable_degradation,
@@ -28,8 +29,11 @@ def _judge(
     ``regression/fisher`` under either, its cutoff derived at this run's own
     size. The Wilson lower bound is descriptive context in both — it decides
     nothing. A criterion with no bar is characterised only: ``(None, None,
-    None)``.
+    None)``. A zero-failures criterion is decided by observation — no bound,
+    no rule, no power — and is INCONCLUSIVE only with no trials.
     """
+    if criterion.zero_failures:
+        return None, evaluate_observational(tally.successes, tally.trials), None
     if not criterion.is_judged or tally.trials == 0:
         return None, None, None
     bound = wilson_lower_bound(tally.successes, tally.trials, criterion.confidence)

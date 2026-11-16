@@ -1,0 +1,7 @@
+# REFUSED: zero-failures: true beside tolerate: — a zero-failures criterion has no baseline risk claim to protect
+# (Part I, zero-failures criteria, amendment 2026-11-03).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ zero-failures: true, tolerate: 0.9, contains: "ok" }]
+inputs: ["Alice"]

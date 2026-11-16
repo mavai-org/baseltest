@@ -51,6 +51,20 @@ class Instantiation:
     baseline_context: BaselineContext | None
 
 
+def _refuse_unsized_zero_failures_test(
+    declaration: ContractDeclaration, samples: int | None
+) -> None:
+    """A test whose criteria are all zero-failures criteria has no claim to
+    size a run from, so its sample count must be typed (§II.4, 2026-11-03)."""
+    if samples is not None or not all(c.zero_failures for c in declaration.criteria):
+        return
+    raise ContractConfigurationError(
+        "every criterion in this contract is a zero-failures criterion, and none "
+        "gives a claim to size the run from — zero failures in N trials bounds "
+        "nothing, so the number of trials is yours to choose: run with `--samples N`"
+    )
+
+
 def instantiate(
     declaration: ContractDeclaration,
     services: dict[str, ServiceDefinition] | None,
@@ -101,13 +115,22 @@ def instantiate(
 
     skipped: list[tuple[str, str]] = []
     if mode is RunKind.TEST:
+        _refuse_unsized_zero_failures_test(declaration, samples)
         normative = [
             _build_criterion(entry, declaration.confidence, expected, transforms, registry)
             for entry in declaration.criteria
-            if entry.threshold is not None
+            if not entry.is_empirical
         ]
-        empirical_declared = [c for c in declaration.criteria if c.threshold is None]
-        sizing = _resolve_run_size(mode, declaration.intent, samples, normative, samples_provenance)
+        empirical_declared = [c for c in declaration.criteria if c.is_empirical]
+        # A zero-failures criterion takes no part in sizing (§II.4): only the
+        # thresholded criteria anchor a derived N.
+        sizing = _resolve_run_size(
+            mode,
+            declaration.intent,
+            samples,
+            [c for c in normative if c.threshold is not None],
+            samples_provenance,
+        )
         resolution = _resolve_matching_baseline(
             declaration, empirical_declared, service_provenance, baseline_dir
         )

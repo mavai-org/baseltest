@@ -1,7 +1,8 @@
 # The optimizations section (Part I, amendment 2026-07-25): two entries
 # with distinct ids — a meta-LLM prompt engineer and a linear sweep with
 # an iteration-0 overlay. Stepper names resolve against the reader's
-# registry; this file presumes the named steppers are registered (see the
+# registry: linear-sweep is a family built-in (§II.9), and this file
+# presumes the reader-specific prompt-engineer is registered (see the
 # manifest's requires field).
 format: mavai-services/1
 services:

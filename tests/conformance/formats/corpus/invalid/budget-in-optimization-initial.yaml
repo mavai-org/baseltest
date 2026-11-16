@@ -1,0 +1,17 @@
+# REFUSED: a budget bounds the whole run of the consuming verb; an
+# optimization entry's initial: overlay is a partial configuration and
+# cannot carry it (§II.5, §II.8).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+    optimizations:
+      - stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        initial:
+          temperature: 0.0
+          budget:
+            tokens: 100000
+        max-iterations: 11

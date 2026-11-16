@@ -24,6 +24,7 @@ from baseltest.statistics import (
     DecisionRule,
     Dimension,
     Envelopes,
+    ObservationalVerdict,
     OverallVerdict,
     RegressionVerdict,
     SmokeComplianceVerdict,
@@ -99,8 +100,9 @@ class RefusedPart:
     requirement: float | None = None
 
 
-Decision = ComplianceVerdict | SmokeComplianceVerdict | RegressionVerdict
-"""A judged criterion's decision under its rule."""
+Decision = ComplianceVerdict | SmokeComplianceVerdict | RegressionVerdict | ObservationalVerdict
+"""A judged criterion's decision: under its rule, or — for a zero-failures
+criterion — by observation."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,7 +271,9 @@ class RunResult:
             decisions.extend(
                 (r.decision.rule, r.decision.alpha)
                 for r in self.criterion_results
-                if r.decision is not None
+                # An observation has no rule and no alpha: it enters neither
+                # envelope (§1.4.6).
+                if r.decision is not None and not isinstance(r.decision, ObservationalVerdict)
             )
         if self.latency is not None and Dimension.LATENCY not in self.plan.advisory:
             decisions.extend(

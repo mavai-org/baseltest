@@ -1,0 +1,13 @@
+# A bare code registration paced and budgeted (§II.7, §II.8): its
+# configuration: holds only the reader-level pacing key — the bare type
+# itself still receives no configuration. This file presumes a bare
+# registration named echo (see the manifest's requires field).
+format: mavai-services/1
+services:
+  paced-echo:
+    type: echo
+    configuration:
+      pacing:
+        min-ms-per-sample: 250
+    budget:
+      time-ms: 60000

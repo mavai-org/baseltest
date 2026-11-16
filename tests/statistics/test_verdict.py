@@ -10,6 +10,7 @@ from baseltest.statistics import (
     Verdict,
     compose_overall_verdict,
     evaluate_compliance,
+    evaluate_observational,
     evaluate_regression,
     structural_composite,
     type_one_envelopes,
@@ -159,3 +160,31 @@ def test_envelopes_split_by_direction() -> None:
     assert envelopes.false_compliance == pytest.approx(0.06)
     assert envelopes.false_degradation_signal == pytest.approx(0.10)
     assert type_one_envelopes([]).false_compliance is None
+
+
+class TestObservational:
+    """A zero-failures criterion, decided by observation (§1.4.5)."""
+
+    def test_every_trial_passing_passes(self) -> None:
+        decision = evaluate_observational(200, 200)
+        assert decision.verdict is Verdict.PASS
+        assert decision.failures == 0
+
+    def test_one_failed_trial_fails(self) -> None:
+        decision = evaluate_observational(199, 200)
+        assert decision.verdict is Verdict.FAIL
+        assert decision.failures == 1
+
+    def test_no_trials_is_inconclusive(self) -> None:
+        assert evaluate_observational(0, 0).verdict is Verdict.INCONCLUSIVE
+
+    def test_it_carries_no_rate_bound_rule_or_alpha(self) -> None:
+        decision = evaluate_observational(5, 5)
+        for attribute in ("rule", "alpha", "observed_rate", "requirement"):
+            assert not hasattr(decision, attribute)
+
+    def test_counts_out_of_range_are_refused(self) -> None:
+        with pytest.raises(ValueError):
+            evaluate_observational(6, 5)
+        with pytest.raises(ValueError):
+            evaluate_observational(1, 0)

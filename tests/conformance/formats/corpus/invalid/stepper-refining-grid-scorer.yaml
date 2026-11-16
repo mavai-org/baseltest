@@ -1,0 +1,16 @@
+# REFUSED: refining-grid decides on the all-criteria pass rate, so a
+# scorer other than pass-rate is refused (§II.9). The scorer is
+# registered (see the manifest's requires field), so the refusal is the
+# stepper's, not an unresolved name.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      temperature: 0.2
+    optimizations:
+      - stepper: refining-grid
+        stepper-config: { key: temperature, lo: 0.0, hi: 1.0, step: 0.25, min-step: 0.05 }
+        scorer: politeness
+        max-iterations: 20

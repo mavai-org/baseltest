@@ -1,0 +1,7 @@
+# REFUSED: zero-failures: takes a boolean — 1 is a number, not true
+# (Part I, zero-failures criteria, amendment 2026-11-03).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ zero-failures: 1, contains: "ok" }]
+inputs: ["Alice"]

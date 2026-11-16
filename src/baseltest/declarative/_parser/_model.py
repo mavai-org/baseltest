@@ -78,6 +78,8 @@ class CriterionDeclaration:
     partial-credit failure budget for the criterion's optional checks: a
     non-negative count, or a percentage carried as its exact decimal (the
     ``%`` spelling), resolved by floor at evaluation time.
+    ``zero_failures`` marks a zero-failures criterion (amendment
+    2026-11-03): observational, with no threshold, tolerance or confidence.
     """
 
     name: str
@@ -88,6 +90,13 @@ class CriterionDeclaration:
     tolerate: float | None = None
     confidence: float | None = None
     optional_slack: int | Decimal | None = None
+    zero_failures: bool = False
+
+    @property
+    def is_empirical(self) -> bool:
+        """Whether the criterion's bar is to come from a measured baseline:
+        no declared threshold, and not a zero-failures criterion."""
+        return self.threshold is None and not self.zero_failures
 
 
 @dataclass(frozen=True, slots=True)

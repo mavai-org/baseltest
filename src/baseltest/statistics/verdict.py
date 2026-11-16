@@ -288,6 +288,49 @@ def evaluate_regression(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ObservationalVerdict:
+    """A zero-failures criterion, decided by observation (§1.4.5).
+
+    No rate is estimated and no rule decides it: PASS iff no trial failed,
+    FAIL on any failed trial, INCONCLUSIVE only with no trials. A PASS says
+    exactly that no failure was observed in ``trials`` trials and entails no
+    bound on the true rate; a FAIL is conclusive. It carries no alpha and
+    enters neither Type-I envelope.
+
+    Attributes:
+        verdict: The observation's outcome.
+        successes: Trials the criterion passed.
+        trials: Trials observed.
+    """
+
+    verdict: Verdict
+    successes: int
+    trials: int
+
+    @property
+    def failures(self) -> int:
+        """Trials the criterion failed."""
+        return self.trials - self.successes
+
+
+def evaluate_observational(successes: int, trials: int) -> ObservationalVerdict:
+    """Decide a zero-failures criterion: PASS iff every trial passed.
+
+    Raises:
+        ValueError: On counts out of range.
+    """
+    if trials == 0:
+        if successes != 0:
+            raise ValueError(f"successes must be 0 with no trials, got {successes}")
+        return ObservationalVerdict(verdict=Verdict.INCONCLUSIVE, successes=0, trials=0)
+    validate_counts(successes, trials)
+    passed = successes == trials
+    return ObservationalVerdict(
+        verdict=Verdict.PASS if passed else Verdict.FAIL, successes=successes, trials=trials
+    )
+
+
 class Direction(StrEnum):
     """The error event a decision's alpha bounds, for the envelopes (§1.4.6)."""
 

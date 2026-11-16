@@ -1,0 +1,13 @@
+# REFUSED: a built-in stepper's stepper-config has a closed key set; an
+# unknown key is refused, named (§II.9).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      temperature: 0.2
+    optimizations:
+      - stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0, start: 0.0 }
+        max-iterations: 5

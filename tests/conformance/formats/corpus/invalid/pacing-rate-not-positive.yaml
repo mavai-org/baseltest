@@ -1,0 +1,10 @@
+# REFUSED: a pacing rate is a positive number (§II.8). Zero requests per
+# second would never start a sample.
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      pacing:
+        max-requests-per-second: 0

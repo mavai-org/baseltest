@@ -268,6 +268,16 @@ def _build_criterion(
         slack = OptionalSlack(count=declaration.optional_slack)
     elif isinstance(declaration.optional_slack, Decimal):
         slack = OptionalSlack(percent=declaration.optional_slack)
+    if declaration.zero_failures:
+        # Observational: no rule decides it, so the contract-level
+        # confidence does not apply and the criterion keeps the default.
+        return Criterion(
+            name=declaration.name,
+            postconditions=tuple(postconditions),
+            provenance=provenance,
+            optional_slack=slack,
+            zero_failures=True,
+        )
     return Criterion(
         name=declaration.name,
         postconditions=tuple(postconditions),

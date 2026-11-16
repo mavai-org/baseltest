@@ -9,9 +9,21 @@ carry breaking changes; each says so in its first line.
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-11-16
+
+**New: zero-failures criteria.** A criterion can now say that it must hold on every trial: `zero-failures: true` in a contract file, `Criterion(zero_failures=True)` in code. It is how you state an obligation that admits no rate — *the service shall never reveal a card number* — and it follows the `mavai-contract/1` amendment of 2026-11-03. Nothing changes for an existing contract.
+
+- **How it is judged.** PASS when no trial failed the criterion, FAIL on the first that does, INCONCLUSIVE only with no trials. No rate is estimated and no decision rule decides it, so a pass says exactly that no failure was seen in *N* trials — never that the service cannot fail. It enters neither Type-I envelope. Its checks, views, `optional:` marks and `optional-slack` work as in any criterion.
+- **What it refuses.** Beside `threshold:`, `tolerate:` or `confidence:` it is refused at load; in code, `zero_failures=True` is refused beside a `threshold`, a `baseline`, a `design_alternative_rate` or a non-default `confidence`. A non-boolean value is refused. A criterion with no threshold and no `zero-failures:` stays empirical, as before.
+- **Sizing.** It takes no part. Beside a declared threshold the run is sized from the threshold; a test whose criteria are all zero-failures criteria needs `--samples N` and is refused without it, since zero failures in *N* trials bounds nothing.
+- **What you see.** The console's verdict table shows `zero failures` as the rule and states "no failure observed in N trials — no rate is claimed", or "F of N trials failed". Under `basel measure` the failed-trial count is recorded, with no rate. The verdict record's criterion row states its counts and no rate, threshold, rule or required count; the baseline records it as `mode: observational`.
+- **API.** New: `Criterion.zero_failures`, `ObservationalVerdict` and `evaluate_observational` (in `baseltest.statistics`, re-exported by `baseltest.engine`). A judged criterion's `decision` can now be an `ObservationalVerdict`. Materialisation emits `zero_failures=True`.
+
 **Fixed: an exploration with many factors can be written.** Each factor value in an exploration file name was already truncated, but a configuration with many factors still produced a name over the common 255-byte file-name limit, and the run failed at write time after spending its samples. The whole stem is now bounded to 200 UTF-8 bytes: a longer one keeps a prefix of whole characters and ends in eight hex characters of the SHA-256 of the whole stem, so distinct configurations keep distinct names. The artefact's `configuration` carries the same bounded stem (explore format amendment 2026-11-04). Names within the bound are unchanged, so nothing you have already written is renamed.
 
-Conformance is against the mavai-R v0.16.0 fixtures, plus the exploration-stem case from v0.16.2 (`tests/conformance/interchange/naming-explore-stem.yaml`), which `tests/exploration/test_stem_conformance.py` asserts in full. The oracle drops the per-criterion denominator policy, withdrawn since Statistical Companion 1.3.1, from its informational suites; no suite this package runs changes.
+**The bundled report renderer is mavai 0.24.1**, which renders a criterion row that states its counts and no rate, as a zero-failures criterion's row does; mavai 0.24.0 refused such a record.
+
+**Format conformance is against the mavai-R v0.16.1 corpus**, with a declared exemption list for the run-controls cases (`pacing:`, `budget:`) this package has not implemented yet. Each exemption names its category, its amendment and the open work that owes it, and is reported as an expected failure, never skipped silently; the list can only shrink. The built-in stepper and `lm-deadline-range` cases of the same corpus are asserted, and so is the exploration-stem case from v0.16.2 (`tests/conformance/interchange/naming-explore-stem.yaml`), in full, by `tests/exploration/test_stem_conformance.py`. Statistical conformance is against the mavai-R v0.16.0 fixtures: the oracle drops the per-criterion denominator policy, withdrawn since Statistical Companion 1.3.1, from its informational suites; no suite this package runs changes.
 
 ## [0.27.0] — 2026-10-23
 

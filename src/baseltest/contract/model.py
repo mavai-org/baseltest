@@ -295,7 +295,10 @@ class Criterion:
     ``compliance/exact-binomial``, a ``baseline`` (the evidence of a measured
     baseline) by ``regression/fisher``. A service judged against both a
     requirement and its baseline carries two criteria over the same
-    postconditions, one of each.
+    postconditions, one of each. A **zero-failures** criterion
+    (``zero_failures=True``) is decided by no rule at all: it is observational
+    (§1.4.5) — PASS iff no trial failed — and carries no threshold, baseline,
+    confidence level or design alternative.
 
     Attributes:
         name: The criterion's stable identifier within its contract.
@@ -312,6 +315,8 @@ class Criterion:
         optional_slack: The optional-check failure budget. ``None`` (the
             default) is a budget of zero: an optional check must still pass
             — leniency is a second, deliberate declaration.
+        zero_failures: Whether the criterion is a zero-failures criterion:
+            it must hold on every trial, and no rate is estimated.
     """
 
     name: str
@@ -322,12 +327,15 @@ class Criterion:
     design_alternative_rate: float | None = None
     provenance: ThresholdProvenance = field(default_factory=ThresholdProvenance)
     optional_slack: OptionalSlack | None = None
+    zero_failures: bool = False
 
     def __post_init__(self) -> None:
         if not self.name:
             raise ValueError("criterion name must be non-empty")
         if not self.postconditions:
             raise ValueError(f"criterion {self.name!r} declares no postconditions")
+        if self.zero_failures:
+            self._refuse_rate_attributes()
         if self.threshold is not None and self.baseline is not None:
             raise ValueError(
                 f"criterion {self.name!r}: a criterion is judged against a requirement or "
@@ -354,12 +362,34 @@ class Criterion:
                     f"got {self.design_alternative_rate}"
                 )
 
+    def _refuse_rate_attributes(self) -> None:
+        """A zero-failures criterion estimates no rate, so nothing that
+        parameterises a rate belongs on it."""
+        refused = [
+            (self.threshold is not None, "threshold — it has no rate to require"),
+            (self.baseline is not None, "baseline — it does not regress against one"),
+            (
+                self.design_alternative_rate is not None,
+                "design alternative rate — it has no power to plan",
+            ),
+            (
+                self.confidence != DEFAULT_CONFIDENCE_LEVEL,
+                "confidence level — no rule decides it",
+            ),
+        ]
+        for present, what in refused:
+            if present:
+                raise ValueError(
+                    f"criterion {self.name!r}: a zero-failures criterion takes no {what}"
+                )
+
     def rule_under(self, intent: Intent) -> DecisionRule | None:
         """The rule that decides this criterion under a test's intent; ``None``
-        when it is characterised only.
+        when it is characterised only, or decided by observation.
 
         A requirement's rule is the intent's (§5.7.3); a baseline is decided
-        by ``regression/fisher`` under either.
+        by ``regression/fisher`` under either; a zero-failures criterion by
+        no rule.
         """
         if self.threshold is not None:
             return requirement_rule(intent)
@@ -369,8 +399,9 @@ class Criterion:
 
     @property
     def is_judged(self) -> bool:
-        """Whether this criterion has a bar and therefore receives a verdict."""
-        return self.threshold is not None or self.baseline is not None
+        """Whether this criterion receives a verdict: it has a bar, or it is
+        a zero-failures criterion."""
+        return self.zero_failures or self.threshold is not None or self.baseline is not None
 
     @property
     def alpha(self) -> float:

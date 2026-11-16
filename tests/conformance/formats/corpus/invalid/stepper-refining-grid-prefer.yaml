@@ -1,0 +1,12 @@
+# REFUSED: prefer is low or high (§II.9).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      temperature: 0.2
+    optimizations:
+      - stepper: refining-grid
+        stepper-config: { key: temperature, lo: 0.0, hi: 1.0, step: 0.25, min-step: 0.05, prefer: middle }
+        max-iterations: 20

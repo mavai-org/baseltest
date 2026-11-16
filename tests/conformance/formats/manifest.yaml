@@ -39,6 +39,10 @@ categories:
   threshold-empirical-reserved: { spec: "MAVAI-CONTRACT-FORMAT.md Part III", refusal: structural }
   tolerate-with-threshold: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
   criterion-confidence-with-threshold: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria, 2026-07-25)", refusal: structural }
+  zero-failures-with-threshold: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)", refusal: structural }
+  zero-failures-with-tolerate: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)", refusal: structural }
+  zero-failures-with-confidence: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)", refusal: structural }
+  zero-failures-not-boolean: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)", refusal: structural }
   threshold-origin-vocabulary: { spec: "MAVAI-CONTRACT-FORMAT.md Part III (provenance, 2026-07-25)", refusal: structural }
   criterion-without-form: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria, 2026-07-25)", refusal: structural }
   postcondition-form-cardinality: { spec: "MAVAI-CONTRACT-FORMAT.md Part I (criteria)", refusal: structural }
@@ -96,6 +100,7 @@ categories:
   lm-top-p-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
   lm-prompt-caching-type: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (client factors)", refusal: structural }
   lm-max-tokens-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (max-tokens, 2026-07-25)", refusal: structural }
+  lm-deadline-range: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (deadline-ms, 2026-08-07)", refusal: structural }
   lm-capabilities-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (capabilities, 2026-07-25)", refusal: structural }
   lm-system-prompt-file-malformed: { spec: "MAVAI-SERVICES-FORMAT.md §II.3 (named path anchors, 2026-07-29)", refusal: structural }
   explorations-empty: { spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6", refusal: structural }
@@ -111,6 +116,23 @@ categories:
   optimization-id-required-when-multiple: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
   optimization-initial-restates-baseline: { spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", refusal: semantic }
   services-roots-reference-undeclared: { spec: "MAVAI-SERVICES-FORMAT.md Part I (named path anchors, 2026-07-29)", refusal: semantic }
+  pacing-empty: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  pacing-rate-not-positive: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  pacing-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-limit-missing: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-limit-not-positive: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-on-exhausted-vocabulary: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-in-configuration: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-in-exploration: { spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)", refusal: structural }
+  budget-in-optimization-initial: { spec: "MAVAI-SERVICES-FORMAT.md §II.5; §II.8 (run controls, 2026-10-13)", refusal: structural }
+  stepper-linear-sweep-zero-step: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: structural }
+  stepper-refining-grid-bounds: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: semantic }
+  stepper-refining-grid-min-step: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: semantic }
+  stepper-config-unknown-key: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: structural }
+  stepper-refining-grid-prefer: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: structural }
+  stepper-refining-grid-objective: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: structural }
+  stepper-refining-grid-scorer: { spec: "MAVAI-SERVICES-FORMAT.md §II.9 (built-in steppers, 2026-10-13)", refusal: structural }
 
 corpus:
   # ── valid/ ────────────────────────────────────────────────────────
@@ -128,15 +150,24 @@ corpus:
   - { file: contract-set-of.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (graded set claims, 2026-07-29)" }
   - { file: contract-set-of-duplicate-member.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (graded set claims, 2026-07-29)" }
   - { file: contract-partial-credit.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (partial credit, 2026-07-27)" }
+  - { file: contract-zero-failures.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)" }
+  - { file: contract-zero-failures-provenance.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03; partial credit)" }
+  - { file: contract-zero-failures-mixed.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03; criteria)" }
+  - { file: contract-zero-failures-false.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (zero-failures criteria, 2026-11-03)" }
   - { file: contract-default-view.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
   - { file: contract-default-view-sole-transform.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (subject rule, 2026-07-27)" }
   - { file: contract-roots.yaml, format: mavai-contract/1, outcome: loads, spec: "MAVAI-CONTRACT-FORMAT.md Part I (named path anchors, 2026-07-29)" }
   - { file: services-minimal.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I" }
   - { file: services-language-model-full.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.3" }
   - { file: services-explorations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6" }
-  - { file: services-optimizations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", requires: ["stepper:prompt-engineer", "stepper:linear-sweep", "scorer:pass-rate"] }
+  - { file: services-optimizations.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations, 2026-07-25)", requires: ["stepper:prompt-engineer", "scorer:pass-rate"] }
   - { file: services-user-type.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.7", requires: ["type:triage"] }
   - { file: services-roots-prompt-file.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.3 (named path anchors, 2026-07-29)" }
+  - { file: services-run-controls.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I; §II.6; §II.8 (run controls, 2026-10-13)" }
+  - { file: services-run-controls-bare.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.7; §II.8 (run controls, 2026-10-13)", requires: ["type:echo"] }
+  - { file: services-run-controls-pacing.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)" }
+  - { file: services-run-controls-budget.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md §II.8 (run controls, 2026-10-13)" }
+  - { file: services-steppers-temperature.yaml, format: mavai-services/1, outcome: loads, spec: "MAVAI-SERVICES-FORMAT.md Part I (optimizations); §II.9 (built-in steppers, 2026-10-13)", requires: ["scorer:pass-rate"] }
   # ── invalid/ — mavai-contract/1 ───────────────────────────────────
   - { file: format-identifier.yaml, format: mavai-contract/1, outcome: refused, category: format-identifier }
   - { file: missing-required-key.yaml, format: mavai-contract/1, outcome: refused, category: missing-required-key }
@@ -148,6 +179,10 @@ corpus:
   - { file: threshold-empirical-reserved.yaml, format: mavai-contract/1, outcome: refused, category: threshold-empirical-reserved }
   - { file: tolerate-with-threshold.yaml, format: mavai-contract/1, outcome: refused, category: tolerate-with-threshold }
   - { file: criterion-confidence-with-threshold.yaml, format: mavai-contract/1, outcome: refused, category: criterion-confidence-with-threshold }
+  - { file: zero-failures-with-threshold.yaml, format: mavai-contract/1, outcome: refused, category: zero-failures-with-threshold }
+  - { file: zero-failures-with-tolerate.yaml, format: mavai-contract/1, outcome: refused, category: zero-failures-with-tolerate }
+  - { file: zero-failures-with-confidence.yaml, format: mavai-contract/1, outcome: refused, category: zero-failures-with-confidence }
+  - { file: zero-failures-not-boolean.yaml, format: mavai-contract/1, outcome: refused, category: zero-failures-not-boolean }
   - { file: threshold-origin-vocabulary.yaml, format: mavai-contract/1, outcome: refused, category: threshold-origin-vocabulary }
   - { file: criterion-without-form.yaml, format: mavai-contract/1, outcome: refused, category: criterion-without-form }
   - { file: postcondition-form-cardinality.yaml, format: mavai-contract/1, outcome: refused, category: postcondition-form-cardinality }
@@ -208,18 +243,36 @@ corpus:
   - { file: lm-top-p-range.yaml, format: mavai-services/1, outcome: refused, category: lm-top-p-range }
   - { file: lm-prompt-caching-type.yaml, format: mavai-services/1, outcome: refused, category: lm-prompt-caching-type }
   - { file: lm-max-tokens-range.yaml, format: mavai-services/1, outcome: refused, category: lm-max-tokens-range }
+  - { file: lm-deadline-range.yaml, format: mavai-services/1, outcome: refused, category: lm-deadline-range }
   - { file: lm-capabilities-vocabulary.yaml, format: mavai-services/1, outcome: refused, category: lm-capabilities-vocabulary }
   - { file: explorations-empty.yaml, format: mavai-services/1, outcome: refused, category: explorations-empty }
   - { file: exploration-entry-null-value.yaml, format: mavai-services/1, outcome: refused, category: exploration-entry-null-value }
   - { file: optimization-entry-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: optimization-entry-unknown-key }
   - { file: optimization-stepper-missing.yaml, format: mavai-services/1, outcome: refused, category: optimization-stepper-missing }
-  - { file: optimization-max-iterations-missing.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-missing, requires: ["stepper:linear-sweep"] }
-  - { file: optimization-max-iterations-not-positive.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-not-positive, requires: ["stepper:linear-sweep"] }
+  - { file: optimization-max-iterations-missing.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-missing }
+  - { file: optimization-max-iterations-not-positive.yaml, format: mavai-services/1, outcome: refused, category: optimization-max-iterations-not-positive }
   - { file: optimization-id-shape.yaml, format: mavai-services/1, outcome: refused, category: optimization-id-shape }
   - { file: type-unresolved.yaml, format: mavai-services/1, outcome: refused, category: type-unresolved }
   - { file: exploration-duplicate-point.yaml, format: mavai-services/1, outcome: refused, category: exploration-duplicate-point }
   - { file: optimization-duplicate-id.yaml, format: mavai-services/1, outcome: refused, category: optimization-duplicate-id }
   - { file: optimization-id-required-when-multiple.yaml, format: mavai-services/1, outcome: refused, category: optimization-id-required-when-multiple }
-  - { file: optimization-initial-restates-baseline.yaml, format: mavai-services/1, outcome: refused, category: optimization-initial-restates-baseline, requires: ["stepper:linear-sweep"] }
+  - { file: optimization-initial-restates-baseline.yaml, format: mavai-services/1, outcome: refused, category: optimization-initial-restates-baseline }
   - { file: lm-system-prompt-file-malformed.yaml, format: mavai-services/1, outcome: refused, category: lm-system-prompt-file-malformed }
   - { file: services-roots-reference-undeclared.yaml, format: mavai-services/1, outcome: refused, category: services-roots-reference-undeclared }
+  - { file: pacing-empty.yaml, format: mavai-services/1, outcome: refused, category: pacing-empty }
+  - { file: pacing-rate-not-positive.yaml, format: mavai-services/1, outcome: refused, category: pacing-rate-not-positive }
+  - { file: pacing-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: pacing-unknown-key }
+  - { file: budget-limit-missing.yaml, format: mavai-services/1, outcome: refused, category: budget-limit-missing }
+  - { file: budget-limit-not-positive.yaml, format: mavai-services/1, outcome: refused, category: budget-limit-not-positive }
+  - { file: budget-on-exhausted-vocabulary.yaml, format: mavai-services/1, outcome: refused, category: budget-on-exhausted-vocabulary }
+  - { file: budget-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: budget-unknown-key }
+  - { file: budget-in-configuration.yaml, format: mavai-services/1, outcome: refused, category: budget-in-configuration }
+  - { file: budget-in-exploration.yaml, format: mavai-services/1, outcome: refused, category: budget-in-exploration }
+  - { file: budget-in-optimization-initial.yaml, format: mavai-services/1, outcome: refused, category: budget-in-optimization-initial }
+  - { file: stepper-linear-sweep-zero-step.yaml, format: mavai-services/1, outcome: refused, category: stepper-linear-sweep-zero-step }
+  - { file: stepper-refining-grid-bounds.yaml, format: mavai-services/1, outcome: refused, category: stepper-refining-grid-bounds }
+  - { file: stepper-refining-grid-min-step.yaml, format: mavai-services/1, outcome: refused, category: stepper-refining-grid-min-step }
+  - { file: stepper-config-unknown-key.yaml, format: mavai-services/1, outcome: refused, category: stepper-config-unknown-key }
+  - { file: stepper-refining-grid-prefer.yaml, format: mavai-services/1, outcome: refused, category: stepper-refining-grid-prefer }
+  - { file: stepper-refining-grid-objective.yaml, format: mavai-services/1, outcome: refused, category: stepper-refining-grid-objective }
+  - { file: stepper-refining-grid-scorer.yaml, format: mavai-services/1, outcome: refused, category: stepper-refining-grid-scorer, requires: ["scorer:politeness"] }

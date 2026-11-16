@@ -9,5 +9,6 @@ services:
       temperature: 0.2
     optimizations:
       - stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
         max-iterations: 5
         epochs: 3

@@ -1,0 +1,22 @@
+# Run controls (§II.8, amendment 2026-10-13): pacing as the reader-level
+# key inside configuration: — a covariate, so an exploration entry may
+# vary it — and a budget: block beside configuration:, a run control
+# that is not a covariate. Two paces here are two grid points.
+format: mavai-services/1
+services:
+  support-agent:
+    type: language-model
+    configuration:
+      system-prompt: "You are a helpful support agent."
+      temperature: 0.2
+      pacing:
+        max-requests-per-minute: 50
+        min-ms-per-sample: 500
+    explorations:
+      - pacing:
+          max-requests-per-second: 2
+    budget:
+      tokens: 200000
+      token-charge: 10
+      time-ms: 1800000
+      on-exhausted: evaluate-partial

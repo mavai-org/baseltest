@@ -41,6 +41,7 @@ from baseltest.engine import (
     ConfigurationRefusedError,
     CriterionResult,
     Dimension,
+    ObservationalVerdict,
     RegressionVerdict,
     RunPlan,
     RunResult,
@@ -72,7 +73,7 @@ def _origin(result: CriterionResult) -> str:
 def _threshold(result: CriterionResult) -> str:
     """The row's threshold: a requirement as declared, a cutoff as ``c / n_t``."""
     decision = result.decision
-    assert decision is not None
+    assert decision is not None and not isinstance(decision, ObservationalVerdict)
     if isinstance(decision, RegressionVerdict):
         return str(decision.derivation.threshold_real)
     return str(decision.requirement)
@@ -88,7 +89,7 @@ def _required_pass(result: CriterionResult) -> int | None:
     can pass.
     """
     decision = result.decision
-    assert decision is not None
+    assert decision is not None and not isinstance(decision, ObservationalVerdict)
     if isinstance(decision, RegressionVerdict):
         return decision.cutoff
     return decision.required_pass
@@ -204,7 +205,7 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
         for evaluation in result.latency.evaluations:
             _evaluation(evaluations, evaluation, result.latency.bar.confidence)
 
-    if len(judged) == 1:
+    if len(judged) == 1 and not isinstance(judged[0].decision, ObservationalVerdict):
         only = judged[0]
         assert only.lower_bound is not None
         statistics = child(root, "statistics")
@@ -330,6 +331,10 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
             row.set("fail", str(criterion_result.tally.trials - criterion_result.tally.successes))
             row.set("inconclusive", "0")
             row.set("total", str(criterion_result.tally.trials))
+            if isinstance(decision, ObservationalVerdict):
+                # A zero-failures criterion states its counts only: no rate,
+                # threshold, rule or required count (§1.4.5).
+                continue
             row.set("observed-rate", str(criterion_result.tally.observed_rate))
             row.set("threshold", _threshold(criterion_result))
             row.set("decision-rule", decision.rule.value)
@@ -388,11 +393,18 @@ def render_verdict_record(result: RunResult, design: RunDesign | None = None) ->
     rules = {
         r.decision.rule
         for r in judged
-        if r.decision is not None and Dimension.FUNCTIONAL in enforced
+        if r.decision is not None
+        and not isinstance(r.decision, ObservationalVerdict)
+        and Dimension.FUNCTIONAL in enforced
     }
+    # A zero-failures criterion is decided by no rule, so with one enforced
+    # no single rule decided the test.
+    decided_by_observation = Dimension.FUNCTIONAL in enforced and any(
+        isinstance(r.decision, ObservationalVerdict) for r in judged
+    )
     if result.latency is not None and Dimension.LATENCY in enforced:
         rules.update(e.judgement.rule for e in result.latency.evaluations)
-    if len(rules) == 1:
+    if len(rules) == 1 and not decided_by_observation:
         (rule,) = rules
         verdict.set("decision-rule", rule.value)
         verdict.set("decision-rule-version", str(rule.version))

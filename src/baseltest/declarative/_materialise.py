@@ -137,6 +137,8 @@ def _criterion_source(declaration: CriterionDeclaration) -> str:
     lines.append("        ),")
     if declaration.threshold is not None:
         lines.append(f"        threshold={declaration.threshold},")
+    if declaration.zero_failures:
+        lines.append("        zero_failures=True,")
     if isinstance(declaration.optional_slack, int):
         lines.append(f"        optional_slack=OptionalSlack(count={declaration.optional_slack}),")
     elif isinstance(declaration.optional_slack, Decimal):

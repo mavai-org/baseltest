@@ -1,0 +1,12 @@
+# REFUSED: a budget bounds the whole run of the consuming verb; an
+# exploration entry cannot override it (§II.8).
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+    explorations:
+      - temperature: 0.7
+        budget:
+          tokens: 100000

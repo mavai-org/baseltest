@@ -75,7 +75,7 @@ def resolve_test_sizing(
     target_power = _parse_rate(power, "--power") if power is not None else DEFAULT_POWER
     confidence_flag = _parse_rate(confidence, "--confidence") if confidence is not None else None
 
-    empirical_names = [c.name for c in declaration.criteria if c.threshold is None]
+    empirical_names = [c.name for c in declaration.criteria if c.is_empirical]
     if not empirical_names:
         if tolerate:
             raise SizingRefusalError(

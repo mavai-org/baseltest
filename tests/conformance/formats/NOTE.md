@@ -10,7 +10,17 @@ corpus case and asserts the manifest's binding obligations: the outcome
 informational — the mapping from each category to this package's own message
 is maintained in the test.
 
-Pinned at `mavai-R` **v0.10.5** — named path anchors: the `roots:`
+Pinned at `mavai-R` **v0.16.1** — zero-failures criteria: `zero-failures: true`
+on a contract criterion, its four valid cases and its four structural
+refusal categories (`zero-failures-with-threshold`/`-with-tolerate`/
+`-with-confidence`, `zero-failures-not-boolean`), all asserted. The pin also
+brings the built-in stepper cases and `lm-deadline-range`, asserted with
+their message mappings, and the run-controls cases (`pacing:`, `budget:`),
+which this package has not implemented yet: they are **declared exemptions**
+in `test_format_conformance.py`, each naming its category, the amendment,
+the open bundle that owes it and the date declared — reported as expected
+failures, counted, never silent. With exemptions declared, this package does
+not claim full conformance at this pin. Earlier pin: v0.10.5 — named path anchors: the `roots:`
 block and `@<name>/` references in both formats, the services format's
 first file-referencing position (`system-prompt: {file: <path>}`), and
 their eight refusal categories (structural `roots-block-malformed`/

@@ -190,7 +190,8 @@ class BaselineRecord:
         criteria: dict[str, CriterionCharacterisation] = {}
         for criterion_result in result.criterion_results:
             judgement = None
-            if criterion_result.verdict is not None:
+            observational = criterion_result.criterion.zero_failures
+            if criterion_result.verdict is not None and not observational:
                 criterion = criterion_result.criterion
                 assert criterion.threshold is not None
                 judgement = NormativeJudgement(
@@ -211,9 +212,13 @@ class BaselineRecord:
                 judgement=judgement,
                 standings=criterion_result.standings,
                 optional_slack=slack.declared if slack is not None else None,
+                # A zero-failures criterion is observational: it states its
+                # counts and no rate, bound or procedure (§1.4.5).
+                mode=CriterionMode.OBSERVATIONAL if observational else CriterionMode.INFERENTIAL,
+                procedure=None if observational else CriterionProcedure.REGRESSION,
                 wilson_lower_bound=(
                     wilson_lower_bound(tally.successes, tally.trials, confidence_level)
-                    if tally.trials
+                    if tally.trials and not observational
                     else None
                 ),
             )

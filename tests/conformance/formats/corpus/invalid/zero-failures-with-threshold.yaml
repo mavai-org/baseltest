@@ -1,0 +1,7 @@
+# REFUSED: zero-failures: true beside threshold: — a zero-failures criterion has no rate to require
+# (Part I, zero-failures criteria, amendment 2026-11-03).
+format: mavai-contract/1
+contract: c
+service: s
+criteria: [{ zero-failures: true, threshold: 0.95, contains: "ok" }]
+inputs: ["Alice"]

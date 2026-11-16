@@ -16,6 +16,7 @@ services:
       thinking: none
       prompt-caching: false
       max-tokens: 8000
+      deadline-ms: 120000
       capabilities: [image-input, response-schema]
       response-schema:
         type: object

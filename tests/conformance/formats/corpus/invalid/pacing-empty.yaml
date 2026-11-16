@@ -1,0 +1,10 @@
+# REFUSED: pacing declares at least one of max-requests-per-second,
+# max-requests-per-minute, min-ms-per-sample (§II.8). An empty mapping
+# paces nothing and is refused rather than read as "unpaced".
+format: mavai-services/1
+services:
+  greeter:
+    type: language-model
+    configuration:
+      system-prompt: "You are a polite greeter."
+      pacing: {}

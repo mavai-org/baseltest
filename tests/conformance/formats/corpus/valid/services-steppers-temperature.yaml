@@ -1,0 +1,33 @@
+# The family built-in steppers (§II.9, amendment 2026-10-13) over the
+# temperature key: a linear sweep from an iteration-0 overlay, and a
+# refining grid with every optional key stated. Both are built-in, so
+# this case requires no registration.
+format: mavai-services/1
+services:
+  basket-builder:
+    type: language-model
+    configuration:
+      system-prompt: "You translate shopping instructions into a JSON basket."
+      temperature: 0.2
+    optimizations:
+      - id: temperature-sweep
+        stepper: linear-sweep
+        stepper-config: { key: temperature, step: 0.1, stop: 1.0 }
+        initial: { temperature: 0.0 }
+        max-iterations: 11
+        no-improvement-window: 3
+      - id: temperature-grid
+        stepper: refining-grid
+        stepper-config:
+          key: temperature
+          lo: 0.0
+          hi: 1.0
+          step: 0.25
+          min-step: 0.0625
+          confidence: 0.9
+          min-improvement: 0.05
+          confirmation-epochs: 3
+          prefer: high
+        scorer: pass-rate
+        objective: maximize
+        max-iterations: 30
